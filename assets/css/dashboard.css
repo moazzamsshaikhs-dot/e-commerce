@@ -1,0 +1,178 @@
+/* Dashboard Styles */
+
+.dashboard-container {
+    display: flex;
+    min-height: calc(100vh - 70px);
+}
+
+.sidebar {
+    width: 250px;
+    background: #1a1a2e;
+    transition: all 0.3s;
+    position: fixed;
+    height: calc(100vh - 70px);
+    overflow-y: auto;
+    z-index: 1000;
+}
+
+.main-content {
+    flex: 1;
+    margin-left: 250px;
+    padding: 20px;
+    background: #f8f9fa;
+    min-height: calc(100vh - 70px);
+}
+
+.sidebar-toggle {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1001;
+    display: none;
+}
+
+.nav-link.active {
+    background: rgba(67, 97, 238, 0.2);
+    border-left: 3px solid #4361ee;
+}
+
+.nav-link {
+    color: #adb5bd;
+    padding: 10px 15px;
+    border-radius: 5px;
+    margin-bottom: 5px;
+    transition: all 0.3s;
+}
+
+.nav-link:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.avatar-sm {
+    width: 50px;
+    height: 50px;
+}
+
+.avatar-lg {
+    width: 100px;
+    height: 100px;
+}
+
+/* Cards */
+.card {
+    border: none;
+    border-radius: 10px;
+    transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.1) !important;
+}
+
+/* Stats Cards */
+.stat-card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    border: 1px solid #e9ecef;
+}
+
+/* Timeline */
+.timeline {
+    position: relative;
+    padding-left: 30px;
+}
+
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e9ecef;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.timeline-marker {
+    position: absolute;
+    left: -30px;
+    top: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 3px solid white;
+}
+
+.timeline-content {
+    padding-bottom: 10px;
+}
+
+/* Tables */
+.table th {
+    border-top: none;
+    font-weight: 600;
+    color: #495057;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+/* Badges */
+.badge {
+    padding: 5px 10px;
+    font-weight: 500;
+}
+
+/* Progress Bars */
+.progress {
+    height: 8px;
+    border-radius: 4px;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+    .sidebar {
+        margin-left: -250px;
+    }
+    
+    .main-content {
+        margin-left: 0;
+    }
+    
+    .sidebar.active {
+        margin-left: 0;
+    }
+    
+    .sidebar-toggle {
+        display: block;
+    }
+}
+
+@media (max-width: 768px) {
+    .main-content {
+        padding: 15px;
+    }
+    
+    .card-body {
+        padding: 15px;
+    }
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
