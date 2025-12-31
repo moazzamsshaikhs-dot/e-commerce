@@ -10,7 +10,7 @@ define('SITE_URL', 'http://localhost/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 
 // Product Image Configuration
-define('PRODUCT_IMAGE_PATH', $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/products/');
+define('PRODUCT_IMAGE_PATH', $_SERVER['DOCUMENT_ROOT'] . '../assets/images/products/');
 define('PRODUCT_IMAGE_URL', SITE_URL . 'assets/images/products/');
 
 // Allowed image types for products
