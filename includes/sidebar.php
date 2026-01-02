@@ -181,17 +181,12 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                 <h6 class="text-uppercase text-muted mb-3">Quick Actions</h6>
                 <ul class="nav flex-column">
                     <li class="nav-item mb-2">
-                        <a class="nav-link" href="#">
-                            <i class="fas fa-plus-circle me-2"></i> Add Product
-                        </a>
-                    </li>
-                    <li class="nav-item mb-2">
-                        <a class="nav-link" href="#">
+                        <a class="nav-link" href="#recentActivity">
                             <i class="fas fa-history me-2"></i> Recent Activity
                         </a>
                     </li>
                     <li class="nav-item mb-2">
-                        <a class="nav-link" href="#">
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>user/support.php">
                             <i class="fas fa-question-circle me-2"></i> Help Center
                         </a>
                     </li>

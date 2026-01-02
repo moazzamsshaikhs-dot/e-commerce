@@ -1,6 +1,6 @@
 <?php
-require_once '../includes/config.php';
-require_once '../includes/auth-check.php';
+require_once './includes/config.php';
+require_once './includes/auth-check.php';
 
 // Check if user is admin
 if ($_SESSION['user_type'] !== 'admin') {
@@ -9,7 +9,7 @@ if ($_SESSION['user_type'] !== 'admin') {
 }
 
 $page_title = 'Manage Users';
-require_once '../includes/header.php';
+require_once './includes/header.php';
 
 // Pagination variables
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
@@ -80,7 +80,7 @@ catch(PDOException $e) {
 ?>
 
 <div class="dashboard-container">
-    <?php include '../includes/sidebar.php'; ?>
+    <?php include './includes/sidebar.php'; ?>
     
     <main class="main-content">
         <!-- Page Header -->
@@ -372,4 +372,4 @@ function confirmDelete(userId, userName) {
 }
 </script>
 
-<?php require_once '../includes/footer.php'; ?>
+<?php require_once './includes/footer.php'; ?>

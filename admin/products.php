@@ -5,7 +5,7 @@ require_once './includes/auth-check.php';
 // Check if user is admin
 if (!isAdmin()) {
     $_SESSION['error'] = 'Access denied. Admin only.';
-    redirect('../index.php');
+    redirect('/dashboard.php');
 }
 
 $page_title = 'Manage Products';
@@ -127,16 +127,16 @@ try {
     $stats['total_products'] = $total_products;
     
     // Low stock products
-    $low_stmt = $db->query("SELECT COUNT(*) as count FROM products WHERE stock < 10 AND stock > 0");
-    $stats['low_stock'] = $low_stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    $low_stmt = $db->query("SELECT COUNT(*) as low_stock FROM products WHERE stock < 10 AND stock > 0");
+    $stats['low_stock'] = $low_stmt->fetch(PDO::FETCH_ASSOC)['low_stock'] ?? 0;
     
     // Out of stock products
-    $out_stmt = $db->query("SELECT COUNT(*) as count FROM products WHERE stock = 0");
-    $stats['out_of_stock'] = $out_stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    $out_stmt = $db->query("SELECT COUNT(*) as out_of_stock FROM products WHERE stock = 0");
+    $stats['out_of_stock'] = $out_stmt->fetch(PDO::FETCH_ASSOC)['out_of_stock'] ?? 0;
     
     // Featured products
-    $featured_stmt = $db->query("SELECT COUNT(*) as count FROM products WHERE featured = 1");
-    $stats['featured'] = $featured_stmt->fetch(PDO::FETCH_ASSOC)['count'] ?? 0;
+    $featured_stmt = $db->query("SELECT COUNT(*) as featured FROM products WHERE featured = 1");
+    $stats['featured'] = $featured_stmt->fetch(PDO::FETCH_ASSOC)['featured'] ?? 0;
     
     // Total stock value
     $value_stmt = $db->query("SELECT COALESCE(SUM(price * stock), 0) as total_value FROM products");
@@ -150,7 +150,7 @@ try {
 ?>
 
 <div class="dashboard-container">
-    <?php include '../includes/sidebar.php'; ?>
+    <?php include './includes/sidebar.php'; ?>
     
     <main class="main-content">
         <!-- Page Header -->
@@ -630,7 +630,7 @@ try {
         <!-- Bulk Upload Modal -->
         <div class="modal fade" id="bulkUploadModal" tabindex="-1" aria-labelledby="bulkUploadModalLabel" aria-hidden="true">
             <div class="modal-dialog">
-                <form id="bulkUploadForm" action="product-bulk-upload.php" method="POST" enctype="multipart/form-data">
+                <form id="bulkUploadForm" action="<?php echo htmlspecialchars($_SERVER['PHP_SELF']); ?>" method="POST" enctype="multipart/form-data">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title" id="bulkUploadModalLabel">Bulk Upload Products</h5>
@@ -641,7 +641,7 @@ try {
                                 <label for="csvFile" class="form-label">Upload CSV File</label>
                                 <input class="form-control" type="file" id="csvFile" name="csv_file" accept=".csv">
                                 <div class="form-text">
-                                    Download <a href="sample-products.csv" class="text-primary">sample CSV template</a>
+                                    Download <a href="<?php echo htmlspecialchars($_SERVER['PHP_SELF']); ?>" class="text-primary">sample CSV template</a>
                                 </div>
                             </div>
                             <div class="mb-3">
@@ -682,19 +682,17 @@ try {
 <style>
 .dashboard-container {
     display: flex;
-    min-height: 100vh;
+    min-height: calc(100vh - 70px);
 }
 
 .sidebar {
     width: 250px;
+    background: #1a1a2e;
+    transition: all 0.3s;
     position: fixed;
-    left: 0;
-    top: 0;
-    height: 100vh;
-    z-index: 1000;
+    height: calc(100vh - 70px);
     overflow-y: auto;
-    background: #fff;
-    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    z-index: 1000;
 }
 
 .main-content {
@@ -702,23 +700,35 @@ try {
     margin-left: 250px;
     padding: 20px;
     background: #f8f9fa;
-    min-height: 100vh;
+    /* color: #f8f9fa; */
+    min-height: calc(100vh - 70px);
 }
 
-@media (max-width: 991.98px) {
+.sidebar-toggle {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1001;
+    display: none;
+}
+
+@media (max-width: 992px) {
     .sidebar {
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
+        margin-left: -250px;
     }
-    .sidebar.active {
-        transform: translateX(0);
-    }
+    
     .main-content {
         margin-left: 0;
-        padding-top: 70px;
+    }
+    
+    .sidebar.active {
+        margin-left: 0;
+    }
+    
+    .sidebar-toggle {
+        display: block;
     }
 }
-
 .product-card {
     transition: transform 0.3s ease, box-shadow 0.3s ease;
     border: 1px solid #e9ecef;

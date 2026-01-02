@@ -50,23 +50,23 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
 <aside class="sidebar bg-dark text-white" id="sidebar">
     <div class="sidebar-header p-4 border-bottom border-secondary">
         <div class="text-center">
-            <div class="avatar mb-3">
-                <img src="<?php echo SITE_URL; ?>assets/images/avatars/<?php echo $_SESSION['profile_pic'] ?? 'default.png'; ?>" 
-                     alt="Profile" class="rounded-circle" width="80" height="80">
-            </div>
 
 <!-- Example sidebar.php content -->
 <div class="sidebar-user text-center py-4">
     <?php 
-    $profile_pic = !empty($_SESSION['profile_pic']) ? SITE_URL . 'assets/uploads/profile/' . $_SESSION['profile_pic'] : SITE_URL . 'assets/images/default-avatar.png';
+    $profile_pic = !empty($_SESSION['profile_pic']) ? SITE_URL . 'assets/images/profiles/' . $_SESSION['profile_pic'] : SITE_URL . 'assets/images/default-avatar.png';
     ?>
     <img src="<?php echo $profile_pic; ?>" 
          class="rounded-circle mb-2" 
          width="80" 
          height="80" 
          alt="Profile Picture">
-    <h6 class="mb-0"><?php echo $_SESSION['full_name'] ?? 'User'; ?></h6>
-    <small class="text-muted"><?php echo ucfirst($_SESSION['user_type'] ?? 'User'); ?></small>
+    <h6 class="mb-0 text-white"><?php echo $_SESSION['full_name'] ?? 'User'; ?></h6>
+    <small class="text-white"><?php 
+                echo ucfirst($_SESSION['user_type']); 
+                echo ' • ';
+                echo ucfirst($_SESSION['subscription_plan'] ?? 'free') . ' Plan';
+                ?></small>
 </div>
         </div>
     </div>
@@ -78,43 +78,43 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
             <ul class="nav flex-column">
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>" 
-                       href="/e-commerce/admin/dashboard.php">
+                       href="/git-clone/e-commerce/admin/dashboard.php">
                         <i class="fas fa-tachometer-alt me-2"></i> Dashboard
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'users.php') ? 'active' : ''; ?>" 
-                       href="/e-commerce/admin/users.php">
+                       href="/git-clone/e-commerce/admin/users.php">
                         <i class="fas fa-users me-2"></i> Users
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'products.php') ? 'active' : ''; ?>" 
-                       href="<?php echo SITE_URL; ?>admin/products.php">
+                       href="/git-clone/e-commerce/admin/products.php">
                         <i class="fas fa-box me-2"></i> Products
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'orders.php') ? 'active' : ''; ?>" 
-                       href="/e-commerce/admin/orders.php">
+                       href="/git-clone/e-commerce/admin/orders.php">
                         <i class="fas fa-shopping-cart me-2"></i> Orders
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'payments.php') ? 'active' : ''; ?>" 
-                       href="<?php echo SITE_URL; ?>admin/payments.php">
+                       href="/git-clone/e-commerce/admin/payments.php">
                         <i class="fas fa-credit-card me-2"></i> Payments
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'profile.php') ? 'active' : ''; ?>" 
-                       href="<?php echo SITE_URL; ?>admin/profile.php">
+                       href="/git-clone/e-commerce/admin/profile.php">
                         <i class="fas fa-user me-2"></i> Profile
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>" 
-                       href="<?php echo SITE_URL; ?>admin/settings.php">
+                       href="/git-clone/e-commerce/admin/settings.php">
                         <i class="fas fa-cog me-2"></i> Settings
                     </a>
                 </li>

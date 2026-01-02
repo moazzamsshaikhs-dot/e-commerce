@@ -6,7 +6,7 @@ define('DB_PASS', ''); // XAMPP default password is empty
 define('DB_NAME', 'ecommerce_db');
 
 // Site Configuration
-define('SITE_URL', 'http://localhost/e-commerce/');
+define('SITE_URL', 'http://localhost/git-clone/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 
 // Email Configuration (for OTP sending)
@@ -428,10 +428,13 @@ function sendSecurityAlert($user_id, $alert_type, $details = '') {
     }
 }
 
-
-
-
-
+// Is code ko comment kardo:
+/*
+if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
+    header("Location: https://" . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']);
+    exit();
+}
+*/
 
 ?>
 

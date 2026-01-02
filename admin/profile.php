@@ -1,15 +1,15 @@
 <?php
-require_once '../includes/config.php';
-require_once '../includes/auth-check.php';
+require_once './includes/config.php';
+require_once './includes/auth-check.php';
 
 // Check if user is admin
 if (!isAdmin()) {
     $_SESSION['error'] = 'Access denied. Admin only.';
-    redirect('../index.php');
+    redirect('/dasboard.php');
 }
 
 $page_title = 'Admin Profile';
-require_once '../includes/header.php';
+require_once './includes/header.php';
 
 // Get admin data
 try {
@@ -238,7 +238,7 @@ function uploadAdminAvatar($admin_id) {
     // Validate CSRF token
     if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
         $_SESSION['error'] = 'Invalid security token';
-        redirect('admin/profile.php');
+        redirect('/git-clone/e-commerce/admin/profile.php');
     }
     
     if (isset($_FILES['avatar']) && $_FILES['avatar']['error'] === UPLOAD_ERR_OK) {
@@ -261,7 +261,7 @@ function uploadAdminAvatar($admin_id) {
         
         // Generate unique filename
         $filename = 'admin_' . $admin_id . '_' . time() . '.' . $file_extension;
-        $upload_path = $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/profiles/' . $filename;
+        $upload_path = $_SERVER['DOCUMENT_ROOT'] . '/git-clone/e-commerce/assets/images/profiles/' . $filename;
         
         // Create directory if it doesn't exist
         $directory = dirname($upload_path);
@@ -281,7 +281,7 @@ function uploadAdminAvatar($admin_id) {
                 
                 // Delete old avatar if not default
                 if ($old_avatar && $old_avatar !== 'default.png') {
-                    $old_path = $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/profiles/' . $old_avatar;
+                    $old_path = $_SERVER['DOCUMENT_ROOT'] . '/git-clone/e-commerce/assets/images/profiles/' . $old_avatar;
                     if (file_exists($old_path)) {
                         @unlink($old_path);
                     }
@@ -310,7 +310,7 @@ function uploadAdminAvatar($admin_id) {
         $_SESSION['error'] = 'No file uploaded or upload error';
     }
     
-    redirect('admin/profile.php');
+    redirect('/git-clone/e-commerce/admin/profile.php');
 }
 
 // Log admin profile access
@@ -320,7 +320,9 @@ if (function_exists('logUserActivity')) {
 ?>
 
 <div class="dashboard-container">
-    <?php include '../includes/sidebar.php'; ?>
+    <?php 
+    include './includes/sidebar.php';
+     ?>
     
     <main class="main-content">
         <!-- Page Header -->
@@ -387,17 +389,18 @@ if (function_exists('logUserActivity')) {
                             ?>
                             <img src="<?php echo $avatar_url; ?>" 
                                  class="rounded-circle border border-4 border-white shadow-sm" 
-                                 width="150" height="150"
+                                 width="200px" height="200px"
                                  alt="<?php echo htmlspecialchars($admin['full_name'] ?? 'Admin'); ?>"
                                  style="object-fit: cover;">
                             
                             <!-- Upload Avatar Button -->
                             <button type="button" 
-                                    class="btn btn-primary btn-sm rounded-circle position-absolute bottom-0 end-0"
+                                    class="btn btn-primary btn-sm rounded-square position-absolute bottom-0 end-0"
                                     data-bs-toggle="modal" 
                                     data-bs-target="#avatarModal"
-                                    title="Change Profile Picture">
-                                <i class="fas fa-camera"></i>
+                                    title="Change Profile Picture"
+                                    >
+                                <i class="fas fa-camera" height="50" wdth="50"></i>
                             </button>
                         </div>
                         
@@ -508,7 +511,7 @@ if (function_exists('logUserActivity')) {
                         <div class="tab-content" id="profileTabsContent">
                             <!-- Profile Tab -->
                             <div class="tab-pane fade show active" id="profile" role="tabpanel">
-                                <form method="POST" action="" id="profileForm">
+                                <form method="POST" action="<?php echo SITE_URL; ?>admin/profile.php" id="profileForm">
                                     <input type="hidden" name="action" value="update_profile">
                                     <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                                     
@@ -849,7 +852,7 @@ if (function_exists('logUserActivity')) {
 <!-- Avatar Upload Modal -->
 <div class="modal fade" id="avatarModal" tabindex="-1" aria-labelledby="avatarModalLabel" aria-hidden="true">
     <div class="modal-dialog">
-        <form method="POST" action="" enctype="multipart/form-data">
+        <form method="POST" action="/git-clone/e-commerce/admin/profile.php" enctype="multipart/form-data">
             <input type="hidden" name="action" value="upload_avatar">
             <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
             
@@ -898,19 +901,17 @@ if (function_exists('logUserActivity')) {
 <style>
 .dashboard-container {
     display: flex;
-    min-height: 100vh;
+    min-height: calc(100vh - 70px);
 }
 
 .sidebar {
     width: 250px;
+    background: #1a1a2e;
+    transition: all 0.3s;
     position: fixed;
-    left: 0;
-    top: 0;
-    height: 100vh;
-    z-index: 1000;
+    height: calc(100vh - 70px);
     overflow-y: auto;
-    background: #fff;
-    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    z-index: 1000;
 }
 
 .main-content {
@@ -918,23 +919,35 @@ if (function_exists('logUserActivity')) {
     margin-left: 250px;
     padding: 20px;
     background: #f8f9fa;
-    min-height: 100vh;
+    /* color: #f8f9fa; */
+    min-height: calc(100vh - 70px);
 }
 
-@media (max-width: 991.98px) {
+.sidebar-toggle {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1001;
+    display: none;
+}
+
+@media (max-width: 992px) {
     .sidebar {
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
+        margin-left: -250px;
     }
-    .sidebar.active {
-        transform: translateX(0);
-    }
+    
     .main-content {
         margin-left: 0;
-        padding-top: 70px;
+    }
+    
+    .sidebar.active {
+        margin-left: 0;
+    }
+    
+    .sidebar-toggle {
+        display: block;
     }
 }
-
 .nav-tabs .nav-link {
     border: none;
     color: #6c757d;
@@ -1108,4 +1121,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<?php require_once '../includes/footer.php'; ?>
+<?php require_once './includes/footer.php'; ?>

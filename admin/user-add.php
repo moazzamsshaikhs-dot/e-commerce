@@ -1,11 +1,11 @@
 <?php
-require_once '../includes/config.php';
-require_once '../includes/auth-check.php';
+require_once './includes/config.php';
+require_once './includes/auth-check.php';
 
 // Check if user is admin
 if ($_SESSION['user_type'] !== 'admin') {
     $_SESSION['error'] = 'Access denied. Admin only.';
-    redirect('../index.php');
+    redirect('/dashboard.php');
 }
 
 $page_title = 'Add New User';
@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?>
 
 <div class="dashboard-container">
-    <?php include '../includes/sidebar.php'; ?>
+    <?php include './includes/sidebar.php'; ?>
     
     <main class="main-content">
         <!-- Page Header -->
@@ -141,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <?php unset($_SESSION['success']); ?>
         <?php endif; ?>
-        
+
         <!-- Form Card -->
         <div class="row">
             <div class="col-lg-8">
@@ -466,4 +466,4 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 </style>
 
-<?php require_once '../includes/footer.php'; ?>
+<?php require_once './includes/footer.php'; ?>

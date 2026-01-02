@@ -320,7 +320,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
         <!-- Recent Activity -->
         <div class="card border-0 shadow-sm mt-4">
             <div class="card-header bg-white border-0">
-                <h5 class="mb-0">Recent Activity</h5>
+                <h5 class="mb-0" id="recentActivity">Recent Activity</h5>
             </div>
             <div class="card-body">
                 <div class="timeline">

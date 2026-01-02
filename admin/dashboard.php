@@ -74,7 +74,7 @@ try {
 <!-- Dashboard Layout -->
 <div class="dashboard-container">
     <!-- Include Sidebar -->
-    <?php include '../includes/sidebar.php'; ?>
+    <?php include './includes/sidebar.php'; ?>
     
     <!-- Main Content -->
     <main class="main-content">
@@ -83,7 +83,7 @@ try {
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <h1 class="h3 mb-0">Dashboard</h1>
-                    <p class="text-muted mb-0">Welcome back, <?php echo $_SESSION['full_name']; ?>!</p>
+                    <p class="text-muted mb-0">Welcome back hello, <?php echo $_SESSION['full_name']; ?>!</p>
                 </div>
                 <div class="text-muted">
                     <i class="fas fa-calendar me-1"></i>
@@ -497,4 +497,4 @@ $(document).ready(function() {
 });
 </script>
 
-<?php require_once '../includes/footer.php'; ?>
+<?php require_once './includes/footer.php'; ?>

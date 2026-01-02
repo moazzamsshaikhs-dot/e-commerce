@@ -30,7 +30,7 @@ function getProductById($product_id) {
 /**
  * Get product categories
  */
-function getProductCategories() {
+function getProductCategories()  {
     try {
         $db = getDB();
         $stmt = $db->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' ORDER BY category");
@@ -69,12 +69,12 @@ function uploadProductImageWrapper($file, $existing_image = '') {
         
         if (empty($errors)) {
             $image_name = uniqid('product_', true) . '_' . time() . '.' . $file_extension;
-            $upload_path = $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/products/' . $image_name;
+            $upload_path = $_SERVER['DOCUMENT_ROOT'] . '/git-clone/e-commerce/assets/images/products/' . $image_name;
             
             if (move_uploaded_file($file['tmp_name'], $upload_path)) {
                 // Delete old image if exists
                 if (!empty($existing_image) && $existing_image !== 'default.jpg') {
-                    $old_image_path = $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/products/' . $existing_image;
+                    $old_image_path = $_SERVER['DOCUMENT_ROOT'] . 'git-clone/e-commerce/assets/images/products/' . $existing_image;
                     if (file_exists($old_image_path)) {
                         @unlink($old_image_path);
                     }
@@ -442,7 +442,7 @@ function handleDeleteProduct($product_id) {
  */
 function showAddProductForm() {
     $page_title = 'Add New Product';
-    require_once '../includes/header.php';
+    require_once './includes/header.php';
     
     // Get categories
     $categories = getProductCategories();
@@ -457,7 +457,7 @@ function showAddProductForm() {
     ?>
     
     <div class="dashboard-container">
-        <?php include '../includes/sidebar.php'; ?>
+        <?php include './includes/sidebar.php'; ?>
         
         <main class="main-content">
             <!-- Page Header -->
