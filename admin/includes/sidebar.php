@@ -141,9 +141,65 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                     </li>
                 </ul>
             </div>
+             <?php else: ?>
+            <!-- User Sidebar Menu -->
+            <ul class="nav flex-column">
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>user/dashboard.php">
+                        <i class="fas fa-tachometer-alt me-2"></i> Dashboard
+                    </a>
+                </li>
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo ($current_page == 'profile.php') ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>user/profile.php">
+                        <i class="fas fa-user me-2"></i> My Profile
+                    </a>
+                </li>
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo ($current_page == 'orders.php') ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>user/orders.php">
+                        <i class="fas fa-shopping-cart me-2"></i> My Orders
+                    </a>
+                </li>
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo ($current_page == 'wishlist.php') ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>user/wishlist.php">
+                        <i class="fas fa-heart me-2"></i> Wishlist
+                    </a>
+                </li>
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo ($current_page == 'upgrade.php') ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>user/upgrade.php">
+                        <i class="fas fa-crown me-2"></i> Upgrade Plan
+                    </a>
+                </li>
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>user/settings.php">
+                        <i class="fas fa-cog me-2"></i> Settings
+                    </a>
+                </li>
+            </ul>
             
+            <!-- User Quick Actions -->
+            <div class="mt-4">
+                <h6 class="text-uppercase text-muted mb-3">Quick Actions</h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item mb-2">
+                        <a class="nav-link" href="#recentActivity">
+                            <i class="fas fa-history me-2"></i> Recent Activity
+                        </a>
+                    </li>
+                    <li class="nav-item mb-2">
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>user/support.php">
+                            <i class="fas fa-question-circle me-2"></i> Help Center
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        <?php endif; ?>
 
-            <?php endif; ?>
             
         <!-- Logout Button -->
         <div class="mt-5 pt-3 border-top border-secondary">
