@@ -118,7 +118,7 @@ try {
     $products = $products_stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // ========== GET CATEGORIES FOR FILTER ==========
-    $categories_stmt = $db->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' ORDER BY category");
+    $categories_stmt = $db->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL  ORDER BY category");
     $categories = $categories_stmt->fetchAll(PDO::FETCH_COLUMN);
     
     // ========== GET STATISTICS ==========
@@ -293,6 +293,7 @@ try {
                         <select name="category" class="form-select">
                             <option value="">All Categories</option>
                             <?php foreach($categories as $cat): ?>
+                                
                             <option value="<?php echo htmlspecialchars($cat); ?>" 
                                 <?php echo $category === $cat ? 'selected' : ''; ?>>
                                 <?php echo htmlspecialchars($cat); ?>
@@ -467,7 +468,7 @@ try {
                                 </div>
                                 <div class="position-absolute top-0 end-0 p-2">
                                     <span class="badge bg-<?php echo $stock_class; ?>">
-                                        <?php echo $stock_text; ?>
+                                        <?php echo $stock_text;?>
                                     </span>
                                 </div>
                             </div>

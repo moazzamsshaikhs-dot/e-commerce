@@ -6,7 +6,7 @@ define('DB_PASS', ''); // XAMPP default password is empty
 define('DB_NAME', 'ecommerce_db');
 
 // Site Configuration
-define('SITE_URL', 'http://localhost/e-commerce/');
+define('SITE_URL', 'http://localhost/git-clone/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 
 // Email Configuration (for OTP sending)

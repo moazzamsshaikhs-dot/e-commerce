@@ -102,7 +102,7 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'payments.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/payments.php">
+                       href="/git-clone/e-commerce/admin/payments/index.php">
                         <i class="fas fa-credit-card me-2"></i> Payments
                     </a>
                 </li>
@@ -114,7 +114,7 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/settings.php">
+                       href="/git-clone/e-commerce/admin/settings/settings.php">
                         <i class="fas fa-cog me-2"></i> Settings
                     </a>
                 </li>
