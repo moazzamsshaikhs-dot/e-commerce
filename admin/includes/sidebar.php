@@ -78,43 +78,43 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
             <ul class="nav flex-column">
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/dashboard.php">
+                       href="<?php echo SITE_URL; ?>admin/dashboard.php">
                         <i class="fas fa-tachometer-alt me-2"></i> Dashboard
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'users.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/users.php">
+                       href="<?php echo SITE_URL; ?>admin/users/users.php">
                         <i class="fas fa-users me-2"></i> Users
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'products.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/products.php">
+                       href="<?php echo SITE_URL; ?>admin/products/products.php">
                         <i class="fas fa-box me-2"></i> Products
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'orders.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/orders.php">
+                       href="<?php echo SITE_URL; ?>admin/orders/orders.php">
                         <i class="fas fa-shopping-cart me-2"></i> Orders
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'payments.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/payments/index.php">
+                       href="<?php echo SITE_URL; ?>admin/payments/index.php">
                         <i class="fas fa-credit-card me-2"></i> Payments
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'profile.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/profile.php">
+                       href="<?php echo SITE_URL; ?>admin/profile.php">
                         <i class="fas fa-user me-2"></i> Profile
                     </a>
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>" 
-                       href="/git-clone/e-commerce/admin/settings/settings.php">
+                       href="<?php echo SITE_URL; ?>admin/settings/settings.php">
                         <i class="fas fa-cog me-2"></i> Settings
                     </a>
                 </li>
@@ -135,7 +135,7 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                         </a>
                     </li>
                     <li class="nav-item mb-2">
-                        <a class="nav-link" href="<?php echo SITE_URL; ?>admin/invoices.php">
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>admin/invoices/invoices.php">
                             <i class="fas fa-file-invoice me-2"></i> Invoices
                         </a>
                     </li>

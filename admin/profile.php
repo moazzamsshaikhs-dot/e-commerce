@@ -5,7 +5,8 @@ require_once './includes/auth-check.php';
 // Check if user is admin
 if (!isAdmin()) {
     $_SESSION['error'] = 'Access denied. Admin only.';
-    redirect('/dasboard.php');
+    header('Location: ../index.php');
+    exit;
 }
 
 $page_title = 'Admin Profile';

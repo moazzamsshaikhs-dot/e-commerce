@@ -83,7 +83,7 @@ try {
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <h1 class="h3 mb-0">Dashboard</h1>
-                    <p class="text-muted mb-0">Welcome back hello, <?php echo $_SESSION['full_name']; ?>!</p>
+                    <p class="text-muted mb-0">Welcome hello, <?php echo $_SESSION['full_name']; ?>!</p>
                 </div>
                 <div class="text-muted">
                     <i class="fas fa-calendar me-1"></i>
@@ -193,7 +193,7 @@ try {
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Recent Orders</h5>
-                        <a href="orders.php" class="btn btn-sm btn-outline-primary">
+                        <a href="orders/orders.php" class="btn btn-sm btn-outline-primary">
                             View All
                         </a>
                     </div>
@@ -253,7 +253,7 @@ try {
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Recent Users</h5>
-                        <a href="users.php" class="btn btn-sm btn-outline-primary">
+                        <a href="users/users.php" class="btn btn-sm btn-outline-primary">
                             View All
                         </a>
                     </div>
@@ -337,22 +337,22 @@ try {
                     <div class="card-body">
                         <div class="row g-2">
                             <div class="col-6">
-                                <a href="products.php?action=add" class="btn btn-outline-primary w-100 mb-2">
+                                <a href="./products/products.php?action=add" class="btn btn-outline-primary w-100 mb-2">
                                     <i class="fas fa-plus me-1"></i> Add Product
                                 </a>
                             </div>
                             <div class="col-6">
-                                <a href="users.php?action=add" class="btn btn-outline-success w-100 mb-2">
+                                <a href="./users/users.php?action=add" class="btn btn-outline-success w-100 mb-2">
                                     <i class="fas fa-user-plus me-1"></i> Add User
                                 </a>
                             </div>
                             <div class="col-6">
-                                <a href="orders.php" class="btn btn-outline-warning w-100">
+                                <a href="./orders/orders.php" class="btn btn-outline-warning w-100">
                                     <i class="fas fa-shopping-cart me-1"></i> View Orders
                                 </a>
                             </div>
                             <div class="col-6">
-                                <a href="settings.php" class="btn btn-outline-info w-100">
+                                <a href="./settings/settings.php" class="btn btn-outline-info w-100">
                                     <i class="fas fa-cog me-1"></i> Settings
                                 </a>
                             </div>

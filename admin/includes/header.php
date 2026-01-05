@@ -114,7 +114,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>" 
-                           href="/e-commerce/admin/dashboard.php">
+                           href="<?php echo SITE_URL; ?>admin/dashboard.php">
                             <i class="fas fa-home me-1"></i> Home
                         </a>
                     </li>
