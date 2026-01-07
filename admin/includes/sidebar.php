@@ -130,7 +130,7 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                         </a>
                     </li>
                     <li class="nav-item mb-2">
-                        <a class="nav-link" href="<?php echo SITE_URL; ?>admin/analytics.php">
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>admin/analytics/analytics.php">
                             <i class="fas fa-chart-pie me-2"></i> Analytics
                         </a>
                     </li>
