@@ -1,0 +1,12 @@
+<?php
+// sample-products.php
+header('Content-Type: text/csv');
+header('Content-Disposition: attachment; filename="sample-products.csv"');
+
+echo "name,description,price,old_price,category,stock,featured,image\n";
+echo "iPhone 14 Pro,Latest Apple iPhone with advanced camera,999.99,1099.99,Electronics,50,1,iphone14.jpg\n";
+echo "Wireless Headphones,Noise cancelling wireless headphones,199.99,,Electronics,100,0,headphones.jpg\n";
+echo "Running Shoes,Comfortable running shoes for athletes,89.99,,Sports,200,1,\n";
+echo "Coffee Maker,Automatic coffee maker with timer,129.99,149.99,Home & Living,75,0,coffee-maker.jpg\n";
+echo "Designer Watch,Luxury watch with premium finish,499.99,599.99,Fashion,30,1,watch.jpg\n";
+?>
