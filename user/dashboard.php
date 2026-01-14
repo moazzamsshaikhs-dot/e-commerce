@@ -5,12 +5,11 @@ require_once '../includes/auth-check.php';
 // Check if user is not admin
 if ($_SESSION['user_type'] === 'admin') {
     $_SESSION['error'] = 'Access denied. User dashboard only.';
-    redirect('admin/dashboard.php');
+    redirect(SITE_URL . 'admin/dashboard.php');
 }
 
 $page_title = 'User Dashboard';
 require_once '../includes/header.php';
-
 // Get user statistics
 try {
     $db = getDB();
@@ -74,12 +73,14 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
                 </div>
                 <div class="d-flex gap-3">
                     <?php if ($_SESSION['subscription_plan'] === 'free'): ?>
-                        <a href="upgrade.php" class="btn btn-warning">
+                        <a href="upgrade/upgrade.php" class="btn btn-warning">
                             <i class="fas fa-crown me-2"></i> Upgrade Now
                         </a>
                     <?php endif; ?>
                     <button class="btn btn-primary">
+                        <a href="orders/orders.php" class="text-white text-decoration-none">
                         <i class="fas fa-plus me-2"></i> New Order
+                        </a>
                     </button>
                 </div>
             </div>
@@ -100,7 +101,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
                             </div>
                         </div>
                         <div class="mt-3">
-                            <a href="orders.php" class="text-decoration-none small">
+                            <a href="orders/orders.php" class="text-decoration-none small">
                                 <i class="fas fa-eye me-1"></i> View All Orders
                             </a>
                         </div>
@@ -179,7 +180,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
                     <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Your Plan</h5>
                         <?php if ($_SESSION['subscription_plan'] === 'free'): ?>
-                            <a href="upgrade.php" class="btn btn-sm btn-warning">
+                            <a href="upgrade/upgrade.php" class="btn btn-sm btn-warning">
                                 <i class="fas fa-crown me-1"></i> Upgrade
                             </a>
                         <?php endif; ?>
@@ -238,7 +239,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
                             <div class="text-center py-5">
                                 <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
                                 <p class="text-muted">No orders yet</p>
-                                <a href="#" class="btn btn-primary">Start Shopping</a>
+                                <a href="<?php echo SITE_URL; ?>user/products.php" class="btn btn-primary">Start Shopping</a>
                             </div>
                         <?php else: ?>
                             <div class="table-responsive">
@@ -300,7 +301,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
                         <i class="fas fa-shield-alt fa-3x text-success mb-3"></i>
                         <h5>Security</h5>
                         <p class="text-muted small">Manage password and security</p>
-                        <a href="settings.php?tab=security" class="btn btn-outline-success btn-sm">Security Settings</a>
+                        <a href="settings/settings.php?tab=security" class="btn btn-outline-success btn-sm">Security Settings</a>
                     </div>
                 </div>
             </div>
@@ -311,7 +312,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
                         <i class="fas fa-question-circle fa-3x text-info mb-3"></i>
                         <h5>Need Help?</h5>
                         <p class="text-muted small">Contact our support team</p>
-                        <a href="#" class="btn btn-outline-info btn-sm">Get Help</a>
+                        <a href="<?php echo SITE_URL; ?>user/support/support.php" class="btn btn-outline-info btn-sm">Get Help</a>
                     </div>
                 </div>
             </div>

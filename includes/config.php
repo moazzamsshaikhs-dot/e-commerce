@@ -427,4 +427,85 @@ function sendSecurityAlert($user_id, $alert_type, $details = '') {
         return false;
     }
 }
+
+
+// config.php mein ye functions add karein:
+
+// Vendor registration alert to admin
+function sendVendorRegistrationAlert($vendor_id) {
+    try {
+        $db = getDB();
+        
+        // Get vendor details
+        $stmt = $db->prepare("SELECT username, email, full_name, vendor_category FROM users WHERE id = ?");
+        $stmt->execute([$vendor_id]);
+        $vendor = $stmt->fetch();
+        
+        if ($vendor) {
+            // Get admin users
+            $stmt = $db->prepare("SELECT email FROM users WHERE user_type = 'admin'");
+            $stmt->execute();
+            $admins = $stmt->fetchAll();
+            
+            // Send email to each admin
+            foreach ($admins as $admin) {
+                $subject = "New Vendor Registration - {$vendor['username']}";
+                $message = "
+                <h2>New Vendor Registration</h2>
+                <p>A new vendor has registered on the platform:</p>
+                <ul>
+                    <li><strong>Vendor:</strong> {$vendor['full_name']}</li>
+                    <li><strong>Username:</strong> {$vendor['username']}</li>
+                    <li><strong>Email:</strong> {$vendor['email']}</li>
+                    <li><strong>Category:</strong> {$vendor['vendor_category']}</li>
+                </ul>
+                <p>Please review and approve/reject this vendor from the admin panel.</p>
+                ";
+                
+                sendEmail($admin['email'], $subject, $message);
+            }
+            
+            // Create admin notification
+            foreach ($admins as $admin) {
+                $admin_user = $db->prepare("SELECT id FROM users WHERE email = ?");
+                $admin_user->execute([$admin['email']]);
+                $admin_id = $admin_user->fetchColumn();
+                
+                $stmt = $db->prepare("
+                    INSERT INTO notifications (user_id, title, message, type) 
+                    VALUES (?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $admin_id,
+                    'New Vendor Registration',
+                    "New vendor {$vendor['username']} has registered and is waiting for approval.",
+                    'info'
+                ]);
+            }
+        }
+    } catch(PDOException $e) {
+        error_log("Vendor registration alert error: " . $e->getMessage());
+    }
+}
+
+// Check if user is vendor
+function isVendor() {
+    return isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'vendor';
+}
+
+// Check if vendor is approved
+function isVendorApproved() {
+    if (!isVendor()) return false;
+    
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT vendor_status FROM users WHERE id = ?");
+        $stmt->execute([$_SESSION['user_id']]);
+        $status = $stmt->fetchColumn();
+        
+        return $status === 'approved';
+    } catch(PDOException $e) {
+        return false;
+    }
+}
 ?>

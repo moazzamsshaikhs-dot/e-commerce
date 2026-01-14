@@ -3,15 +3,14 @@ require_once 'includes/config.php';
 
 // If user is already logged in, redirect to dashboard
 if (isLoggedIn()) {
-    if (isAdmin()) {
-        redirect('admin/dashboard.php');
-    } else {
-        redirect('user/dashboard.php');
-    }
+    redirectToDashboard();
 }
 
 $errors = [];
 $success = '';
+
+// Add this new field for vendor registration
+$register_as_vendor = isset($_POST['register_as_vendor']) ? true : false;
 
 // Process form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -24,7 +23,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $confirm_password = $_POST['confirm_password'];
     $terms = isset($_POST['terms']) ? true : false;
     
-    // Validation
+    // NEW: Vendor-specific fields
+    $vendor_category = isset($_POST['vendor_category']) ? sanitize($_POST['vendor_category']) : '';
+    $vendor_bio = isset($_POST['vendor_bio']) ? sanitize($_POST['vendor_bio']) : '';
+    
+    // Validation (same as before with additions)
     if (empty($username)) {
         $errors[] = 'Username is required';
     } elseif (strlen($username) < 3) {
@@ -43,6 +46,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (empty($full_name)) {
         $errors[] = 'Full name is required';
+    }
+    
+    // Vendor-specific validation
+    if ($register_as_vendor) {
+        if (empty($vendor_category)) {
+            $errors[] = 'Vendor category is required';
+        }
     }
     
     if (empty($password)) {
@@ -99,10 +109,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $otp = generateOTP();
             $otp_expiry = date('Y-m-d H:i:s', strtotime('+' . OTP_EXPIRY_MINUTES . ' minutes'));
             
+            // Determine user type
+            $user_type = $register_as_vendor ? 'vendor' : 'user';
+            $vendor_status = $register_as_vendor ? 'pending' : NULL;
+            
             // Insert user
             $stmt = $db->prepare("
-                INSERT INTO users (username, email, phone, full_name, password, otp_code, otp_expiry) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (
+                    username, email, phone, full_name, password, 
+                    otp_code, otp_expiry, user_type, vendor_status,
+                    vendor_category, vendor_bio
+                ) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             
             $hashed_password = hashPassword($password);
@@ -113,7 +131,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $full_name, 
                 $hashed_password, 
                 $otp, 
-                $otp_expiry
+                $otp_expiry,
+                $user_type,
+                $vendor_status,
+                $vendor_category,
+                $vendor_bio
             ]);
             
             $user_id = $db->lastInsertId();
@@ -125,14 +147,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $stmt->execute([$user_id, $otp, $otp_expiry]);
             
-            // Send OTP (simulated)
+            // Send OTP
             sendOTPEmail($email, $otp);
             sendOTPSMS($phone, $otp);
+            
+            // If vendor, send admin notification
+            if ($register_as_vendor) {
+                // Send email to admin about new vendor registration
+                sendVendorRegistrationAlert($user_id);
+            }
             
             // Store user ID in session for OTP verification
             $_SESSION['temp_user_id'] = $user_id;
             $_SESSION['temp_email'] = $email;
             $_SESSION['temp_phone'] = $phone;
+            $_SESSION['register_as_vendor'] = $register_as_vendor;
             
             // Set success message
             $_SESSION['success'] = 'Account created successfully! Please verify your email with OTP.';
@@ -174,6 +203,75 @@ require_once 'includes/header.php';
         <?php endif; ?>
         
         <form method="POST" action="" id="signupForm">
+            <!-- Account Type Selection -->
+            <div class="mb-4">
+                <label class="form-label fw-bold">
+                    <i class="fas fa-user-tag me-1"></i> Register As:
+                </label>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="form-check card p-3">
+                            <input class="form-check-input" type="radio" name="register_as_vendor" 
+                                   id="register_customer" value="0" checked onclick="toggleVendorFields(false)">
+                            <label class="form-check-label" for="register_customer">
+                                <h5 class="mb-1"><i class="fas fa-shopping-cart me-2"></i> Customer</h5>
+                                <small class="text-muted">Shop and purchase products</small>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-check card p-3">
+                            <input class="form-check-input" type="radio" name="register_as_vendor" 
+                                   id="register_vendor" value="1" onclick="toggleVendorFields(true)">
+                            <label class="form-check-label" for="register_vendor">
+                                <h5 class="mb-1"><i class="fas fa-store me-2"></i> Vendor</h5>
+                                <small class="text-muted">Sell your products on our platform</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Vendor Fields (Initially Hidden) -->
+            <div id="vendorFields" style="display: none;">
+                <div class="card p-3 mb-4 bg-light">
+                    <h5 class="mb-3"><i class="fas fa-store-alt me-2"></i> Vendor Information</h5>
+                    
+                    <!-- Vendor Category -->
+                    <div class="mb-3">
+                        <label for="vendor_category" class="form-label">
+                            <i class="fas fa-tags me-1"></i> What do you want to sell? *
+                        </label>
+                        <select class="form-select" id="vendor_category" name="vendor_category">
+                            <option value="">Select Category</option>
+                            <option value="Electronics">Electronics</option>
+                            <option value="Fashion">Fashion & Clothing</option>
+                            <option value="Home & Living">Home & Living</option>
+                            <option value="Books">Books & Stationery</option>
+                            <option value="Sports">Sports & Fitness</option>
+                            <option value="Beauty">Beauty & Cosmetics</option>
+                            <option value="Food">Food & Beverages</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Vendor Bio -->
+                    <div class="mb-3">
+                        <label for="vendor_bio" class="form-label">
+                            <i class="fas fa-info-circle me-1"></i> Tell us about your business
+                        </label>
+                        <textarea class="form-control" id="vendor_bio" name="vendor_bio" 
+                                  rows="3" placeholder="Brief description of your products or services..."><?php echo isset($_POST['vendor_bio']) ? htmlspecialchars($_POST['vendor_bio']) : ''; ?></textarea>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Note:</strong> Vendor accounts require admin approval before you can start selling.
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Common Fields (same as before) -->
             <!-- Username -->
             <div class="mb-3">
                 <label for="username" class="form-label">
@@ -269,21 +367,39 @@ require_once 'includes/header.php';
             </div>
         </form>
         
-        <!-- Social Signup (Optional) -->
-        <div class="mt-4">
-            <div class="text-center mb-3">
-                <hr>
-                <span class="bg-white px-3 text-muted">Or sign up with</span>
-            </div>
-            <div class="d-grid gap-2">
-                <button type="button" class="btn btn-outline-primary">
-                    <i class="fab fa-google me-2"></i> Google
-                </button>
-                <button type="button" class="btn btn-outline-primary">
-                    <i class="fab fa-facebook me-2"></i> Facebook
-                </button>
-            </div>
-        </div>
+        <!-- JavaScript to toggle vendor fields -->
+        <script>
+        function toggleVendorFields(show) {
+            const vendorFields = document.getElementById('vendorFields');
+            const vendorCategory = document.getElementById('vendor_category');
+            
+            if (show) {
+                vendorFields.style.display = 'block';
+                vendorCategory.required = true;
+            } else {
+                vendorFields.style.display = 'none';
+                vendorCategory.required = false;
+            }
+        }
+        
+        // Password toggle functionality
+        document.querySelectorAll('.password-toggle').forEach(toggle => {
+            toggle.addEventListener('click', function() {
+                const input = this.parentNode.querySelector('input');
+                const icon = this.querySelector('i');
+                
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    icon.classList.remove('fa-eye');
+                    icon.classList.add('fa-eye-slash');
+                } else {
+                    input.type = 'password';
+                    icon.classList.remove('fa-eye-slash');
+                    icon.classList.add('fa-eye');
+                }
+            });
+        });
+        </script>
     </div>
 </div>
 

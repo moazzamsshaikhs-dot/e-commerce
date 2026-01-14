@@ -712,23 +712,7 @@ try {
     display: none;
 }
 
-@media (max-width: 992px) {
-    .sidebar {
-        margin-left: -250px;
-    }
-    
-    .main-content {
-        margin-left: 0;
-    }
-    
-    .sidebar.active {
-        margin-left: 0;
-    }
-    
-    .sidebar-toggle {
-        display: block;
-    }
-}
+
 .product-card {
     transition: transform 0.3s ease, box-shadow 0.3s ease;
     border: 1px solid #e9ecef;

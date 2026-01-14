@@ -1,122 +1,4 @@
 <?php
-// require_once 'includes/config.php';
-
-// // If user is already logged in, redirect to dashboard
-// if (isLoggedIn()) {
-//     if (isAdmin()) {
-//         redirect('admin/dashboard.php');
-//     } else {
-//         redirect('user/dashboard.php');
-//     }
-// }
-
-// $errors = [];
-// $success = isset($_SESSION['success']) ? $_SESSION['success'] : '';
-// if (isset($_SESSION['success'])) unset($_SESSION['success']);
-
-// // Process form submission
-// if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-//     $username = sanitize($_POST['username']);
-//     $password = $_POST['password'];
-//     $remember = isset($_POST['remember']) ? true : false;
-    
-//     // Validation
-//     if (empty($username)) {
-//         $errors[] = 'Username or Email is required';
-//     }
-    
-//     if (empty($password)) {
-//         $errors[] = 'Password is required';
-//     }
-    
-//     // If no errors, attempt login
-//     if (empty($errors)) {
-//         try {
-//             $db = getDB();
-            
-//             // Find user by username or email
-//             $stmt = $db->prepare("
-//                 SELECT * FROM users 
-//                 WHERE (username = ? OR email = ?) 
-//                 AND email_verified = 1
-//             ");
-//             $stmt->execute([$username, $username]);
-//             $user = $stmt->fetch();
-            
-//             if ($user && verifyPassword($password, $user['password'])) {
-//                 // Check if account is verified
-//                 if (!$user['email_verified']) {
-//                     // Store user ID for OTP verification
-//                     $_SESSION['temp_user_id'] = $user['id'];
-//                     $_SESSION['temp_email'] = $user['email'];
-                    
-//                     // Generate and send new OTP
-//                     $otp = generateOTP();
-//                     $otp_expiry = date('Y-m-d H:i:s', strtotime('+' . OTP_EXPIRY_MINUTES . ' minutes'));
-                    
-//                     $stmt = $db->prepare("
-//                         UPDATE users SET otp_code = ?, otp_expiry = ? WHERE id = ?
-//                     ");
-//                     $stmt->execute([$otp, $otp_expiry, $user['id']]);
-                    
-//                     // Send OTP
-//                     sendOTPEmail($user['email'], $otp);
-                    
-//                     $_SESSION['error'] = 'Please verify your email first. OTP has been sent again.';
-//                     redirect('verify-otp.php');
-//                 }
-                
-//                 // Set session variables
-//                 $_SESSION['user_id'] = $user['id'];
-//                 $_SESSION['username'] = $user['username'];
-//                 $_SESSION['email'] = $user['email'];
-//                 $_SESSION['full_name'] = $user['full_name'];
-//                 $_SESSION['user_type'] = $user['user_type'];
-//                 $_SESSION['profile_pic'] = $user['profile_pic'];
-//                 $_SESSION['login_time'] = time();
-                
-//                 // Remember me functionality (30 days)
-//                 if ($remember) {
-//                     $token = bin2hex(random_bytes(32));
-//                     $expiry = date('Y-m-d H:i:s', strtotime('+30 days'));
-                    
-//                     $stmt = $db->prepare("
-//                         INSERT INTO user_sessions (user_id, token, expires_at) 
-//                         VALUES (?, ?, ?)
-//                     ");
-//                     $stmt->execute([$user['id'], $token, $expiry]);
-                    
-//                     setcookie('remember_token', $token, time() + (30 * 24 * 60 * 60), '/');
-//                 }
-                
-//                 // Update last login
-//                 $stmt = $db->prepare("UPDATE users SET updated_at = NOW() WHERE id = ?");
-//                 $stmt->execute([$user['id']]);
-                
-//                 // Set success message
-//                 $_SESSION['success'] = 'Welcome back, ' . $user['full_name'] . '!';
-                
-//                 // Redirect based on user type
-//                 if ($user['user_type'] === 'admin') {
-//                     redirect('admin/dashboard.php');
-//                 } else {
-//                     redirect('user/dashboard.php');
-//                 }
-                
-//             } else {
-//                 $errors[] = 'Invalid username/email or password';
-//             }
-            
-//         } catch(PDOException $e) {
-//             $errors[] = 'Login error: ' . $e->getMessage();
-//         }
-//     }
-// }
-
-// $page_title = 'Login';
-// require_once 'includes/header.php';
-
-
 require_once 'includes/config.php';
 
 // If user is already logged in, redirect to dashboard
@@ -276,15 +158,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isIPBlocked($user_ip)) {
 }
 
 // Function to redirect to appropriate dashboard
+// Line 135-145 mein vendor check nahi hai
+// Function to redirect to appropriate dashboard
 function redirectToDashboard() {
-    global $user;
-    if ($_SESSION['user_type'] === 'admin') {
-        redirect('admin/dashboard.php');
+    if (isset($_SESSION['user_type'])) {
+        switch ($_SESSION['user_type']) {
+            case 'admin':
+                redirect('admin/dashboard.php');
+                break;
+            case 'vendor':
+                redirect('vendor/dashboard.php');
+                break;
+            default:
+                redirect('user/dashboard.php');
+                break;
+        }
     } else {
+        // Default fallback
         redirect('user/dashboard.php');
     }
 }
-
 $page_title = 'Login';
 require_once 'includes/header.php';
 ?>

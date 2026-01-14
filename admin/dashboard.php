@@ -2,6 +2,8 @@
 require_once './includes/config.php';
 require_once './includes/auth-check.php';
 
+
+    
 $page_title = 'Admin Dashboard';
 require_once './includes/header.php';
 // Get dashboard statistics
