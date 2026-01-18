@@ -2,7 +2,6 @@
 require_once './includes/config.php';
 require_once './includes/auth-check.php';
 
-
     
 $page_title = 'Admin Dashboard';
 require_once './includes/header.php';
@@ -403,50 +402,7 @@ try {
     min-height: calc(100vh - 70px);
 }
 
-.sidebar {
-    width: 250px;
-    background: #1a1a2e;
-    transition: all 0.3s;
-    position: fixed;
-    height: calc(100vh - 70px);
-    overflow-y: auto;
-    z-index: 1000;
-}
 
-.main-content {
-    flex: 1;
-    margin-left: 250px;
-    padding: 20px;
-    background: #f8f9fa;
-    /* color: #f8f9fa; */
-    min-height: calc(100vh - 70px);
-}
-
-.sidebar-toggle {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 1001;
-    display: none;
-}
-
-@media (max-width: 992px) {
-    .sidebar {
-        margin-left: -250px;
-    }
-    
-    .main-content {
-        margin-left: 0;
-    }
-    
-    .sidebar.active {
-        margin-left: 0;
-    }
-    
-    .sidebar-toggle {
-        display: block;
-    }
-}
 
 .card {
     border-radius: 10px;

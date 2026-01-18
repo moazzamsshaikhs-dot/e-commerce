@@ -7,6 +7,10 @@ if ($_SESSION['user_type'] === 'admin') {
     $_SESSION['error'] = 'Access denied. User dashboard only.';
     redirect(SITE_URL . 'admin/dashboard.php');
 }
+if ($_SESSION['user_type'] === 'vender') {
+    $_SESSION['error'] = 'Access denied. please use vender dashboard only.';
+    redirect(SITE_URL . 'vender/dashboard.php');
+}
 
 $page_title = 'User Dashboard';
 require_once '../includes/header.php';

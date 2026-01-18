@@ -348,10 +348,7 @@ catch(PDOException $e) {
     </main>
 </div>
 <style>
-    .sidbar {
-    width: 250px;
     
-}
     .main-content {
     flex: 1;
     padding: 20px;

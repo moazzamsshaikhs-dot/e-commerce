@@ -191,9 +191,9 @@ $is_approved = ($vendor_status === 'approved');
             <!-- Reviews -->
             <li class="nav-item mb-2">
                 <a class="nav-link <?php echo ($current_page == 'reviews.php') ? 'active' : ''; ?>" 
-                   href="<?php echo SITE_URL; ?>vendors/reviews/reviews.php">
+                   href="<?php echo SITE_URL; ?>admin/vendors/reviews/reviews.php">
                     <i class="fas fa-star me-3"></i> Reviews
-                </a>
+                </a>    
             </li>
             <?php endif; ?>
             

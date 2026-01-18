@@ -32,7 +32,7 @@ if ($is_vendor && file_exists(__DIR__ . '/vendor-sidebar.php')) {
                      onerror="this.src='<?php echo SITE_URL; ?>assets/images/profiles/default.png'">
             </div>
             <h6 class="mb-1"><?php echo $_SESSION['full_name']; ?></h6>
-            <small class="text-white-50">
+            <small class="text-black-50">
                 <?php 
                 echo ucfirst($_SESSION['user_type']); 
                 echo ' • ';
@@ -72,7 +72,7 @@ if ($is_vendor && file_exists(__DIR__ . '/vendor-sidebar.php')) {
                 </li>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo (strpos($current_page, 'vendors') !== false) ? 'active' : ''; ?>" 
-                       href="<?php echo SITE_URL; ?>admin/vendors/vendors.php">
+                       href="<?php echo SITE_URL; ?>admin/vendors/dashboard.php">
                         <i class="fas fa-store me-2"></i> Vendors
                     </a>
                 </li>
@@ -195,20 +195,20 @@ if ($is_vendor && file_exists(__DIR__ . '/vendor-sidebar.php')) {
 
 <style>
 .sidebar {
-    background: linear-gradient(40deg, #3a0ca3, #4361ee 100%) !important;
-    color: #ffffff !important;
-    width: 250px;
-    /* position: fixed; */
-    /* left: 0;
-    top: 0; */
-    /* height: ; */
+    background: linear-gradient(40deg, #fff, #fff 100%) !important;
+    color: #333 !important;
+    width: 240px;
+    position: fixed;
+    left: 0;
+    top: 77px;
+    height: 100vh;
     z-index: 1050;
     transition: transform 0.3s ease-in-out;
     overflow-y: auto;
 }
 
 .sidebar .nav-link {
-    color: rgba(255, 255, 255, 0.8) !important;
+    color:#333 !important;
     padding: 10px 15px;
     border-radius: 8px;
     margin-bottom: 5px;
@@ -216,14 +216,14 @@ if ($is_vendor && file_exists(__DIR__ . '/vendor-sidebar.php')) {
 }
 
 .sidebar .nav-link:hover {
-    color: #ffffff !important;
+    color: #333 !important;
     background: rgba(255, 255, 255, 0.1) !important;
     transform: translateX(5px);
 }
 
 .sidebar .nav-link.active {
-    background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%) !important;
-    color: #ffffff !important;
+    /* background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%) !important; */
+    color: #333 !important;
     box-shadow: 0 4px 15px rgba(67, 97, 238, 0.3);
 }
 

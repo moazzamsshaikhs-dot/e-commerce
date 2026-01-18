@@ -220,14 +220,14 @@ require_once 'includes/header.php';
                         </div>
                     </div>
                     <div class="col-md-6">
-                        <div class="form-check card p-3">
+                        <!-- <div class="form-check card p-3">
                             <input class="form-check-input" type="radio" name="register_as_vendor" 
                                    id="register_vendor" value="1" onclick="toggleVendorFields(true)">
                             <label class="form-check-label" for="register_vendor">
                                 <h5 class="mb-1"><i class="fas fa-store me-2"></i> Vendor</h5>
                                 <small class="text-muted">Sell your products on our platform</small>
                             </label>
-                        </div>
+                        </div> -->
                     </div>
                 </div>
             </div>

@@ -122,16 +122,18 @@ try {
     
 } catch(PDOException $e) {
     $error = 'Error loading payments: ' . $e->getMessage();
-    $payments = [];
-    $total_payments = 0;
-    $stats = [];
-    $payment_methods = [];
-    $customers = [];
+    // $payments = [];
+    // $total_payments = 0;
+    // $stats = [];
+    // $payment_methods = [];
+    // $customers = [];
 }
+$conn = mysqli_connect('localhost', 'root', '', 'ecommerce_db');
 ?>
 
 <div class="dashboard-container">
-    <?php include '../includes/sidebar.php'; ?>
+    <?php include '../includes/sidebar.php'; 
+    ?>
     
     <main class="main-content">
         <!-- Page Header -->
@@ -156,7 +158,7 @@ try {
         <!-- Statistics Cards -->
         <div class="row mb-4">
             <div class="col-xl-2 col-md-4 mb-4">
-                <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card border-left-primary shadow h-90 py-2">
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
                             <div class="col mr-2">
@@ -164,7 +166,12 @@ try {
                                     Total Payments
                                 </div>
                                 <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                    <?php echo number_format($stats['total_payments'] ?? 0); ?>
+                                   <?php
+                                    $selectAll = 'select count(*) as all_payments from payments';
+                                    $allQuery = mysqli_query($conn, $selectAll);
+                                    $allStats = mysqli_fetch_assoc($allQuery)
+                                        ?>
+                                    <?php echo $allStats["all_payments"] ?>
                                 </div>
                             </div>
                             <div class="col-auto">
@@ -176,7 +183,7 @@ try {
             </div>
             
             <div class="col-xl-2 col-md-4 mb-4">
-                <div class="card border-left-success shadow h-100 py-2">
+                <div class="card border-left-success shadow h-90 py-2">
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
                             <div class="col mr-2">
@@ -184,7 +191,13 @@ try {
                                     Completed
                                 </div>
                                 <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                    <?php echo number_format($stats['completed'] ?? 0); ?>
+                                    <?php
+                                    $completed = 'completed';
+                                    $selectCompleted = "select count(*) as completed_payments from payments where status = '$completed'";
+                                    $completedQuery = mysqli_query($conn, $selectCompleted);
+                                    $completedStats = mysqli_fetch_assoc($completedQuery);
+                                        ?>
+                                    <?php echo $completedStats["completed_payments"] ?>
                                 </div>
                             </div>
                             <div class="col-auto">
@@ -196,7 +209,7 @@ try {
             </div>
             
             <div class="col-xl-2 col-md-4 mb-4">
-                <div class="card border-left-warning shadow h-100 py-2">
+                <div class="card border-left-warning shadow h-90 py-2">
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
                             <div class="col mr-2">
@@ -204,7 +217,13 @@ try {
                                     Pending
                                 </div>
                                 <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                    <?php echo number_format($stats['pending'] ?? 0); ?>
+                                    <?php
+                                    $pending = 'pending';
+                                    $selectPending = "select count(*) as pending_payments from payments where status = '$pending'";
+                                    $pendingQuery = mysqli_query($conn, $selectPending);
+                                    $pendingStats = mysqli_fetch_assoc($pendingQuery);
+                                        ?>
+                                    <?php echo $pendingStats["pending_payments"] ?>
                                 </div>
                             </div>
                             <div class="col-auto">
@@ -216,7 +235,7 @@ try {
             </div>
             
             <div class="col-xl-2 col-md-4 mb-4">
-                <div class="card border-left-danger shadow h-100 py-2">
+                <div class="card border-left-danger shadow h-90 py-2">
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
                             <div class="col mr-2">
@@ -224,7 +243,13 @@ try {
                                     Failed
                                 </div>
                                 <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                    <?php echo number_format($stats['failed'] ?? 0); ?>
+                                    <?php
+                                    $failed = 'failed';
+                                    $selectFailed = "select count(*) as failed_payments from payments where status = '$failed'";
+                                    $failedQuery = mysqli_query($conn, $selectFailed);
+                                    $failedStats = mysqli_fetch_assoc($failedQuery);
+                                        ?>
+                                    <?php echo $failedStats["failed_payments"] ?>
                                 </div>
                             </div>
                             <div class="col-auto">
@@ -236,7 +261,7 @@ try {
             </div>
             
             <div class="col-xl-2 col-md-4 mb-4">
-                <div class="card border-left-info shadow h-100 py-2">
+                <div class="card border-left-info shadow h-90 py-2">
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
                             <div class="col mr-2">
@@ -244,7 +269,13 @@ try {
                                     Refunded
                                 </div>
                                 <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                    <?php echo number_format($stats['refunded'] ?? 0); ?>
+                                    <?php
+                                    $refunded = 'refunded';
+                                    $selectRefunded = "select count(*) as refunded_payments from payments where status = '$refunded'";
+                                    $refundedQuery = mysqli_query($conn, $selectRefunded);
+                                    $refundedStats = mysqli_fetch_assoc($refundedQuery);
+                                        ?>
+                                    <?php echo $refundedStats["refunded_payments"] ?>
                                 </div>
                             </div>
                             <div class="col-auto">
@@ -256,7 +287,7 @@ try {
             </div>
             
             <div class="col-xl-2 col-md-4 mb-4">
-                <div class="card border-left-success shadow h-100 py-2">
+                <div class="card border-left-success shadow h-100 py-3">
                     <div class="card-body">
                         <div class="row no-gutters align-items-center">
                             <div class="col mr-2">
@@ -264,7 +295,11 @@ try {
                                     Total Amount (30 days)
                                 </div>
                                 <div class="h5 mb-0 font-weight-bold text-gray-800">
-                                    $<?php echo number_format($stats['total_amount'] ?? 0, 2); ?>
+                                    $<?php
+                                    $selectdate = "select Date(amount) as date_payments, sum(amount) as total_sales from payments WHERE DATE(amount) >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+                                    $dateQuery = mysqli_query($conn, $selectdate);
+                                    $dateStats = mysqli_fetch_assoc($dateQuery)
+                                        ?>
                                 </div>
                             </div>
                             <div class="col-auto">
