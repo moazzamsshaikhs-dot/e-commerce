@@ -23,7 +23,15 @@ define('OTP_LENGTH', 6);
 define('UPLOAD_PATH', $_SERVER['DOCUMENT_ROOT'] . '/ecommerce-project/assets/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('ALLOWED_TYPES', ['jpg', 'jpeg', 'png', 'gif']);
-
+define('ALLOWED_MIME_TYPES', ['image/jpeg', 'image/png', 'image/gif']);
+define('THUMBNAIL_WIDTH', 150);
+define('THUMBNAIL_HEIGHT', 150);
+define('WATERMARK_TEXT', 'ShopEase Pro');
+define('NOTIFICATION_EMAIL', 'admin@shopease.com');
+define('SUPPORT_EMAIL', 'support@shopease.com');
+define('SALES_EMAIL', 'sales@shopease.com');
+define('NO_REPLY_EMAIL', 'no-reply@shopease.com');
+define('SEND_NOTIFICATIONS', 'true');
 // Start Session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();

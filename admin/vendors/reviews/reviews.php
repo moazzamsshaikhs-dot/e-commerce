@@ -141,6 +141,9 @@ try {
                 <a href="responses.php" class="btn btn-primary">
                     <i class="fas fa-reply me-2"></i> Review Responses
                 </a>
+                <a href="ratings.php" class="btn btn-primary">
+                    <i class="fas fa-star me-2"></i> Ratings
+                </a>
             </div>
         </div>
         

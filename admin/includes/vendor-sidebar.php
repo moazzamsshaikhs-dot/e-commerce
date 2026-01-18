@@ -208,7 +208,7 @@ $is_approved = ($vendor_status === 'approved');
             <!-- Settings -->
             <li class="nav-item mb-2">
                 <a class="nav-link <?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>" 
-                   href="<?php echo SITE_URL; ?>vendors/settings/settings.php">
+                   href="<?php echo SITE_URL; ?>admin/vendors/settings/settings.php">
                     <i class="fas fa-cog me-3"></i> Settings
                 </a>
             </li>
