@@ -293,7 +293,7 @@ require_once '../../includes/header.php';
                                 </div>
                             </a>
                             
-                            <a href="<?php echo SITE_URL; ?>contact.php" class="list-group-item list-group-item-action border-0 px-0 py-3">
+                            <a href="<?php echo SITE_URL; ?>admin/vendors/help/contact-admin.php" class="list-group-item list-group-item-action border-0 px-0 py-3">
                                 <div class="d-flex">
                                     <div class="avatar-sm bg-success bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3">
                                         <i class="fas fa-envelope text-success"></i>
