@@ -32,6 +32,7 @@ define('SUPPORT_EMAIL', 'support@shopease.com');
 define('SALES_EMAIL', 'sales@shopease.com');
 define('NO_REPLY_EMAIL', 'no-reply@shopease.com');
 define('SEND_NOTIFICATIONS', 'true');
+define('SITE_PHONE', '03132842740');
 // Start Session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();

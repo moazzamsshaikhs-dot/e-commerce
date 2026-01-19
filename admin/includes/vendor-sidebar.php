@@ -68,7 +68,7 @@ $is_approved = ($vendor_status === 'approved');
                      alt="Profile" class="rounded-circle border border-3 border-white" width="80" height="80"
                      onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
             </div>
-            <h6 class="mb-1 text-white fw-bold"><?php echo $_SESSION['full_name']; ?></h6>
+            <h6 class="mb-1 text-black-10 fw-bold"><?php echo $_SESSION['full_name']; ?></h6>
             <small class="text-white-75">
                 <i class="fas fa-store me-1"></i> Vendor
                 <?php if ($vendor_status): ?>
@@ -220,26 +220,26 @@ $is_approved = ($vendor_status === 'approved');
             <ul class="nav flex-column">
                 <?php if ($is_approved): ?>
                 <li class="nav-item mb-2">
-                    <a class="nav-link" href="<?php echo SITE_URL; ?>vendors/reports/sales.php">
+                    <a class="nav-link" href="<?php echo SITE_URL; ?>admin/vendors/reports/sales.php">
                         <i class="fas fa-chart-line me-3"></i> Sales Reports
                     </a>
                 </li>
                 
                 <li class="nav-item mb-2">
-                    <a class="nav-link" href="<?php echo SITE_URL; ?>vendors/reports/performance.php">
+                    <a class="nav-link" href="<?php echo SITE_URL; ?>admin/vendors/reports/performance.php">
                         <i class="fas fa-chart-bar me-3"></i> Performance
                     </a>
                 </li>
                 
                 <li class="nav-item mb-2">
-                    <a class="nav-link" href="<?php echo SITE_URL; ?>vendors/inventory/inventory.php">
+                    <a class="nav-link" href="<?php echo SITE_URL; ?>admin/vendors/inventory/inventory.php">
                         <i class="fas fa-warehouse me-3"></i> Inventory
                     </a>
                 </li>
                 <?php endif; ?>
                 
                 <li class="nav-item mb-2">
-                    <a class="nav-link" href="<?php echo SITE_URL; ?>vendors/help/support.php">
+                    <a class="nav-link" href="<?php echo SITE_URL; ?>admin/vendors/help/support.php">
                         <i class="fas fa-question-circle me-3"></i> Vendor Support
                     </a>
                 </li>
