@@ -445,5 +445,36 @@ if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
 }
 */
 
-?>
 
+
+
+
+// Helper function for redirect
+// function redirect($url) {
+//     header("Location: $url");
+//     exit();
+// }
+
+// Helper function for logging vendor activities
+function logVendorActivity($user_id, $activity_type, $description) {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            INSERT INTO user_activities 
+            (user_id, activity_type, description, ip_address, user_agent, created_at)
+            VALUES (?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            $user_id,
+            $activity_type,
+            $description,
+            $_SERVER['REMOTE_ADDR'],
+            $_SERVER['HTTP_USER_AGENT']
+        ]);
+    } catch(Exception $e) {
+        // Log to file if database fails
+        error_log("Activity Log Error: " . $e->getMessage());
+    }
+}
+
+?>

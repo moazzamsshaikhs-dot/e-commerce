@@ -88,15 +88,13 @@ try {
                      LEFT JOIN users u ON p.user_id = u.id
                      LEFT JOIN orders o ON p.order_id = o.id
                      WHERE $where_sql
-                     ORDER BY p.created_at DESC
-                     LIMIT ? OFFSET ?";
-    
-    $all_params = array_merge($params, [$limit, $offset]);
+                     ORDER BY p.created_at DESC";
+                 //   LIMIT ? OFFSET ?
+    //$all_params = array_merge($params, [$limit, $offset]);
     
     $stmt = $db->prepare($payments_sql);
-    $stmt->execute($all_params);
+    $stmt->execute($params);
     $payments = $stmt->fetchAll();
-    
     // Get statistics
     $stats_sql = "SELECT 
                     COUNT(*) as total_payments,
@@ -296,9 +294,9 @@ $conn = mysqli_connect('localhost', 'root', '', 'ecommerce_db');
                                 </div>
                                 <div class="h5 mb-0 font-weight-bold text-gray-800">
                                     $<?php
-                                    $selectdate = "select Date(amount) as date_payments, sum(amount) as total_sales from payments WHERE DATE(amount) >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
-                                    $dateQuery = mysqli_query($conn, $selectdate);
-                                    $dateStats = mysqli_fetch_assoc($dateQuery)
+                                    $selecttotalAmount = "select SUM(amount) as total_amount from payments where created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+                                    $totalAmountQuery = mysqli_query($conn, $selecttotalAmount);
+                                    $total_payments = mysqli_fetch_assoc($totalAmountQuery);
                                         ?>
                                 </div>
                             </div>

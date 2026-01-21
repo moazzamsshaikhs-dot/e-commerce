@@ -310,7 +310,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                             <img src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
                                  alt="Profile" class="rounded-circle border border-4 border-white shadow" 
                                  width="150" height="150" style="object-fit: cover;"
-                                 onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
+                                 onerror="this.src='<?php echo SITE_URL; ?>assets/images/profiles/default.png'">
                             <button class="btn btn-primary btn-sm position-absolute bottom-0 end-0 rounded-circle" 
                                     data-bs-toggle="modal" data-bs-target="#avatarModal" style="width: 40px; height: 40px;">
                                 <i class="fas fa-camera"></i>
@@ -428,7 +428,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                         </h5>
                     </div>
                     <div class="card-body">
-                        <form method="POST" action="">
+                        <form method="POST">
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label fw-bold">Full Name *</label>
@@ -636,7 +636,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                 </div>
                 <div class="modal-body">
                     <div class="text-center mb-4">
-                        <img id="avatarPreview" src="<?php echo SITE_URL; ?>assets/images/avatars/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
+                        <img id="avatarPreview" src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
                              alt="Preview" class="rounded-circle border" width="150" height="150" style="object-fit: cover;"
                              onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
                     </div>
