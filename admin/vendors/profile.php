@@ -176,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (move_uploaded_file($_FILES['profile_pic']['tmp_name'], $upload_path)) {
                     // Delete old profile picture if not default
                     if ($vendor['profile_pic'] && $vendor['profile_pic'] != 'default.png') {
-                        $old_file = SITE_URL .  'assets/images/avatars/' . $vendor['profile_pic'];
+                        $old_file = SITE_URL .  'assets/images/profiles/' . $vendor['profile_pic'];
                         if (file_exists($old_file)) {
                             unlink($old_file);
                         }
@@ -229,11 +229,11 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
             // Generate unique filename
             $file_ext = pathinfo($_FILES['document_file']['name'], PATHINFO_EXTENSION);
             $document_file = 'doc_' . $vendor_id . '_' . time() . '.' . $file_ext;
-            $upload_path = '../assets/uploads/documents/' . $document_file;
+            $upload_path = SITE_URL . 'uploads/documents/' . $document_file;
             
             // Create directory if not exists
-            if (!is_dir('../assets/uploads/documents/')) {
-                mkdir('../assets/uploads/documents/', 0777, true);
+            if (!is_dir(SITE_URL . 'uploads/documents/')) {
+                mkdir(SITE_URL . 'uploads/documents/', 0777, true);
             }
             
             if (move_uploaded_file($_FILES['document_file']['tmp_name'], $upload_path)) {
@@ -310,7 +310,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                             <img src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
                                  alt="Profile" class="rounded-circle border border-4 border-white shadow" 
                                  width="150" height="150" style="object-fit: cover;"
-                                 onerror="this.src='<?php echo SITE_URL; ?>assets/images/profiles/default.png'">
+                                 onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
                             <button class="btn btn-primary btn-sm position-absolute bottom-0 end-0 rounded-circle" 
                                     data-bs-toggle="modal" data-bs-target="#avatarModal" style="width: 40px; height: 40px;">
                                 <i class="fas fa-camera"></i>
@@ -600,7 +600,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <a href="../assets/uploads/documents/<?php echo $doc['document_file']; ?>" 
+                                                <a href="<?php echo SITE_URL; ?>uploads/documents/<?php echo $doc['document_file']; ?>" 
                                                    target="_blank" class="btn btn-sm btn-outline-primary">
                                                     <i class="fas fa-eye"></i>
                                                 </a>
@@ -638,7 +638,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                     <div class="text-center mb-4">
                         <img id="avatarPreview" src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
                              alt="Preview" class="rounded-circle border" width="150" height="150" style="object-fit: cover;"
-                             onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
+                             onerror="this.src='<?php echo SITE_URL; ?>assets/images/profiles/default.png'">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Choose new profile picture</label>

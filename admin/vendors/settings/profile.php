@@ -117,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Delete old profile picture if not default
                 if ($vendor['profile_pic'] !== 'default.png') {
-                    $old_file = dirname(SITE_URL) . '/uploads/profiles/' . $vendor['profile_pic'];
+                    $old_file = dirname(SITE_URL) . 'assets/images/profiles/' . $vendor['profile_pic'];
                     if (file_exists($old_file)) {
                         unlink($old_file);
                     }
@@ -167,7 +167,7 @@ function uploadProfileImage($file) {
     
     // Generate unique filename
     $new_filename = 'profile_' . $_SESSION['user_id'] . '_' . time() . '.' . $file_ext;
-    $upload_path = SITE_URL . 'uploads/profiles/' . $new_filename;
+    $upload_path = SITE_URL . 'assets/images/profiles/' . $new_filename;
     
     // Create directory if not exists
     $upload_dir = dirname($upload_path);
@@ -382,7 +382,7 @@ function uploadProfileImage($file) {
                                 <!-- Current Avatar -->
                                 <div class="text-center mb-4">
                                     <div class="avatar-preview mb-3">
-                                        <img src="<?php echo SITE_URL; ?>uploads/profiles/<?php echo htmlspecialchars($vendor['profile_pic']); ?>" 
+                                        <img src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo htmlspecialchars($vendor['profile_pic']); ?>" 
                                              alt="Profile Picture" class="rounded-circle" 
                                              style="width: 200px; height: 200px; object-fit: cover;">
                                     </div>

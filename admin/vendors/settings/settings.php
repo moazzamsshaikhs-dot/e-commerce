@@ -256,8 +256,8 @@ function uploadVendorImage($file, $type = 'logo') {
     }
     
     // Move uploaded file
-    if (!move_uploaded_file($file_tmp, $upload_path)) {
-        throw new Exception('Failed to upload file.');
+     if (!move_uploaded_file($file_tmp, $upload_path)) {
+         throw new Exception('Failed to upload file.');
     }
     
     // Resize image if needed

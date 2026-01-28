@@ -211,6 +211,8 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
     .sidebar {
     background: linear-gradient(40deg, #3a0ca3, #4361ee 100%) !important;
     color: #ffffff !important;
+    /* min-height: 100vh;
+    overflow-y: auto; */
     width: 250px;
 }
 

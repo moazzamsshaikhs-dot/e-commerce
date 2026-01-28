@@ -243,7 +243,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
                             <div class="text-center py-5">
                                 <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
                                 <p class="text-muted">No orders yet</p>
-                                <a href="<?php echo SITE_URL; ?>user/products.php" class="btn btn-primary">Start Shopping</a>
+                                <a href="<?php echo SITE_URL; ?>user/products/products.php" class="btn btn-primary">Start Shopping</a>
                             </div>
                         <?php else: ?>
                             <div class="table-responsive">
