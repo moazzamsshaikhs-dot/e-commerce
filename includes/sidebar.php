@@ -186,7 +186,7 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                         </a>
                     </li>
                     <li class="nav-item mb-2">
-                        <a class="nav-link" href="<?php echo SITE_URL; ?>user/support.php">
+                        <a class="nav-link" href="<?php echo SITE_URL; ?>user/support/support.php">
                             <i class="fas fa-question-circle me-2"></i> Help Center
                         </a>
                     </li>
