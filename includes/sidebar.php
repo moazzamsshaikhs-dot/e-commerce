@@ -162,12 +162,12 @@ $is_admin = ($_SESSION['user_type'] === 'admin');
                         <i class="fas fa-heart me-2"></i> Wishlist
                     </a>
                 </li>
-                <li class="nav-item mb-2">
+                <!-- <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'upgrade.php') ? 'active' : ''; ?>" 
                        href="<?php echo SITE_URL; ?>user/upgrade/upgrade.php">
                         <i class="fas fa-crown me-2"></i> Upgrade Plan
                     </a>
-                </li>
+                </li> -->
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo ($current_page == 'settings.php') ? 'active' : ''; ?>" 
                        href="<?php echo SITE_URL; ?>user/settings/settings.php">

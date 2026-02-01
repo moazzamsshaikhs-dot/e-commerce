@@ -1,0 +1,7 @@
+{
+    "require": {
+        "stripe/stripe-php": "^14.0",
+        "paypal/paypal-checkout-sdk": "^1.0",
+        "razorpay/razorpay": "^2.9"
+    }
+}

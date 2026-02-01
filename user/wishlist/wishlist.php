@@ -47,7 +47,7 @@ logUserActivity($user_id, 'wishlist_view', 'Viewed wishlist');
                     <p class="text-muted mb-0"><?php echo $total_items; ?> items saved</p>
                 </div>
                 <div>
-                    <a href="<?php echo SITE_URL; ?>shop" class="btn btn-primary">
+                    <a href="<?php echo SITE_URL; ?>user/orders/shop.php" class="btn btn-primary">
                         <i class="fas fa-plus me-2"></i> Continue Shopping
                     </a>
                 </div>
@@ -61,7 +61,7 @@ logUserActivity($user_id, 'wishlist_view', 'Viewed wishlist');
                     <i class="fas fa-heart fa-4x text-muted mb-4"></i>
                     <h4>Your wishlist is empty</h4>
                     <p class="text-muted mb-4">Save your favorite products here for easy access</p>
-                    <a href="<?php echo SITE_URL; ?>shop" class="btn btn-primary btn-lg">
+                    <a href="<?php echo SITE_URL; ?>/user/orders/shop.php" class="btn btn-primary btn-lg">
                         <i class="fas fa-shopping-bag me-2"></i> Start Shopping
                     </a>
                 </div>

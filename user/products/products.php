@@ -148,7 +148,7 @@ logUserActivity($_SESSION['user_id'], 'products_view', 'Viewed products page');
                         <!-- Product Image -->
                         <div class="position-relative">
                             <?php if($product['image']): ?>
-                                <img src="<?php echo SITE_URL . 'uploads/products/' . $product['image']; ?>" 
+                                <img src="<?php echo SITE_URL . 'assets/images/products/' . $product['image']; ?>" 
                                      class="card-img-top product-image" 
                                      alt="<?php echo htmlspecialchars($product['name']); ?>"
                                      style="height: 200px; object-fit: cover;">
@@ -244,6 +244,10 @@ logUserActivity($_SESSION['user_id'], 'products_view', 'Viewed products page');
                                             data-product-name="<?php echo htmlspecialchars($product['name']); ?>">
                                         <i class="fas fa-cart-plus me-2"></i> Add to Cart
                                     </button>
+                                       <a href="../orders/product-details.php?id=<?php echo $product['id']; ?>" 
+                                           class="text-decoration-none  w-100 btn btn-outline-primary mt-2">
+                                           Details
+                                        </a>
                                 <?php else: ?>
                                     <button class="btn btn-secondary w-100 mt-3" disabled>
                                         <i class="fas fa-times me-2"></i> Out of Stock
@@ -343,7 +347,7 @@ $(document).ready(function() {
         let productName = $(this).data('product-name');
         
         $.ajax({
-            url: '../../ajax/add-to-cart.php',
+            url: '../ajax/add-to-cart.php',
             type: 'POST',
             data: { product_id: productId, quantity: 1 },
             dataType: 'json',
@@ -385,7 +389,7 @@ $(document).ready(function() {
         let isInWishlist = button.data('in-wishlist') || false;
         
         $.ajax({
-            url: '../../ajax/toggle-wishlist.php',
+            url: '../ajax/toggle-wishlist.php',
             type: 'POST',
             data: { product_id: productId, action: isInWishlist ? 'remove' : 'add' },
             dataType: 'json',

@@ -101,7 +101,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
     <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-light bg-white fixed-top shadow-sm">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="<?php echo SITE_URL; ?>dashboard.php">
+            <a class="navbar-brand fw-bold" href="<?php echo SITE_URL; ?>user/dashboard.php">
                 <i class="fas fa-shopping-bag text-primary me-2"></i>
                 ShopEase<span class="text-primary">Pro</span>
             </a>
@@ -114,7 +114,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>" 
-                           href="/git-clone/e-commerce/signup.php">
+                           href="<?php echo SITE_URL; ?>signup.php">
                             <i class="fas fa-home me-1"></i> Signup
                         </a>
                     </li>
@@ -129,7 +129,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
                             </a>
                             <ul class="dropdown-menu">
                                 <?php if (isAdmin()): ?>
-                                    <li><a class="dropdown-item" href="/e-commerce/admin/dashboard.php">
+                                    <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>admin/dashboard.php">
                                         <i class="fas fa-tachometer-alt me-2"></i> Admin Dashboard
                                     </a></li>
                                 <?php else: ?>

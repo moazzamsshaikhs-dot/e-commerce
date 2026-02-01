@@ -80,7 +80,7 @@ logUserActivity($user_id, 'orders_view', 'Viewed orders list');
                     <p class="text-muted mb-0">Manage and track your orders</p>
                 </div>
                 <div>
-                    <a href="<?php echo SITE_URL; ?>orders/shop.php" class="btn btn-primary">
+                    <a href="<?php echo SITE_URL; ?>user/orders/shop.php" class="btn btn-primary">
                         <i class="fas fa-plus me-2"></i> Shop Now
                     </a>
                 </div>
@@ -168,7 +168,7 @@ logUserActivity($user_id, 'orders_view', 'Viewed orders list');
                         <i class="fas fa-shopping-cart fa-3x text-muted mb-3"></i>
                         <h4>No orders found</h4>
                         <p class="text-muted">You haven't placed any orders yet.</p>
-                        <a href="<?php echo SITE_URL; ?>orders/shop.php" class="btn btn-primary">
+                        <a href="<?php echo SITE_URL; ?>user/orders/shop.php" class="btn btn-primary">
                             <i class="fas fa-shopping-bag me-2"></i> Start Shopping
                         </a>
                     </div>

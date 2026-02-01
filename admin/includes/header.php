@@ -129,12 +129,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
                             </a>
                             <ul class="dropdown-menu">
                                 <?php if (isAdmin()): ?>
-                                    <li><a class="dropdown-item" href="/e-commerce/admin/dashboard.php">
+                                    <li><a class="dropdown- item" href="<?php echo SITE_URL; ?>admin/dashboard.php">
                                         <i class="fas fa-tachometer-alt me-2"></i> Admin Dashboard
                                     </a></li>
                                 <?php else: ?>
-                                    <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>user/dashboard.php">
-                                        <i class="fas fa-tachometer-alt me-2"></i> User Dashboard
+                                    <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>admin/vendors/dashboard.php">
+                                        <i class="fas fa-tachometer-alt me-2"></i> Vendor Dashboard
                                     </a></li>
                                 <?php endif; ?>
                                 <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>profile.php">
