@@ -446,6 +446,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
                                     <i class="fas fa-cart-plus me-2"></i> 
                                     <?php echo $product['stock'] == 0 ? 'Out of Stock' : 'Add to Cart'; ?>
                                 </button>
+                                <a href="payment.php?id=<?php echo $product['id']; ?>" 
+                                    class="text-decoration-none  w-100 btn btn-outline-primary mt-2">
+                                    <i class="fas fa-bolt me-2"></i> Buy Now
+                                 </a>
+
                             </div>
                         </div>
                     </form>
@@ -621,7 +626,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
                             <div class="position-relative" style="height: 200px;">
                                 <a href="product-details.php?id=<?php echo $similar['id']; ?>">
                                     <?php if ($similar['image']): ?>
-                                        <img src="<?php echo SITE_URL . 'uploads/products/' . $similar['image']; ?>" 
+                                        <img src="<?php echo SITE_URL . 'assets/images/products/' . $similar['image']; ?>" 
                                              class="card-img-top h-100 object-fit-cover" 
                                              alt="<?php echo htmlspecialchars($similar['name']); ?>">
                                     <?php else: ?>

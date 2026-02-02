@@ -67,7 +67,7 @@ logUserActivity($user_id, 'order_details', 'Viewed order details: ' . $order['or
 ?>
 
 <div class="dashboard-container">
-    <?php include '../../includes/sidebar.php'; ?>
+    
     
     <main class="main-content">
         <!-- Header -->
@@ -128,7 +128,7 @@ logUserActivity($user_id, 'order_details', 'Viewed order details: ' . $order['or
                                                         <h6 class="mb-0"><?php echo htmlspecialchars($item['product_name'] ?? $item['description']); ?></h6>
                                                         <?php if ($item['product_id']): ?>
                                                             <small>
-                                                                <a href="<?php echo SITE_URL; ?>product.php?id=<?php echo $item['product_id']; ?>" 
+                                                                <a href="<?php echo SITE_URL; ?>user/orders/product-details.php?id=<?php echo $item['product_id']; ?>" 
                                                                    class="text-decoration-none">
                                                                     View Product
                                                                 </a>

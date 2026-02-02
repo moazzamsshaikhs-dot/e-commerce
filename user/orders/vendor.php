@@ -238,7 +238,7 @@ $business_hours = json_decode($vendor['business_hours'] ?? '[]', true);
                                             <div class="position-relative" style="height: 200px;">
                                                 <a href="product-details.php?id=<?php echo $product['id']; ?>">
                                                     <?php if ($product['image']): ?>
-                                                        <img src="<?php echo SITE_URL . 'uploads/products/' . $product['image']; ?>" 
+                                                        <img src="<?php echo SITE_URL . 'assets/images/products/' . $product['image']; ?>" 
                                                              class="card-img-top h-100 object-fit-cover" 
                                                              alt="<?php echo htmlspecialchars($product['name']); ?>">
                                                     <?php else: ?>
