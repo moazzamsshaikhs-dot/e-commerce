@@ -381,6 +381,10 @@ logUserActivity($_SESSION['user_id'], 'shop_access', 'Accessed shop page');
                                                         <i class="fas fa-plus"></i>
                                                     </button>
                                                 </div>
+                                                <a href="product-details.php?id=<?php echo $product['id']; ?>" 
+                                           class="text-decoration-none  w-100 btn btn-outline-primary mt-2">
+                                           Details
+                                        </a>
                                             <?php else: ?>
                                                 <button class="btn btn-primary w-100 add-to-cart" 
                                                         data-product-id="<?php echo $product['id']; ?>"
@@ -388,10 +392,7 @@ logUserActivity($_SESSION['user_id'], 'shop_access', 'Accessed shop page');
                                                     <i class="fas fa-cart-plus me-2"></i> Add to Cart
                                                 </button>
 
-                                                <a href="product-details.php?id=<?php echo $product['id']; ?>" 
-                                           class="text-decoration-none  w-100 btn btn-outline-primary mt-2">
-                                           Details
-                                        </a>
+                                                
                                         
                                             <?php endif; ?>
                                         <?php else: ?>

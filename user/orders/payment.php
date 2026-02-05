@@ -2,34 +2,37 @@
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
-// Check if user is not admin
-if ($_SESSION['user_type'] === 'admin') {
-    $_SESSION['error'] = 'Access denied. User dashboard only.';
-    redirect(SITE_URL . 'admin/dashboard.php');
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    $_SESSION['error'] = 'Please login to continue';
+    redirect(SITE_URL . 'login.php');
 }
 
+// Check if product ID is provided
 if (!isset($_GET['id']) || empty($_GET['id'])) {
     $_SESSION['error'] = 'Product not found';
     redirect('shop.php');
 }
 
-$page_title = 'Checkout & Payment';
+$page_title = 'Buy Now - Payment';
 require_once '../../includes/header.php';
 
 $db = getDB();
 $product_id = (int)$_GET['id'];
+$user_id = $_SESSION['user_id'];
 
 // Get product details with vendor info
 $stmt = $db->prepare("
     SELECT p.*, 
            c.name as category_name,
-           u.id as vendor_id,
            u.username as vendor_username,
            u.full_name as vendor_name,
-           u.vendor_rating,
+           u.id as vendor_id,
            vs.store_name,
-           vs.store_logo,
-           vs.payment_methods
+           vs.payment_methods,
+           vs.store_currency,
+           vs.min_order_amount,
+           vs.free_shipping_threshold
     FROM products p
     LEFT JOIN categories c ON p.category = c.slug
     LEFT JOIN users u ON p.vendor_id = u.id
@@ -45,681 +48,807 @@ if (!$product) {
     redirect('shop.php');
 }
 
-// Get user details for billing
-$stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
-$stmt->execute([$_SESSION['user_id']]);
-$user = $stmt->fetch();
+// Get quantity from query string or default to 1
+$quantity = isset($_GET['quantity']) ? max(1, (int)$_GET['quantity']) : 1;
 
-// Parse vendor payment methods
-$vendor_payment_methods = json_decode($product['payment_methods'] ?? '[]', true);
-
-// Get available payment methods
-$payment_methods = [
-    'credit_card' => [
-        'name' => 'Credit/Debit Card',
-        'icon' => 'fas fa-credit-card',
-        'color' => 'primary',
-        'description' => 'Visa, MasterCard, American Express',
-        'enabled' => true
-    ],
-    'paypal' => [
-        'name' => 'PayPal',
-        'icon' => 'fab fa-paypal',
-        'color' => 'primary',
-        'description' => 'Pay with PayPal account',
-        'enabled' => true
-    ],
-    'bank_transfer' => [
-        'name' => 'Bank Transfer',
-        'icon' => 'fas fa-university',
-        'color' => 'success',
-        'description' => 'Direct bank transfer',
-        'enabled' => true
-    ],
-    'cash_on_delivery' => [
-        'name' => 'Cash on Delivery',
-        'icon' => 'fas fa-money-bill-wave',
-        'color' => 'success',
-        'description' => 'Pay when you receive',
-        'enabled' => true
-    ]
-];
-
-// Filter payment methods based on vendor settings
-if (!empty($vendor_payment_methods) && is_array($vendor_payment_methods)) {
-    foreach ($payment_methods as $key => $method) {
-        if (!in_array($key, $vendor_payment_methods)) {
-            $payment_methods[$key]['enabled'] = false;
-        }
-    }
+// Check stock
+if ($product['stock'] < $quantity) {
+    $_SESSION['error'] = 'Requested quantity exceeds available stock';
+    redirect('product-details.php?id=' . $product_id);
 }
 
-// Get shipping address if exists
-$shipping_address = $user['address'] ?? '';
-$billing_address = $user['billing_address'] ?? $shipping_address;
-
 // Calculate totals
-$subtotal = $product['price'];
-$shipping_fee = 5.00; // Fixed shipping for demo
+$subtotal = $product['price'] * $quantity;
+$shipping = 10.00; // Default shipping, can be dynamic
 $tax_rate = 0.10; // 10% tax
 $tax_amount = $subtotal * $tax_rate;
-$total = $subtotal + $shipping_fee + $tax_amount;
+$total_amount = $subtotal + $shipping + $tax_amount;
 
-// Process payment
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $payment_method = $_POST['payment_method'] ?? '';
-    $quantity = (int)($_POST['quantity'] ?? 1);
-    $use_same_address = isset($_POST['use_same_address']);
+// Check minimum order amount
+if ($product['min_order_amount'] > 0 && $subtotal < $product['min_order_amount']) {
+    $_SESSION['error'] = 'Minimum order amount is $' . number_format($product['min_order_amount'], 2);
+    redirect('product-details.php?id=' . $product_id);
+}
+
+// Check for free shipping
+if ($product['free_shipping_threshold'] > 0 && $subtotal >= $product['free_shipping_threshold']) {
+    $shipping = 0;
+    $total_amount = $subtotal + $tax_amount;
+}
+
+// Parse vendor payment methods
+$vendor_payment_methods = [];
+if (!empty($product['payment_methods'])) {
+    $vendor_payment_methods = json_decode($product['payment_methods'], true);
+}
+
+// Get user's saved payment methods
+$user_payment_methods = [];
+$stmt = $db->prepare("SELECT * FROM user_payment_methods WHERE user_id = ?");
+$stmt->execute([$user_id]);
+$user_payment_methods = $stmt->fetchAll();
+
+// Get user address
+$user_address = '';
+$stmt = $db->prepare("SELECT address, city, country, postal_code FROM users WHERE id = ?");
+$stmt->execute([$user_id]);
+$user = $stmt->fetch();
+if ($user) {
+    $user_address = $user['address'] . ', ' . $user['city'] . ', ' . $user['country'] . ' ' . $user['postal_code'];
+}
+
+// Handle payment submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['process_payment'])) {
+    $payment_method = trim($_POST['payment_method']);
+    $card_number = trim($_POST['card_number'] ?? '');
+    $card_expiry = trim($_POST['card_expiry'] ?? '');
+    $card_cvv = trim($_POST['card_cvv'] ?? '');
+    $card_holder = trim($_POST['card_holder'] ?? '');
+    $use_saved_card = isset($_POST['use_saved_card']) ? true : false;
+    $saved_card_id = (int)($_POST['saved_card_id'] ?? 0);
+    $billing_address = trim($_POST['billing_address'] ?? '');
+    $shipping_address = trim($_POST['shipping_address'] ?? '');
+    $notes = trim($_POST['notes'] ?? '');
     
-    // Get addresses
-    $shipping_name = trim($_POST['shipping_name']);
-    $shipping_phone = trim($_POST['shipping_phone']);
-    $shipping_address = trim($_POST['shipping_address']);
-    $shipping_city = trim($_POST['shipping_city']);
-    $shipping_country = trim($_POST['shipping_country']);
-    $shipping_postal = trim($_POST['shipping_postal']);
-    
-    if ($use_same_address) {
-        $billing_name = $shipping_name;
-        $billing_phone = $shipping_phone;
-        $billing_address = $shipping_address;
-        $billing_city = $shipping_city;
-        $billing_country = $shipping_country;
-        $billing_postal = $shipping_postal;
-    } else {
-        $billing_name = trim($_POST['billing_name']);
-        $billing_phone = trim($_POST['billing_phone']);
-        $billing_address = trim($_POST['billing_address']);
-        $billing_city = trim($_POST['billing_city']);
-        $billing_country = trim($_POST['billing_country']);
-        $billing_postal = trim($_POST['billing_postal']);
-    }
-    
-    // Validate
+    // Validation
     $errors = [];
-    if ($quantity < 1 || $quantity > $product['stock']) {
-        $errors[] = 'Invalid quantity';
-    }
+    
     if (empty($payment_method)) {
         $errors[] = 'Please select a payment method';
     }
-    if (empty($shipping_name) || empty($shipping_address) || empty($shipping_phone)) {
-        $errors[] = 'Please fill all required shipping fields';
+    
+    if ($payment_method === 'card' && !$use_saved_card) {
+        if (empty($card_number)) {
+            $errors[] = 'Card number is required';
+        }
+        if (empty($card_expiry)) {
+            $errors[] = 'Card expiry date is required';
+        }
+        if (empty($card_cvv)) {
+            $errors[] = 'Card CVV is required';
+        }
+        if (empty($card_holder)) {
+            $errors[] = 'Card holder name is required';
+        }
+    }
+    
+    if (empty($shipping_address)) {
+        $errors[] = 'Shipping address is required';
+    }
+    
+    // Check if vendor accepts this payment method
+    if (!empty($vendor_payment_methods) && !in_array($payment_method, $vendor_payment_methods)) {
+        $errors[] = 'This vendor does not accept ' . $payment_method . ' payments';
     }
     
     if (empty($errors)) {
         try {
-            // Start transaction
             $db->beginTransaction();
             
             // Generate order number
-            $order_number = 'ORD-' . date('Ymd') . '-' . str_pad($_SESSION['user_id'], 4, '0', STR_PAD_LEFT) . '-' . time();
+            $order_number = 'ORD-' . date('Ymd') . '-' . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT) . '-' . mt_rand(1000, 9999);
             
-            // Create order
+            // 1. Create order
             $stmt = $db->prepare("
                 INSERT INTO orders (
-                    user_id, order_number, total_amount, status, payment_method, 
-                    payment_status, shipping_address, billing_address, 
-                    order_date, estimated_delivery
-                ) VALUES (?, ?, ?, 'pending', ?, 'pending', ?, ?, NOW(), 
-                DATE_ADD(NOW(), INTERVAL 7 DAY))
+                    user_id, order_number, total_amount, status, payment_method, payment_status,
+                    shipping_address, billing_address, shipping_method, order_date, estimated_delivery
+                ) VALUES (?, ?, ?, 'pending', ?, 'pending', ?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 7 DAY))
             ");
-            
-            $shipping_full = implode(', ', [
-                $shipping_name,
-                $shipping_address,
-                $shipping_city,
-                $shipping_country,
-                $shipping_postal,
-                'Phone: ' . $shipping_phone
-            ]);
-            
-            $billing_full = implode(', ', [
-                $billing_name,
-                $billing_address,
-                $billing_city,
-                $billing_country,
-                $billing_postal,
-                'Phone: ' . $billing_phone
-            ]);
-            
             $stmt->execute([
-                $_SESSION['user_id'],
+                $user_id,
                 $order_number,
-                $total * $quantity,
+                $total_amount,
                 $payment_method,
-                $shipping_full,
-                $billing_full
+                $shipping_address,
+                $billing_address ?: $shipping_address,
+                'standard'
             ]);
-            
             $order_id = $db->lastInsertId();
             
-            // Add order item
+            // 2. Add order items
             $stmt = $db->prepare("
-                INSERT INTO order_items (
-                    order_id, product_id, quantity, unit_price, subtotal
-                ) VALUES (?, ?, ?, ?, ?)
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+                VALUES (?, ?, ?, ?, ?)
+            ");
+            $order_item_subtotal = $product['price'] * $quantity;
+            $stmt->execute([$order_id, $product_id, $quantity, $product['price'], $order_item_subtotal]);
+            $order_item_id = $db->lastInsertId();
+            
+            // 3. Create payment record
+            $transaction_id = strtoupper(bin2hex(random_bytes(6)));
+            $stmt = $db->prepare("
+                INSERT INTO payments (
+                    user_id, order_id, payment_method, transaction_id, amount, currency, status, payment_details, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, NOW())
             ");
             
-            $item_subtotal = $subtotal * $quantity;
-            $stmt->execute([
-                $order_id,
-                $product_id,
-                $quantity,
-                $subtotal,
-                $item_subtotal
+            $payment_details = json_encode([
+                'card_last4' => substr($card_number, -4),
+                'card_holder' => $card_holder,
+                'billing_address' => $billing_address,
+                'shipping_address' => $shipping_address,
+                'quantity' => $quantity,
+                'vendor_id' => $product['vendor_id']
             ]);
             
-            // Create vendor earnings record
+            $stmt->execute([
+                $user_id,
+                $order_id,
+                $payment_method,
+                $transaction_id,
+                $total_amount,
+                $product['store_currency'] ?? 'USD',
+                $payment_details
+            ]);
+            $payment_id = $db->lastInsertId();
+            
+            // 4. Create vendor earnings record
+            $commission_rate = 10.00; // Default 10% commission
+            $commission_amount = ($product['price'] * $quantity) * ($commission_rate / 100);
+            $vendor_amount = ($product['price'] * $quantity) - $commission_amount;
+            
             $stmt = $db->prepare("
                 INSERT INTO vendor_earnings (
-                    vendor_id, order_id, product_id, order_item_id,
-                    product_price, commission, commission_amount, vendor_amount,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, 10, ?, ?, 'pending')
+                    vendor_id, order_id, product_id, order_item_id, product_price, 
+                    commission, commission_amount, vendor_amount, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
             ");
-            
-            $commission_amount = ($item_subtotal * 10) / 100;
-            $vendor_amount = $item_subtotal - $commission_amount;
-            
             $stmt->execute([
                 $product['vendor_id'],
                 $order_id,
                 $product_id,
-                $db->lastInsertId(), // order_item_id
-                $subtotal,
+                $order_item_id,
+                $product['price'],
+                $commission_rate,
                 $commission_amount,
                 $vendor_amount
             ]);
             
-            // Create payment record
-            $stmt = $db->prepare("
-                INSERT INTO payments (
-                    user_id, order_id, payment_method, transaction_id,
-                    amount, currency, status, payment_details, created_at
-                ) VALUES (?, ?, ?, ?, ?, 'USD', 'pending', ?, NOW())
-            ");
-            
-            $transaction_id = strtoupper(substr(md5(time()), 0, 12));
-            $payment_details = json_encode([
-                'shipping_address' => $shipping_full,
-                'billing_address' => $billing_full,
-                'quantity' => $quantity
-            ]);
-            
-            $stmt->execute([
-                $_SESSION['user_id'],
-                $order_id,
-                $payment_method,
-                $transaction_id,
-                $total * $quantity,
-                $payment_details
-            ]);
-            
-            // Update product stock
+            // 5. Update product stock and sales count
             $stmt = $db->prepare("
                 UPDATE products 
-                SET stock = stock - ?, sales_count = sales_count + ?
+                SET stock = stock - ?, 
+                    sales_count = sales_count + ?,
+                    updated_at = NOW()
                 WHERE id = ?
             ");
             $stmt->execute([$quantity, $quantity, $product_id]);
             
-            // Update user statistics
-            $stmt = $db->prepare("
-                UPDATE users 
-                SET total_sales = total_sales + ?
-                WHERE id = ? AND user_type = 'vendor'
-            ");
-            $stmt->execute([$quantity, $product['vendor_id']]);
-            
-            // Commit transaction
-            $db->commit();
-            
-            // Process payment based on method
-            switch ($payment_method) {
-                case 'credit_card':
-                    // Redirect to card payment gateway
-                    $_SESSION['order_id'] = $order_id;
-                    $_SESSION['payment_amount'] = $total * $quantity;
-                    redirect('process-card-payment.php');
-                    break;
-                    
-                case 'paypal':
-                    // Redirect to PayPal
-                    $_SESSION['order_id'] = $order_id;
-                    redirect('process-paypal.php');
-                    break;
-                    
-                case 'bank_transfer':
-                    // Show bank details
-                    $_SESSION['success'] = 'Order placed successfully! Please transfer payment to our bank account.';
-                    $_SESSION['order_id'] = $order_id;
-                    redirect('bank-transfer.php');
-                    break;
-                    
-                case 'cash_on_delivery':
-                    // Order confirmed for COD
-                    $_SESSION['success'] = 'Order placed successfully! Pay when you receive the product.';
-                    $_SESSION['order_id'] = $order_id;
-                    redirect('order-confirmation.php');
-                    break;
-                    
-                default:
-                    $_SESSION['success'] = 'Order placed successfully!';
-                    redirect('order-confirmation.php');
+            // 6. Update user's total sales if vendor
+            if ($product['vendor_id'] == $user_id) {
+                $stmt = $db->prepare("
+                    UPDATE users 
+                    SET total_sales = total_sales + ?,
+                        updated_at = NOW()
+                    WHERE id = ?
+                ");
+                $stmt->execute([$quantity, $user_id]);
             }
             
-        } catch (PDOException $e) {
+            // 7. Create invoice
+            $invoice_number = 'INV-' . date('Ymd') . '-' . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+            
+            $stmt = $db->prepare("
+                INSERT INTO invoices (
+                    invoice_number, user_id, order_id, subtotal, tax_rate, tax_amount, 
+                    total_amount, amount_paid, balance_due, payment_status, 
+                    invoice_date, due_date, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', CURDATE(), 
+                          DATE_ADD(CURDATE(), INTERVAL 30 DAY), 'sent', NOW())
+            ");
+            $stmt->execute([
+                $invoice_number,
+                $user_id,
+                $order_id,
+                $subtotal,
+                $tax_rate * 100, // Convert to percentage
+                $tax_amount,
+                $total_amount,
+                $total_amount,
+                0.00
+            ]);
+            $invoice_id = $db->lastInsertId();
+            
+            // 8. Add invoice items
+            $stmt = $db->prepare("
+                INSERT INTO invoice_items (
+                    invoice_id, description, quantity, unit_price, discount, tax_rate, subtotal, product_id
+                ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $invoice_id,
+                $product['name'],
+                $quantity,
+                $product['price'],
+                $tax_rate * 100,
+                $order_item_subtotal,
+                $product_id
+            ]);
+            
+            // 9. Add shipping as invoice item
+            if ($shipping > 0) {
+                $stmt->execute([
+                    $invoice_id,
+                    'Shipping Fee',
+                    1,
+                    $shipping,
+                    0,
+                    0,
+                    $shipping,
+                    null
+                ]);
+            }
+            
+            // 10. Create invoice payment record
+            $stmt = $db->prepare("
+                INSERT INTO invoice_payments (
+                    invoice_id, user_id, amount, payment_method, transaction_id, 
+                    payment_date, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, CURDATE(), 'completed', NOW())
+            ");
+            $stmt->execute([
+                $invoice_id,
+                $user_id,
+                $total_amount,
+                $payment_method,
+                $transaction_id
+            ]);
+            
+            // 11. Add order status history
+            $stmt = $db->prepare("
+                INSERT INTO order_status_history (order_id, status, changed_by, notes, created_at)
+                VALUES (?, 'processing', ?, 'Order placed and payment completed', NOW())
+            ");
+            $stmt->execute([$order_id, $user_id]);
+            
+            // 12. Add order note
+            $stmt = $db->prepare("
+                INSERT INTO order_notes (order_id, user_id, note_type, note, created_at)
+                VALUES (?, ?, 'customer', ?, NOW())
+            ");
+            $stmt->execute([$order_id, $user_id, $notes ?: 'Order placed via Buy Now']);
+            
+            // 13. Create notification
+            $stmt = $db->prepare("
+                INSERT INTO notifications (user_id, title, message, type, created_at)
+                VALUES (?, 'Order Placed', 'Your order #? has been placed successfully', 'success', NOW())
+            ");
+            $stmt->execute([$user_id, $order_number]);
+            
+            // Also notify vendor
+            $stmt->execute([
+                $product['vendor_id'],
+                'New Order Received',
+                'You have received a new order #' . $order_number . ' for ' . $quantity . 'x ' . $product['name'],
+                'info'
+            ]);
+            
+            $db->commit();
+            
+            // Redirect to success page
+            $_SESSION['success'] = 'Order placed successfully!';
+            $_SESSION['order_id'] = $order_id;
+            $_SESSION['invoice_id'] = $invoice_id;
+            
+            redirect('payment-success.php?order_id=' . $order_id . '&invoice_id=' . $invoice_id);
+            
+        } catch (Exception $e) {
             $db->rollBack();
-            $_SESSION['error'] = 'Error processing order: ' . $e->getMessage();
+            $_SESSION['error'] = 'Error processing payment: ' . $e->getMessage();
         }
     } else {
         $_SESSION['error'] = implode('<br>', $errors);
     }
 }
-
-// Log activity
-logUserActivity($_SESSION['user_id'], 'checkout_start', 'Started checkout for product: ' . $product['name']);
 ?>
 
-<div class="checkout-page">
-    <!-- Progress Steps -->
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body">
-            <div class="steps">
-                <div class="step completed">
-                    <div class="step-circle">1</div>
-                    <div class="step-label">Cart</div>
+<div class="payment-page">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="<?php echo SITE_URL; ?>user/dashboard.php">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="product-details.php?id=<?php echo $product_id; ?>"><?php echo substr($product['name'], 0, 20); ?>...</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Buy Now - Payment</li>
+        </ol>
+    </nav>
+
+    <div class="row">
+        <!-- Order Summary -->
+        <div class="col-lg-4 mb-4">
+            <div class="card border-0 shadow-sm sticky-top" style="top: 20px;">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">Order Summary</h5>
                 </div>
-                <div class="step active">
-                    <div class="step-circle">2</div>
-                    <div class="step-label">Checkout</div>
-                </div>
-                <div class="step">
-                    <div class="step-circle">3</div>
-                    <div class="step-label">Payment</div>
-                </div>
-                <div class="step">
-                    <div class="step-circle">4</div>
-                    <div class="step-label">Confirmation</div>
+                <div class="card-body">
+                    <!-- Product Info -->
+                    <div class="d-flex mb-3">
+                        <?php if ($product['image']): ?>
+                            <div class="me-3" style="width: 80px; height: 80px;">
+                                <img src="<?php echo SITE_URL . 'assets/images/products/' . $product['image']; ?>" 
+                                     class="img-fluid rounded object-fit-cover h-100"
+                                     alt="<?php echo htmlspecialchars($product['name']); ?>">
+                            </div>
+                        <?php endif; ?>
+                        <div class="flex-grow-1">
+                            <h6 class="mb-1"><?php echo htmlspecialchars($product['name']); ?></h6>
+                            <div class="text-muted small">
+                                Quantity: <?php echo $quantity; ?> × $<?php echo number_format($product['price'], 2); ?>
+                            </div>
+                            <div class="text-primary fw-bold">
+                                $<?php echo number_format($product['price'] * $quantity, 2); ?>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Price Breakdown -->
+                    <div class="border-top pt-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Subtotal</span>
+                            <span>$<?php echo number_format($subtotal, 2); ?></span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Shipping</span>
+                            <span class="<?php echo $shipping == 0 ? 'text-success' : ''; ?>">
+                                <?php echo $shipping == 0 ? 'FREE' : '$' . number_format($shipping, 2); ?>
+                            </span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>Tax (<?php echo ($tax_rate * 100); ?>%)</span>
+                        </div>
+                        <span>$<?php echo number_format($tax_amount, 2); ?></span>
+                        <?php if ($product['min_order_amount'] > 0): ?>
+                            <div class="alert alert-info py-2 small mb-3">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Minimum order: $<?php echo number_format($product['min_order_amount'], 2); ?>
+                                <?php if ($subtotal >= $product['min_order_amount']): ?>
+                                    <span class="text-success ms-2"><i class="fas fa-check"></i> Met</span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ($product['free_shipping_threshold'] > 0): ?>
+                            <div class="alert alert-warning py-2 small mb-3">
+                                <i class="fas fa-shipping-fast me-2"></i>
+                                Free shipping on orders over $<?php echo number_format($product['free_shipping_threshold'], 2); ?>
+                                <?php if ($subtotal >= $product['free_shipping_threshold']): ?>
+                                    <span class="text-success ms-2"><i class="fas fa-check"></i> Qualified</span>
+                                <?php else: ?>
+                                    <?php $needed = $product['free_shipping_threshold'] - $subtotal; ?>
+                                    <span class="text-danger ms-2">
+                                        Add $<?php echo number_format($needed, 2); ?> more
+                                    </span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+                        <div class="border-top pt-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong>Total</strong>
+                                <h4 class="text-primary mb-0">
+                                    $<?php echo number_format($total_amount, 2); ?>
+                                </h4>
+                            </div>
+                            <div class="text-muted small">
+                                <?php echo $product['store_currency'] ?? 'USD'; ?>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Vendor Info -->
+                    <div class="border-top mt-3 pt-3">
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="fas fa-store text-muted me-2"></i>
+                            <small class="text-muted">Sold by</small>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <?php if ($product['vendor_id']): ?>
+                                <strong><?php echo htmlspecialchars($product['store_name'] ?? $product['vendor_name']); ?></strong>
+                                <span class="badge bg-light text-dark ms-2 small">
+                                    <!-- Vendor ID: <?php echo $product['vendor_id']; ?> -->
+                                </span>
+                            <?php else: ?>
+                                <span class="text-muted">System</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    
+                    <!-- Payment Methods Accepted -->
+                    <?php if (!empty($vendor_payment_methods)): ?>
+                        <div class="border-top mt-3 pt-3">
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="fas fa-credit-card text-muted me-2"></i>
+                                <small class="text-muted">Payment Methods Accepted</small>
+                            </div>
+                            <div class="d-flex flex-wrap gap-2">
+                                <?php foreach ($vendor_payment_methods as $method): ?>
+                                    <?php
+                                    $method_icons = [
+                                        'credit_card' => 'fas fa-credit-card',
+                                        'debit_card' => 'fas fa-credit-card',
+                                        'paypal' => 'fab fa-paypal',
+                                        'stripe' => 'fab fa-stripe',
+                                        'bank_transfer' => 'fas fa-university',
+                                        'cod' => 'fas fa-money-bill-wave',
+                                        'apple_pay' => 'fab fa-apple-pay',
+                                        'google_pay' => 'fab fa-google-pay'
+                                    ];
+                                    $method_labels = [
+                                        'credit_card' => 'Credit Card',
+                                        'debit_card' => 'Debit Card',
+                                        'paypal' => 'PayPal',
+                                        'stripe' => 'Stripe',
+                                        'bank_transfer' => 'Bank Transfer',
+                                        'cod' => 'Cash on Delivery',
+                                        'apple_pay' => 'Apple Pay',
+                                        'google_pay' => 'Google Pay'
+                                    ];
+                                    ?>
+                                    <span class="badge bg-light text-dark">
+                                        <i class="<?php echo $method_icons[$method] ?? 'fas fa-money-bill'; ?> me-1"></i>
+                                        <?php echo $method_labels[$method] ?? ucfirst($method); ?>
+                                    </span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
-    </div>
-
-    <div class="row">
-        <!-- Left Column - Order Form -->
+        
+        <!-- Payment Form -->
         <div class="col-lg-8">
-            <form method="POST" id="checkoutForm">
-                <!-- Product Summary -->
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0"><i class="fas fa-shopping-cart me-2"></i> Order Summary</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row align-items-center">
-                            <div class="col-md-2">
-                                <?php if ($product['image']): ?>
-                                    <img src="<?php echo SITE_URL . 'assets/images/products/' . $product['image']; ?>" 
-                                         class="img-fluid rounded" 
-                                         alt="<?php echo htmlspecialchars($product['name']); ?>">
-                                <?php else: ?>
-                                    <div class="bg-light rounded d-flex align-items-center justify-content-center" style="height: 80px;">
-                                        <i class="fas fa-box text-muted"></i>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                            <div class="col-md-6">
-                                <h6 class="mb-1"><?php echo htmlspecialchars($product['name']); ?></h6>
-                                <p class="text-muted small mb-2">Category: <?php echo $product['category_name']; ?></p>
-                                <div class="d-flex align-items-center">
-                                    <div class="text-warning me-2">
-                                        <?php
-                                        $rating = $product['average_rating'] ?? 0;
-                                        for ($i = 1; $i <= 5; $i++):
-                                            $starClass = $i <= floor($rating) ? 'fas fa-star' : 'far fa-star';
-                                        ?>
-                                            <i class="<?php echo $starClass; ?>"></i>
-                                        <?php endfor; ?>
-                                    </div>
-                                    <span class="text-muted small">(<?php echo $product['review_count'] ?? 0; ?>)</span>
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">Payment Details</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" id="paymentForm">
+                        <!-- Shipping Address -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="fas fa-shipping-fast me-2 text-primary"></i>
+                                Shipping Information
+                            </h6>
+                            <div class="mb-3">
+                                <label class="form-label">Shipping Address *</label>
+                                <textarea class="form-control" 
+                                          name="shipping_address" 
+                                          rows="3" 
+                                          required><?php echo htmlspecialchars($user_address); ?></textarea>
+                                <div class="form-text">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" 
+                                            data-bs-toggle="modal" data-bs-target="#addressModal">
+                                        <i class="fas fa-address-book me-1"></i> Use Saved Address
+                                    </button>
                                 </div>
                             </div>
-                            <div class="col-md-2">
-                                <label class="form-label small">Quantity</label>
-                                <input type="number" 
-                                       name="quantity" 
-                                       class="form-control" 
-                                       value="1" 
-                                       min="1" 
-                                       max="<?php echo $product['stock']; ?>"
-                                       required>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" 
+                                               type="checkbox" 
+                                               id="sameAsBilling">
+                                        <label class="form-check-label" for="sameAsBilling">
+                                            Billing address same as shipping
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="col-md-2 text-end">
-                                <h5 class="text-primary mb-0">$<?php echo number_format($product['price'], 2); ?></h5>
-                                <?php if ($product['old_price']): ?>
-                                    <small class="text-muted text-decoration-line-through">
-                                        $<?php echo number_format($product['old_price'], 2); ?>
-                                    </small>
-                                <?php endif; ?>
+                            
+                            <div id="billingAddressSection" class="mt-3" style="display: none;">
+                                <div class="mb-3">
+                                    <label class="form-label">Billing Address</label>
+                                    <textarea class="form-control" 
+                                              name="billing_address" 
+                                              rows="3"><?php echo htmlspecialchars($user_address); ?></textarea>
+                                </div>
                             </div>
                         </div>
                         
-                        <!-- Vendor Info -->
-                        <div class="border-top mt-3 pt-3">
-                            <div class="d-flex align-items-center">
-                                <?php if ($product['store_logo']): ?>
-                                    <img src="<?php echo SITE_URL . 'uploads/vendors/' . $product['store_logo']; ?>" 
-                                         class="rounded-circle me-2" 
-                                         style="width: 30px; height: 30px; object-fit: cover;"
-                                         alt="<?php echo htmlspecialchars($product['store_name']); ?>">
-                                <?php else: ?>
-                                    <i class="fas fa-store text-primary me-2"></i>
-                                <?php endif; ?>
-                                <div>
-                                    <small class="text-muted">Sold by</small>
-                                    <div class="fw-bold"><?php echo htmlspecialchars($product['store_name'] ?? $product['vendor_name']); ?></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Shipping Address -->
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0"><i class="fas fa-truck me-2"></i> Shipping Address</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Full Name <span class="text-danger">*</span></label>
-                                <input type="text" 
-                                       name="shipping_name" 
-                                       class="form-control" 
-                                       value="<?php echo $user['full_name'] ?? ''; ?>"
-                                       required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Phone Number <span class="text-danger">*</span></label>
-                                <input type="tel" 
-                                       name="shipping_phone" 
-                                       class="form-control" 
-                                       value="<?php echo $user['phone'] ?? ''; ?>"
-                                       required>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Address <span class="text-danger">*</span></label>
-                                <textarea name="shipping_address" 
-                                          class="form-control" 
-                                          rows="2" 
-                                          required><?php echo $shipping_address; ?></textarea>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">City <span class="text-danger">*</span></label>
-                                <input type="text" 
-                                       name="shipping_city" 
-                                       class="form-control" 
-                                       value="<?php echo $user['city'] ?? ''; ?>"
-                                       required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Country <span class="text-danger">*</span></label>
-                                <input type="text" 
-                                       name="shipping_country" 
-                                       class="form-control" 
-                                       value="<?php echo $user['country'] ?? ''; ?>"
-                                       required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Postal Code</label>
-                                <input type="text" 
-                                       name="shipping_postal" 
-                                       class="form-control" 
-                                       value="<?php echo $user['postal_code'] ?? ''; ?>">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Billing Address -->
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0"><i class="fas fa-file-invoice-dollar me-2"></i> Billing Address</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" 
-                                   type="checkbox" 
-                                   id="use_same_address"
-                                   name="use_same_address"
-                                   checked>
-                            <label class="form-check-label" for="use_same_address">
-                                Same as shipping address
-                            </label>
-                        </div>
-                        
-                        <div id="billing_address_fields" style="display: none;">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label">Full Name <span class="text-danger">*</span></label>
-                                    <input type="text" 
-                                           name="billing_name" 
-                                           class="form-control" 
-                                           value="<?php echo $user['full_name'] ?? ''; ?>">
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Phone Number <span class="text-danger">*</span></label>
-                                    <input type="tel" 
-                                           name="billing_phone" 
-                                           class="form-control" 
-                                           value="<?php echo $user['phone'] ?? ''; ?>">
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Address <span class="text-danger">*</span></label>
-                                    <textarea name="billing_address" 
-                                              class="form-control" 
-                                              rows="2"><?php echo $billing_address; ?></textarea>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">City <span class="text-danger">*</span></label>
-                                    <input type="text" 
-                                           name="billing_city" 
-                                           class="form-control" 
-                                           value="<?php echo $user['city'] ?? ''; ?>">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Country <span class="text-danger">*</span></label>
-                                    <input type="text" 
-                                           name="billing_country" 
-                                           class="form-control" 
-                                           value="<?php echo $user['country'] ?? ''; ?>">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Postal Code</label>
-                                    <input type="text" 
-                                           name="billing_postal" 
-                                           class="form-control" 
-                                           value="<?php echo $user['postal_code'] ?? ''; ?>">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Payment Method -->
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0"><i class="fas fa-credit-card me-2"></i> Payment Method</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <?php foreach ($payment_methods as $method_key => $method): ?>
-                                <?php if ($method['enabled']): ?>
-                                    <div class="col-md-6">
-                                        <div class="form-check payment-method-card">
-                                            <input class="form-check-input" 
-                                                   type="radio" 
+                        <!-- Payment Method -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="fas fa-credit-card me-2 text-primary"></i>
+                                Payment Method
+                            </h6>
+                            
+                            <!-- Vendor Payment Methods -->
+                            <div class="mb-4">
+                                <label class="form-label">Select Payment Method *</label>
+                                <div class="row g-3">
+                                    <?php
+                                    $available_methods = [
+                                        'credit_card' => ['icon' => 'fas fa-credit-card', 'label' => 'Credit Card'],
+                                        'paypal' => ['icon' => 'fab fa-paypal', 'label' => 'PayPal'],
+                                        'bank_transfer' => ['icon' => 'fas fa-university', 'label' => 'Bank Transfer'],
+                                        'stripe' => ['icon' => 'fab fa-stripe', 'label' => 'Stripe'],
+                                        'cod' => ['icon' => 'fas fa-money-bill-wave', 'label' => 'Cash on Delivery']
+                                    ];
+                                    
+                                    foreach ($available_methods as $method => $info):
+                                        // Check if vendor accepts this method
+                                        if (!empty($vendor_payment_methods) && !in_array($method, $vendor_payment_methods)) {
+                                            continue;
+                                        }
+                                    ?>
+                                    <div class="col-md-4">
+                                        <div class="payment-method-option">
+                                            <input type="radio" 
+                                                   class="btn-check" 
                                                    name="payment_method" 
-                                                   id="method_<?php echo $method_key; ?>"
-                                                   value="<?php echo $method_key; ?>"
-                                                   data-method="<?php echo $method_key; ?>"
-                                                   required>
-                                            <label class="form-check-label w-100" for="method_<?php echo $method_key; ?>">
-                                                <div class="card border h-100">
-                                                    <div class="card-body d-flex align-items-center">
-                                                        <div class="avatar-md bg-<?php echo $method['color']; ?> bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3">
-                                                            <i class="<?php echo $method['icon']; ?> fa-2x text-<?php echo $method['color']; ?>"></i>
-                                                        </div>
-                                                        <div>
-                                                            <h6 class="mb-1"><?php echo $method['name']; ?></h6>
-                                                            <small class="text-muted"><?php echo $method['description']; ?></small>
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                   id="method_<?php echo $method; ?>" 
+                                                   value="<?php echo $method; ?>"
+                                                   <?php echo $method === 'credit_card' ? 'checked' : ''; ?>>
+                                            <label class="btn btn-outline-primary w-100 text-start" 
+                                                   for="method_<?php echo $method; ?>">
+                                                <i class="<?php echo $info['icon']; ?> fa-lg me-2"></i>
+                                                <?php echo $info['label']; ?>
                                             </label>
                                         </div>
                                     </div>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        </div>
-                        
-                        <!-- Card Details (Hidden by default) -->
-                        <div id="card_details" style="display: none;" class="mt-4">
-                            <h6 class="mb-3">Card Details</h6>
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label">Card Number</label>
-                                    <input type="text" 
-                                           class="form-control" 
-                                           placeholder="1234 5678 9012 3456"
-                                           maxlength="19">
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Expiry Date</label>
-                                    <input type="text" 
-                                           class="form-control" 
-                                           placeholder="MM/YY">
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">CVV</label>
-                                    <input type="text" 
-                                           class="form-control" 
-                                           placeholder="123"
-                                           maxlength="3">
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Cardholder Name</label>
-                                    <input type="text" 
-                                           class="form-control" 
-                                           placeholder="Name on card">
+                                    <?php endforeach; ?>
+                                    
+                                    <?php if (empty($vendor_payment_methods)): ?>
+                                        <div class="alert alert-info">
+                                            <i class="fas fa-info-circle me-2"></i>
+                                            No specific payment methods set by vendor. All methods available.
+                                        </div>
+                                    <?php endif; ?>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Bank Transfer Details (Hidden by default) -->
-                        <div id="bank_details" style="display: none;" class="mt-4">
-                            <h6 class="mb-3">Bank Transfer Instructions</h6>
-                            <div class="alert alert-info">
-                                <p class="mb-2"><strong>Bank Name:</strong> National Bank</p>
-                                <p class="mb-2"><strong>Account Name:</strong> ShopEase Pro</p>
-                                <p class="mb-2"><strong>Account Number:</strong> 1234 5678 9012 3456</p>
-                                <p class="mb-2"><strong>IFSC Code:</strong> NBIN0001234</p>
-                                <p class="mb-0"><strong>Note:</strong> Please include order number in transaction reference</p>
+                            
+                            <!-- Saved Cards -->
+                            <?php if (!empty($user_payment_methods)): ?>
+                                <div class="mb-4">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" 
+                                               type="checkbox" 
+                                               id="useSavedCard" 
+                                               name="use_saved_card">
+                                        <label class="form-check-label fw-bold" for="useSavedCard">
+                                            Use Saved Payment Method
+                                        </label>
+                                    </div>
+                                    
+                                    <div id="savedCardsSection" style="display: none;">
+                                        <label class="form-label">Select Saved Card</label>
+                                        <select class="form-select" name="saved_card_id" id="savedCardSelect">
+                                            <option value="">Select a saved card</option>
+                                            <?php foreach ($user_payment_methods as $card): ?>
+                                                <option value="<?php echo $card['id']; ?>">
+                                                    <?php 
+                                                    if (!empty($card['stripe_payment_method_id'])) {
+                                                        echo 'Stripe Card ****' . substr($card['stripe_payment_method_id'], -4);
+                                                    } elseif (!empty($card['paypal_email'])) {
+                                                        echo 'PayPal: ' . $card['paypal_email'];
+                                                    } elseif (!empty($card['bank_account_details'])) {
+                                                        $bank_details = json_decode($card['bank_account_details'], true);
+                                                        echo 'Bank Account: ****' . substr($bank_details['account_number'] ?? '', -4);
+                                                    }
+                                                    ?>
+                                                    <?php if ($card['is_default']): ?>
+                                                        <span class="text-success">(Default)</span>
+                                                    <?php endif; ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <!-- Credit Card Details -->
+                            <div id="creditCardSection">
+                                <h6 class="mb-3">Credit Card Details</h6>
+                                <div class="row g-3">
+                                    <div class="col-md-12">
+                                        <label class="form-label">Card Holder Name *</label>
+                                        <input type="text" 
+                                               class="form-control" 
+                                               name="card_holder" 
+                                               placeholder="Name on card">
+                                    </div>
+                                    <div class="col-md-8">
+                                        <label class="form-label">Card Number *</label>
+                                        <input type="text" 
+                                               class="form-control" 
+                                               name="card_number" 
+                                               placeholder="1234 5678 9012 3456"
+                                               maxlength="19">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Expiry *</label>
+                                        <input type="text" 
+                                               class="form-control" 
+                                               name="card_expiry" 
+                                               placeholder="MM/YY"
+                                               maxlength="5">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">CVV *</label>
+                                        <input type="text" 
+                                               class="form-control" 
+                                               name="card_cvv" 
+                                               placeholder="123"
+                                               maxlength="4">
+                                    </div>
+                                </div>
+                                
+                                <!-- Card Preview -->
+                                <div class="card-preview mt-3 p-3 rounded bg-light" style="display: none;">
+                                    <div class="row align-items-center">
+                                        <div class="col-auto">
+                                            <i class="fab fa-cc-visa fa-2x text-primary"></i>
+                                        </div>
+                                        <div class="col">
+                                            <div class="card-number-preview">**** **** **** ****</div>
+                                            <div class="text-muted small">
+                                                <span class="card-holder-preview">CARD HOLDER</span> | 
+                                                <span class="card-expiry-preview">MM/YY</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- PayPal Section -->
+                            <div id="paypalSection" style="display: none;">
+                                <div class="alert alert-info">
+                                    <i class="fab fa-paypal me-2"></i>
+                                    You will be redirected to PayPal to complete your payment after submitting this form.
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">PayPal Email</label>
+                                    <input type="email" 
+                                           class="form-control" 
+                                           name="paypal_email" 
+                                           placeholder="your@email.com">
+                                </div>
+                            </div>
+                            
+                            <!-- Bank Transfer Section -->
+                            <div id="bankTransferSection" style="display: none;">
+                                <div class="alert alert-warning">
+                                    <i class="fas fa-university me-2"></i>
+                                    Please transfer the amount to our bank account. Your order will be processed after we confirm the payment.
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Bank Transfer Reference</label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           name="bank_reference" 
+                                           placeholder="Enter reference number">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Upload Payment Proof</label>
+                                    <input type="file" 
+                                           class="form-control" 
+                                           name="payment_proof"
+                                           accept=".jpg,.jpeg,.png,.pdf">
+                                    <div class="form-text">Upload screenshot or receipt of bank transfer</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Stripe Section -->
+                            <div id="stripeSection" style="display: none;">
+                                <div class="alert alert-primary">
+                                    <i class="fab fa-stripe me-2"></i>
+                                    Secure payment powered by Stripe. Your card details are encrypted and secure.
+                                </div>
+                                <!-- Stripe Elements will be loaded here via JavaScript -->
+                                <div id="stripe-card-element" class="form-control py-3"></div>
+                                <div id="stripe-card-errors" class="text-danger mt-2"></div>
+                            </div>
+                            
+                            <!-- COD Section -->
+                            <div id="codSection" style="display: none;">
+                                <div class="alert alert-success">
+                                    <i class="fas fa-money-bill-wave me-2"></i>
+                                    Pay when you receive your order. Additional cash handling fee may apply.
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" 
+                                           type="checkbox" 
+                                           name="cod_terms" 
+                                           id="codTerms" 
+                                           required>
+                                    <label class="form-check-label" for="codTerms">
+                                        I agree to pay cash on delivery and understand there may be additional fees
+                                    </label>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-                
-                <!-- Order Notes -->
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-body">
-                        <label class="form-label">Order Notes (Optional)</label>
-                        <textarea class="form-control" 
-                                  name="order_notes" 
-                                  rows="3" 
-                                  placeholder="Special instructions for your order..."></textarea>
-                    </div>
-                </div>
-            </form>
-        </div>
-        
-        <!-- Right Column - Order Summary -->
-        <div class="col-lg-4">
-            <div class="sticky-top" style="top: 20px;">
-                <!-- Order Summary -->
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0">Order Summary</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="text-muted">Subtotal</span>
-                                <span id="subtotalDisplay">$<?php echo number_format($subtotal, 2); ?></span>
-                            </div>
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="text-muted">Shipping</span>
-                                <span>$<?php echo number_format($shipping_fee, 2); ?></span>
-                            </div>
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="text-muted">Tax (10%)</span>
-                                <span id="taxDisplay">$<?php echo number_format($tax_amount, 2); ?></span>
-                            </div>
-                            <hr>
-                            <div class="d-flex justify-content-between fw-bold fs-5">
-                                <span>Total</span>
-                                <span id="totalDisplay">$<?php echo number_format($total, 2); ?></span>
+                        
+                        <!-- Additional Notes -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2 mb-3">
+                                <i class="fas fa-sticky-note me-2 text-primary"></i>
+                                Additional Notes
+                            </h6>
+                            <div class="mb-3">
+                                <label class="form-label">Order Notes (Optional)</label>
+                                <textarea class="form-control" 
+                                          name="notes" 
+                                          rows="3"
+                                          placeholder="Special instructions, delivery preferences, etc."></textarea>
                             </div>
                         </div>
                         
-                        <!-- Security Badge -->
-                        <div class="text-center mb-3">
-                            <i class="fas fa-shield-alt fa-2x text-success mb-2"></i>
-                            <p class="small text-muted mb-0">
-                                <strong>Secure Checkout</strong><br>
-                                256-bit SSL encryption
-                            </p>
+                        <!-- Terms and Conditions -->
+                        <div class="mb-4">
+                            <div class="form-check">
+                                <input class="form-check-input" 
+                                       type="checkbox" 
+                                       name="terms" 
+                                       id="terms" 
+                                       required>
+                                <label class="form-check-label" for="terms">
+                                    I agree to the <a href="<?php echo SITE_URL; ?>terms.php" target="_blank">Terms and Conditions</a> 
+                                    and <a href="<?php echo SITE_URL; ?>privacy.php" target="_blank">Privacy Policy</a>
+                                </label>
+                            </div>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" 
+                                       type="checkbox" 
+                                       name="newsletter" 
+                                       id="newsletter">
+                                <label class="form-check-label" for="newsletter">
+                                    Subscribe to our newsletter for updates and offers
+                                </label>
+                            </div>
                         </div>
                         
-                        <!-- Terms Agreement -->
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" 
-                                   type="checkbox" 
-                                   id="terms_agreement" 
-                                   required>
-                            <label class="form-check-label small" for="terms_agreement">
-                                I agree to the <a href="<?php echo SITE_URL; ?>terms.php" target="_blank">Terms & Conditions</a> 
-                                and authorize the payment.
-                            </label>
-                        </div>
-                        
-                        <!-- Submit Button -->
-                        <button type="submit" 
-                                form="checkoutForm" 
-                                class="btn btn-primary btn-lg w-100"
-                                id="placeOrderBtn">
-                            <i class="fas fa-lock me-2"></i> Place Order
-                        </button>
-                        
-                        <!-- Continue Shopping -->
-                        <div class="text-center mt-3">
-                            <a href="shop.php" class="text-decoration-none">
-                                <i class="fas fa-arrow-left me-2"></i> Continue Shopping
+                        <!-- Action Buttons -->
+                        <div class="d-flex justify-content-between">
+                            <a href="product-details.php?id=<?php echo $product_id; ?>" 
+                               class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-2"></i> Back to Product
                             </a>
+                            <button type="submit" 
+                                    name="process_payment" 
+                                    class="btn btn-primary btn-lg px-5">
+                                <i class="fas fa-lock me-2"></i> Complete Purchase
+                            </button>
                         </div>
-                    </div>
+                    </form>
                 </div>
-                
-                <!-- Support Info -->
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body text-center">
-                        <i class="fas fa-headset fa-2x text-primary mb-3"></i>
-                        <h6>Need Help?</h6>
-                        <p class="small text-muted mb-2">Our support team is here to help</p>
-                        <a href="<?php echo SITE_URL; ?>user/support/support.php" class="btn btn-outline-primary btn-sm">
-                            <i class="fas fa-question-circle me-2"></i> Contact Support
-                        </a>
+            </div>
+            
+            <!-- Security Information -->
+            <div class="card border-0 shadow-sm mt-4">
+                <div class="card-body text-center bg-light">
+                    <div class="row align-items-center">
+                        <div class="col-md-4">
+                            <i class="fas fa-shield-alt fa-2x text-success me-2"></i>
+                            <span class="fw-bold">SSL Secure Payment</span>
+                        </div>
+                        <div class="col-md-4">
+                            <i class="fas fa-lock fa-2x text-primary me-2"></i>
+                            <span class="fw-bold">256-bit Encryption</span>
+                        </div>
+                        <div class="col-md-4">
+                            <i class="fas fa-user-shield fa-2x text-warning me-2"></i>
+                            <span class="fw-bold">Privacy Protected</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -727,18 +856,109 @@ logUserActivity($_SESSION['user_id'], 'checkout_start', 'Started checkout for pr
     </div>
 </div>
 
-<!-- Payment Processing Modal -->
-<div class="modal fade" id="processingModal" tabindex="-1" data-bs-backdrop="static">
+<!-- Address Modal -->
+<div class="modal fade" id="addressModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-body text-center py-5">
-                <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
-                    <span class="visually-hidden">Processing...</span>
+            <div class="modal-header">
+                <h5 class="modal-title">Select Address</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="list-group">
+                    <!-- This would typically come from user's saved addresses -->
+                    <a href="#" class="list-group-item list-group-item-action address-item" 
+                       data-address="123 Main St, New York, NY 10001">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <strong>Home</strong>
+                                <div class="text-muted small">123 Main St, New York, NY 10001</div>
+                            </div>
+                            <i class="fas fa-check text-success"></i>
+                        </div>
+                    </a>
+                    <a href="#" class="list-group-item list-group-item-action address-item"
+                       data-address="456 Work Ave, Suite 100, New York, NY 10002">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <strong>Office</strong>
+                                <div class="text-muted small">456 Work Ave, Suite 100, New York, NY 10002</div>
+                            </div>
+                            <i class="fas fa-check text-success" style="opacity: 0;"></i>
+                        </div>
+                    </a>
                 </div>
-                <h4>Processing Payment</h4>
-                <p class="text-muted">Please wait while we process your payment.</p>
-                <div class="progress mt-3">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Use Selected</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Success Page: `user/orders/payment-success.php` -->
+<div class="modal fade" id="successModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header border-0">
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center py-5">
+                <div class="mb-4">
+                    <div class="success-icon d-inline-flex align-items-center justify-content-center rounded-circle bg-success bg-opacity-10 mb-3" 
+                         style="width: 100px; height: 100px;">
+                        <i class="fas fa-check fa-3x text-success"></i>
+                    </div>
+                    <h2 class="text-success">Payment Successful!</h2>
+                    <p class="text-muted">Your order has been placed successfully</p>
+                </div>
+                
+                <div class="row justify-content-center mb-4">
+                    <div class="col-md-8">
+                        <div class="card border-success">
+                            <div class="card-body">
+                                <h5 class="card-title">Order Details</h5>
+                                <div class="row text-start">
+                                    <div class="col-6">
+                                        <small class="text-muted">Order Number</small>
+                                        <div class="fw-bold">ORD-20260204-1234</div>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted">Total Amount</small>
+                                        <div class="fw-bold text-success">$<?php echo number_format($total_amount, 2); ?></div>
+                                    </div>
+                                    <div class="col-6 mt-3">
+                                        <small class="text-muted">Payment Method</small>
+                                        <div class="fw-bold">Credit Card</div>
+                                    </div>
+                                    <div class="col-6 mt-3">
+                                        <small class="text-muted">Invoice Number</small>
+                                        <div class="fw-bold">INV-20260204-5678</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="d-flex justify-content-center gap-3">
+                    <button class="btn btn-outline-primary" onclick="printInvoice()">
+                        <i class="fas fa-print me-2"></i> Print Invoice
+                    </button>
+                    <button class="btn btn-primary" onclick="downloadPDF()">
+                        <i class="fas fa-download me-2"></i> Download PDF
+                    </button>
+                    <a href="dashboard.php" class="btn btn-success">
+                        <i class="fas fa-tachometer-alt me-2"></i> Go to Dashboard
+                    </a>
+                </div>
+                
+                <div class="mt-4">
+                    <p class="text-muted small">
+                        A confirmation email has been sent to your registered email address.<br>
+                        You can track your order from your dashboard.
+                    </p>
                 </div>
             </div>
         </div>
@@ -748,190 +968,307 @@ logUserActivity($_SESSION['user_id'], 'checkout_start', 'Started checkout for pr
 <!-- JavaScript -->
 <script>
 $(document).ready(function() {
-    // Billing address toggle
-    $('#use_same_address').change(function() {
-        if ($(this).prop('checked')) {
-            $('#billing_address_fields').slideUp();
+    // Show/hide billing address
+    $('#sameAsBilling').change(function() {
+        if ($(this).is(':checked')) {
+            $('#billingAddressSection').slideUp();
+            $('textarea[name="billing_address"]').val($('textarea[name="shipping_address"]').val());
         } else {
-            $('#billing_address_fields').slideDown();
+            $('#billingAddressSection').slideDown();
         }
     });
     
-    // Payment method selection
+    // Show/hide saved cards
+    $('#useSavedCard').change(function() {
+        if ($(this).is(':checked')) {
+            $('#savedCardsSection').slideDown();
+            $('#creditCardSection').slideUp();
+        } else {
+            $('#savedCardsSection').slideUp();
+            $('#creditCardSection').slideDown();
+        }
+    });
+    
+    // Show/hide payment method sections
     $('input[name="payment_method"]').change(function() {
-        const method = $(this).data('method');
+        const method = $(this).val();
         
-        // Hide all details sections
-        $('#card_details').slideUp();
-        $('#bank_details').slideUp();
+        // Hide all sections
+        $('#creditCardSection').hide();
+        $('#paypalSection').hide();
+        $('#bankTransferSection').hide();
+        $('#stripeSection').hide();
+        $('#codSection').hide();
         
-        // Show relevant section
-        if (method === 'credit_card') {
-            $('#card_details').slideDown();
-        } else if (method === 'bank_transfer') {
-            $('#bank_details').slideDown();
+        // Show selected section
+        switch(method) {
+            case 'credit_card':
+            case 'debit_card':
+                $('#creditCardSection').show();
+                break;
+            case 'paypal':
+                $('#paypalSection').show();
+                break;
+            case 'bank_transfer':
+                $('#bankTransferSection').show();
+                break;
+            case 'stripe':
+                $('#stripeSection').show();
+                // Initialize Stripe Elements here
+                break;
+            case 'cod':
+                $('#codSection').show();
+                break;
         }
-        
-        // Update place order button text
-        updatePlaceOrderButton(method);
-    });
-    
-    // Quantity change handler
-    $('input[name="quantity"]').on('input', function() {
-        const quantity = parseInt($(this).val()) || 1;
-        const maxStock = parseInt($(this).attr('max'));
-        
-        if (quantity > maxStock) {
-            $(this).val(maxStock);
-            showToast('Maximum quantity is ' + maxStock, 'warning');
-            updateTotals(maxStock);
-        } else if (quantity < 1) {
-            $(this).val(1);
-            updateTotals(1);
-        } else {
-            updateTotals(quantity);
-        }
-    });
-    
-    // Update totals based on quantity
-    function updateTotals(quantity) {
-        const subtotal = <?php echo $subtotal; ?> * quantity;
-        const taxAmount = subtotal * <?php echo $tax_rate; ?>;
-        const shipping = <?php echo $shipping_fee; ?>;
-        const total = subtotal + taxAmount + shipping;
-        
-        $('#subtotalDisplay').text('$' + subtotal.toFixed(2));
-        $('#taxDisplay').text('$' + taxAmount.toFixed(2));
-        $('#totalDisplay').text('$' + total.toFixed(2));
-    }
-    
-    // Update place order button based on payment method
-    function updatePlaceOrderButton(method) {
-        const btn = $('#placeOrderBtn');
-        const icons = {
-            'credit_card': 'fas fa-credit-card',
-            'paypal': 'fab fa-paypal',
-            'bank_transfer': 'fas fa-university',
-            'cash_on_delivery': 'fas fa-money-bill-wave'
-        };
-        const texts = {
-            'credit_card': 'Pay with Card',
-            'paypal': 'Pay with PayPal',
-            'bank_transfer': 'Confirm Bank Transfer',
-            'cash_on_delivery': 'Place Order (COD)'
-        };
-        
-        btn.find('i').attr('class', icons[method] + ' me-2');
-        btn.find('span').text(texts[method]);
-    }
-    
-    // Form submission
-    $('#checkoutForm').submit(function(e) {
-        e.preventDefault();
-        
-        // Validate terms agreement
-        if (!$('#terms_agreement').prop('checked')) {
-            showToast('Please agree to the terms & conditions', 'error');
-            return;
-        }
-        
-        // Validate payment method
-        const paymentMethod = $('input[name="payment_method"]:checked').val();
-        if (!paymentMethod) {
-            showToast('Please select a payment method', 'error');
-            return;
-        }
-        
-        // Validate quantity
-        const quantity = parseInt($('input[name="quantity"]').val());
-        const maxStock = <?php echo $product['stock']; ?>;
-        if (quantity > maxStock) {
-            showToast('Insufficient stock available', 'error');
-            return;
-        }
-        
-        // Validate card details if credit card selected
-        if (paymentMethod === 'credit_card') {
-            const cardNumber = $('#card_details input:eq(0)').val().trim();
-            const expiryDate = $('#card_details input:eq(1)').val().trim();
-            const cvv = $('#card_details input:eq(2)').val().trim();
-            const cardName = $('#card_details input:eq(3)').val().trim();
-            
-            if (!cardNumber || !expiryDate || !cvv || !cardName) {
-                showToast('Please fill all card details', 'error');
-                return;
-            }
-            
-            // Validate card number (simple check)
-            if (cardNumber.replace(/\s/g, '').length !== 16) {
-                showToast('Please enter a valid 16-digit card number', 'error');
-                return;
-            }
-            
-            if (cvv.length !== 3) {
-                showToast('Please enter a valid 3-digit CVV', 'error');
-                return;
-            }
-        }
-        
-        // Show processing modal
-        $('#processingModal').modal('show');
-        
-        // Submit form after delay for visual effect
-        setTimeout(() => {
-            this.submit();
-        }, 2000);
     });
     
     // Card number formatting
-    $('#card_details input:eq(0)').on('input', function() {
+    $('input[name="card_number"]').on('input', function() {
         let value = $(this).val().replace(/\D/g, '');
         value = value.replace(/(\d{4})/g, '$1 ').trim();
         $(this).val(value.substring(0, 19));
+        updateCardPreview();
     });
     
     // Expiry date formatting
-    $('#card_details input:eq(1)').on('input', function() {
+    $('input[name="card_expiry"]').on('input', function() {
         let value = $(this).val().replace(/\D/g, '');
         if (value.length >= 2) {
             value = value.substring(0, 2) + '/' + value.substring(2, 4);
         }
         $(this).val(value.substring(0, 5));
+        updateCardPreview();
     });
     
-    // CVV formatting
-    $('#card_details input:eq(2)').on('input', function() {
-        $(this).val($(this).val().replace(/\D/g, '').substring(0, 3));
+    // Card holder name
+    $('input[name="card_holder"]').on('input', updateCardPreview);
+    
+    function updateCardPreview() {
+        const cardNumber = $('input[name="card_number"]').val();
+        const expiry = $('input[name="card_expiry"]').val();
+        const holder = $('input[name="card_holder"]').val();
+        
+        if (cardNumber || expiry || holder) {
+            $('.card-preview').show();
+            $('.card-number-preview').text(cardNumber || '**** **** **** ****');
+            $('.card-expiry-preview').text(expiry || 'MM/YY');
+            $('.card-holder-preview').text(holder || 'CARD HOLDER');
+        } else {
+            $('.card-preview').hide();
+        }
+    }
+    
+    // Address selection
+    $('.address-item').click(function(e) {
+        e.preventDefault();
+        $('.address-item .fa-check').css('opacity', '0');
+        $(this).find('.fa-check').css('opacity', '1');
+        
+        const address = $(this).data('address');
+        $('textarea[name="shipping_address"]').val(address);
+        
+        if ($('#sameAsBilling').is(':checked')) {
+            $('textarea[name="billing_address"]').val(address);
+        }
     });
     
-    // Phone number formatting
-    $('input[type="tel"]').on('input', function() {
-        $(this).val($(this).val().replace(/\D/g, ''));
+    // Form validation
+    $('#paymentForm').submit(function(e) {
+        let isValid = true;
+        const method = $('input[name="payment_method"]:checked').val();
+        
+        // Clear previous errors
+        $('.is-invalid').removeClass('is-invalid');
+        $('.invalid-feedback').remove();
+        
+        // Shipping address validation
+        if (!$('textarea[name="shipping_address"]').val().trim()) {
+            showError('shipping_address', 'Shipping address is required');
+            isValid = false;
+        }
+        
+        // Payment method specific validation
+        if (method === 'credit_card' || method === 'debit_card') {
+            if (!$('#useSavedCard').is(':checked')) {
+                if (!$('input[name="card_holder"]').val().trim()) {
+                    showError('card_holder', 'Card holder name is required');
+                    isValid = false;
+                }
+                if (!$('input[name="card_number"]').val().trim()) {
+                    showError('card_number', 'Card number is required');
+                    isValid = false;
+                }
+                if (!$('input[name="card_expiry"]').val().trim()) {
+                    showError('card_expiry', 'Expiry date is required');
+                    isValid = false;
+                }
+                if (!$('input[name="card_cvv"]').val().trim()) {
+                    showError('card_cvv', 'CVV is required');
+                    isValid = false;
+                }
+            }
+        }
+        
+        if (!isValid) {
+            e.preventDefault();
+            showToast('Please fix the errors in the form', 'error');
+        } else {
+            // Show processing modal
+            showProcessingModal();
+        }
     });
+    
+    function showError(fieldName, message) {
+        const field = $(`[name="${fieldName}"]`);
+        field.addClass('is-invalid');
+        field.after(`<div class="invalid-feedback">${message}</div>`);
+    }
 });
+
+// Show processing modal
+function showProcessingModal() {
+    const modal = $(`
+        <div class="modal fade" id="processingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-body text-center py-5">
+                        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                            <span class="visually-hidden">Processing...</span>
+                        </div>
+                        <h4>Processing Payment</h4>
+                        <p class="text-muted">Please wait while we process your payment</p>
+                        <div class="progress mt-3">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+    
+    $('body').append(modal);
+    modal.modal('show');
+}
+
+// Print invoice function
+function printInvoice() {
+    window.open('invoice-print.php?invoice_id=<?php echo isset($_SESSION["invoice_id"]) ? $_SESSION["invoice_id"] : ""; ?>', '_blank');
+}
+
+// Download PDF function
+function downloadPDF() {
+    window.location.href = 'invoice-pdf.php?invoice_id=<?php echo isset($_SESSION["invoice_id"]) ? $_SESSION["invoice_id"] : ""; ?>';
+}
 
 // Toast notification
 function showToast(message, type = 'info') {
     const toast = $(`
         <div class="toast align-items-center text-white bg-${type === 'error' ? 'danger' : type} border-0 position-fixed" 
-             style="top: 20px; right: 20px; z-index: 1060;" role="alert" 
-             aria-live="assertive" aria-atomic="true">
+             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;" role="alert">
             <div class="d-flex">
                 <div class="toast-body">
                     ${message}
                 </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
         </div>
     `);
+    
     $('body').append(toast);
-    const bsToast = new bootstrap.Toast(toast[0], { delay: 5000 });
+    const bsToast = new bootstrap.Toast(toast[0]);
     bsToast.show();
-    toast.on('hidden.bs.toast', function () {
+    
+    toast.on('hidden.bs.toast', function() {
         $(this).remove();
     });
 }
+
+// Initialize payment method sections
+$(document).ready(function() {
+    // Trigger change to show correct section
+    $('input[name="payment_method"]:checked').trigger('change');
+    
+    // If payment was successful, show success modal
+    <?php if (isset($_SESSION['success']) && isset($_SESSION['order_id'])): ?>
+        $('#successModal').modal('show');
+        <?php unset($_SESSION['success']); ?>
+    <?php endif; ?>
+});
 </script>
-<?php
-include_once '../../includes/footer.php';
-?>
+
+<!-- CSS Styles -->
+<style>
+.payment-page .payment-method-option .btn {
+    height: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.payment-page .payment-method-option .btn i {
+    margin-bottom: 8px;
+}
+
+.payment-page .sticky-top {
+    z-index: 1020;
+}
+
+.payment-page .object-fit-cover {
+    object-fit: cover;
+}
+
+.payment-page .card-preview {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.payment-page .form-check-input:checked {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.payment-page .invalid-feedback {
+    display: block;
+}
+
+.payment-page .modal-backdrop {
+    z-index: 1055;
+}
+
+.payment-page .modal {
+    z-index: 1060;
+}
+
+/* Credit card icons */
+.payment-page .card-type-icon {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 24px;
+}
+
+/* Progress bar animation */
+@keyframes progressBarAnimation {
+    0% { background-position: 0 0; }
+    100% { background-position: 40px 0; }
+}
+
+.payment-page .progress-bar-animated {
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 40px 40px;
+    animation: progressBarAnimation 1s linear infinite;
+}
+</style>
+
+<?php require_once '../../includes/footer.php'; ?>

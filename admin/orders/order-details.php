@@ -352,7 +352,7 @@ if ($order['payment_status'] == 'failed') $payment_color = 'danger';
                                     <td>
                                         <div class="d-flex align-items-center">
                                             <?php if (!empty($item['image'])): ?>
-                                            <img src="<?php echo SITE_URL; ?>uploads/products/<?php echo $item['image']; ?>" 
+                                            <img src="<?php echo SITE_URL; ?>assets/images/products/<?php echo $item['image']; ?>" 
                                                  class="rounded me-3" width="50" height="50" 
                                                  alt="<?php echo htmlspecialchars($item['name']); ?>">
                                             <?php endif; ?>

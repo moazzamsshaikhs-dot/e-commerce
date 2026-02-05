@@ -3,7 +3,7 @@ require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
 // Check if user is not admin
-if ($_SESSION['user_type'] === 'admin') {
+if ($_SESSION['user_type'] === 'admin' || $_SESSION['user_type'] === 'vendor') {
     $_SESSION['error'] = 'Access denied. User dashboard only.';
     redirect(SITE_URL . 'admin/dashboard.php');
 }
@@ -97,7 +97,7 @@ logUserActivity($user_id, 'wishlist_view', 'Viewed wishlist');
                             
                             <div class="card-body d-flex flex-column">
                                 <h6 class="card-title mb-2">
-                                    <a href="<?php echo SITE_URL; ?>product.php?id=<?php echo $item['id']; ?>" 
+                                    <a href="<?php echo SITE_URL; ?>user/orders/product-details.php?id=<?php echo $item['id']; ?>" 
                                        class="text-decoration-none text-dark">
                                         <?php echo htmlspecialchars($item['name']); ?>
                                     </a>
@@ -130,7 +130,7 @@ logUserActivity($user_id, 'wishlist_view', 'Viewed wishlist');
                                     <?php endif; ?>
                                     
                                     <div class="d-grid gap-2">
-                                        <a href="<?php echo SITE_URL; ?>product.php?id=<?php echo $item['id']; ?>" 
+                                        <a href="<?php echo SITE_URL; ?>user/orders/product-details.php?id=<?php echo $item['id']; ?>" 
                                            class="btn btn-outline-primary btn-sm">
                                             <i class="fas fa-eye me-1"></i> View Details
                                         </a>

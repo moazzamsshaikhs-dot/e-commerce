@@ -19,17 +19,19 @@ require_once '../../includes/header.php';
 $db = getDB();
 $product_id = (int)$_GET['id'];
 
-// Get product details with vendor info
+// Get product details with vendor info including payment methods
 $stmt = $db->prepare("
     SELECT p.*, 
            c.name as category_name,
            u.username as vendor_username,
            u.full_name as vendor_name,
+           u.id as vendor_id,
            u.vendor_rating,
            u.vendor_since,
            vs.store_name,
            vs.store_description,
-           vs.store_logo
+           vs.store_logo,
+           vs.payment_methods
     FROM products p
     LEFT JOIN categories c ON p.category = c.slug
     LEFT JOIN users u ON p.vendor_id = u.id
@@ -81,7 +83,7 @@ foreach ($reviews as $review) {
     $total_reviews++;
 }
 
-// Get vendor info
+// Get vendor info with payment methods
 $vendor_id = $product['vendor_id'];
 $stmt = $db->prepare("
     SELECT u.*, vs.*,
@@ -93,6 +95,40 @@ $stmt = $db->prepare("
 ");
 $stmt->execute([$vendor_id, $vendor_id, $vendor_id]);
 $vendor = $stmt->fetch();
+
+// Parse vendor payment methods
+$vendor_payment_methods = [];
+if (!empty($vendor['payment_methods'])) {
+    $vendor_payment_methods = json_decode($vendor['payment_methods'], true);
+}
+
+// If vendor has no specific payment methods, show all available methods
+if (empty($vendor_payment_methods)) {
+    $vendor_payment_methods = ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'cod'];
+}
+
+// Map payment methods to icons and labels
+$payment_method_icons = [
+    'credit_card' => 'fas fa-credit-card',
+    'debit_card' => 'fas fa-credit-card',
+    'paypal' => 'fab fa-paypal',
+    'bank_transfer' => 'fas fa-university',
+    'stripe' => 'fab fa-stripe',
+    'cod' => 'fas fa-money-bill-wave',
+    'apple_pay' => 'fab fa-apple-pay',
+    'google_pay' => 'fab fa-google-pay'
+];
+
+$payment_method_labels = [
+    'credit_card' => 'Credit Card',
+    'debit_card' => 'Debit Card',
+    'paypal' => 'PayPal',
+    'bank_transfer' => 'Bank Transfer',
+    'stripe' => 'Stripe',
+    'cod' => 'Cash on Delivery',
+    'apple_pay' => 'Apple Pay',
+    'google_pay' => 'Google Pay'
+];
 
 // Get cart items for current user
 $cart_items = [];
@@ -318,6 +354,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
                         </div>
                     </div>
                     
+                    <!-- Vendor Payment Methods -->
+                    <?php if (!empty($vendor_payment_methods)): ?>
+                        <div class="mt-3">
+                            <h6 class="border-bottom pb-2 mb-2">
+                                <i class="fas fa-credit-card me-2 text-primary"></i>
+                                Payment Methods Accepted
+                            </h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                <?php foreach ($vendor_payment_methods as $method): ?>
+                                    <?php if (isset($payment_method_icons[$method])): ?>
+                                        <span class="badge bg-light text-dark border">
+                                            <i class="<?php echo $payment_method_icons[$method]; ?> me-1"></i>
+                                            <?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>
+                                        </span>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                    
                     <!-- Vendor Actions -->
                     <div class="mt-3 d-flex gap-2">
                         <a href="vendor.php?id=<?php echo $vendor_id; ?>" class="btn btn-outline-primary btn-sm">
@@ -326,9 +382,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
                         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#contactVendorModal">
                             <i class="fas fa-envelope me-1"></i> Contact
                         </button>
-                        <a href="../vendor/payments.php?vendor_id=<?php echo $vendor_id; ?>" class="btn btn-outline-success btn-sm">
-                            <i class="fas fa-credit-card me-1"></i> Payment Methods
-                        </a>
+                        <button class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#paymentMethodsModal">
+                            <i class="fas fa-credit-card me-1"></i> Payment Info
+                        </button>
                     </div>
                 </div>
             </div>
@@ -446,11 +502,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
                                     <i class="fas fa-cart-plus me-2"></i> 
                                     <?php echo $product['stock'] == 0 ? 'Out of Stock' : 'Add to Cart'; ?>
                                 </button>
-                                <a href="payment.php?id=<?php echo $product['id']; ?>" 
-                                    class="text-decoration-none  w-100 btn btn-outline-primary mt-2">
-                                    <i class="fas fa-bolt me-2"></i> Buy Now
-                                 </a>
-
+                                <?php 
+                                // Determine max purchase quantity for Buy Now button
+                                $cart_quantity = isset($cart_items[$product_id]) ? (int)$cart_items[$product_id] : 0;
+                                $max_purchase_quantity = $product['stock'] - $cart_quantity;
+                                if ($product['stock'] > 0 && $max_purchase_quantity <= 0) {
+                                    $max_purchase_quantity = 0;
+                                }
+                            if ($product['stock'] == 0) {
+                                $max_purchase_quantity = 0; 
+                            }
+                                    ?>
+                                    
+                                    <!-- Buy Now Button with Payment Methods Preview -->
+                                    <div class="position-relative">
+                                        <a href="payment.php?id=<?php echo $product['id']; ?>&quantity=<?php echo $max_purchase_quantity > 0 ? $max_purchase_quantity : 1; ?>" 
+                                        class="text-decoration-none w-100 btn btn-outline-primary mt-2"
+                                        id="buyNowBtn">
+                                        <i class="fas fa-bolt me-2"></i> Buy Now
+                                    </a>
+                                    <!-- Payment Methods Preview -->
+                                    <?php if (!empty($vendor_payment_methods)): ?>
+                                        <div class="payment-methods-preview mt-2">
+                                            <small class="text-muted d-block mb-1">
+                                                <i class="fas fa-lock me-1 text-success"></i>
+                                                Secure payment via:
+                                            </small>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                <?php 
+                                                // Show only first 3 payment methods for preview
+                                                $preview_methods = array_slice($vendor_payment_methods, 0, 3);
+                                                foreach ($preview_methods as $method): 
+                                                    if (isset($payment_method_icons[$method])): 
+                                                ?>
+                                                    <span class="badge bg-light text-muted border">
+                                                        <i class="<?php echo $payment_method_icons[$method]; ?>"></i>
+                                                    </span>
+                                                <?php 
+                                                    endif;
+                                                endforeach; 
+                                                
+                                                // If more than 3 methods, show count
+                                                if (count($vendor_payment_methods) > 3): 
+                                                ?>
+                                                    <span class="badge bg-light text-muted border">
+                                                        +<?php echo count($vendor_payment_methods) - 3; ?> more
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
                             </div>
                         </div>
                     </form>
@@ -488,6 +590,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
                                     <tr>
                                         <th>Dimensions</th>
                                         <td>10 × 10 × 10 cm</td>
+                                    </tr>
+                                    <!-- Payment Methods Row -->
+                                    <tr>
+                                        <th>Payment Options</th>
+                                        <td>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                <?php foreach ($vendor_payment_methods as $method): ?>
+                                                    <?php if (isset($payment_method_icons[$method])): ?>
+                                                        <span class="badge bg-light text-dark border small">
+                                                            <i class="<?php echo $payment_method_icons[$method]; ?> me-1"></i>
+                                                            <?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -811,6 +929,86 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
     </div>
 </div>
 
+<!-- Payment Methods Modal -->
+<div class="modal fade" id="paymentMethodsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-credit-card me-2 text-primary"></i>
+                    Available Payment Methods
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong><?php echo htmlspecialchars($vendor['store_name'] ?? $vendor['full_name']); ?></strong> 
+                            accepts the following payment methods for this product:
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row g-4">
+                    <?php foreach ($vendor_payment_methods as $method): ?>
+                        <?php if (isset($payment_method_icons[$method])): ?>
+                            <div class="col-md-6">
+                                <div class="card border h-100">
+                                    <div class="card-body d-flex align-items-center">
+                                        <div class="flex-shrink-0">
+                                            <div class="payment-icon-circle bg-light rounded-circle p-3 me-3">
+                                                <i class="<?php echo $payment_method_icons[$method]; ?> fa-2x text-primary"></i>
+                                            </div>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <h6 class="mb-1">
+                                                <?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>
+                                            </h6>
+                                            <p class="text-muted small mb-0">
+                                                <?php 
+                                                $descriptions = [
+                                                    'credit_card' => 'Visa, MasterCard, American Express',
+                                                    'debit_card' => 'All major debit cards',
+                                                    'paypal' => 'Secure PayPal payments',
+                                                    'bank_transfer' => 'Direct bank transfer',
+                                                    'stripe' => 'Secure Stripe payments',
+                                                    'cod' => 'Pay when you receive',
+                                                    'apple_pay' => 'Apple Pay digital wallet',
+                                                    'google_pay' => 'Google Pay digital wallet'
+                                                ];
+                                                echo $descriptions[$method] ?? 'Secure online payment';
+                                                ?>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-12">
+                        <div class="alert alert-warning">
+                            <i class="fas fa-shield-alt me-2"></i>
+                            <strong>Security Note:</strong> All payments are encrypted and secure. 
+                            Your payment information is never stored on our servers.
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="payment.php?id=<?php echo $product_id; ?>" class="btn btn-primary">
+                    <i class="fas fa-bolt me-2"></i> Proceed to Payment
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Image Zoom Modal -->
 <div class="modal fade" id="imageZoomModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -850,6 +1048,7 @@ $(document).ready(function() {
         let value = parseInt(input.val());
         if (value > 1) {
             input.val(value - 1);
+            updateBuyNowLink();
         }
     });
     
@@ -859,10 +1058,26 @@ $(document).ready(function() {
         let value = parseInt(input.val());
         if (value < max) {
             input.val(value + 1);
+            updateBuyNowLink();
         } else {
             showToast('Maximum quantity reached', 'warning');
         }
     });
+    
+    // Quantity input change
+    $('#quantity').on('input', function() {
+        updateBuyNowLink();
+    });
+    
+    function updateBuyNowLink() {
+        const quantity = $('#quantity').val();
+        const buyNowBtn = $('#buyNowBtn');
+        const currentHref = buyNowBtn.attr('href').split('?')[0];
+        buyNowBtn.attr('href', currentHref + '?id=<?php echo $product_id; ?>&quantity=' + quantity);
+    }
+    
+    // Initialize buy now link
+    updateBuyNowLink();
     
     // Rating stars
     $('.rating-star').hover(function() {
@@ -1082,6 +1297,52 @@ function addToCart(productId, quantity) {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Payment methods preview */
+.payment-methods-preview .badge {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.payment-icon-circle {
+    width: 70px;
+    height: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Vendor card enhancements */
+.product-details-page .vendor-card .payment-badges {
+    max-height: 80px;
+    overflow-y: auto;
+}
+
+/* Buy now button enhancements */
+#buyNowBtn {
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+#buyNowBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3);
+}
+
+/* Payment methods in table */
+.table .badge {
+    font-size: 0.75rem;
+    font-weight: normal;
+}
+
+/* Modal payment icons */
+.modal .payment-icon-circle {
+    transition: transform 0.3s ease;
+}
+
+.modal .card:hover .payment-icon-circle {
+    transform: scale(1.1);
 }
 </style>
 

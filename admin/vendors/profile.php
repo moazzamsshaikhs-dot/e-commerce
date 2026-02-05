@@ -44,9 +44,9 @@ try {
     
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Error loading profile: ' . $e->getMessage();
-    $vendor = [];
-    $documents = [];
-    $bank_accounts = [];
+    // $vendor = [];
+    // $documents = [];
+    // $bank_accounts = [];
 }
 
 $errors = [];
@@ -638,7 +638,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                     <div class="text-center mb-4">
                         <img id="avatarPreview" src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
                              alt="Preview" class="rounded-circle border" width="150" height="150" style="object-fit: cover;"
-                             onerror="this.src='<?php echo SITE_URL; ?>assets/images/profiles/default.png'">
+                             onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Choose new profile picture</label>
