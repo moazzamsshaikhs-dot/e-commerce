@@ -55,7 +55,7 @@ try {
         <p>Please respond to this message within 24 hours.</p>
     ";
     
-    // sendEmail($vendor_email, $email_subject, $email_body);
+    sendEmail($vendor_email, $email_subject, $email_body);
     
     logUserActivity($_SESSION['user_id'], 'vendor_contact', 'Contacted vendor #' . $vendor_id);
     

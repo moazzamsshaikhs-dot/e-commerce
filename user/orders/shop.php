@@ -381,11 +381,11 @@ logUserActivity($_SESSION['user_id'], 'shop_access', 'Accessed shop page');
                                                         <i class="fas fa-plus"></i>
                                                     </button>
                                                 </div>
+                                                <?php else: ?>
                                                 <a href="product-details.php?id=<?php echo $product['id']; ?>" 
-                                           class="text-decoration-none  w-100 btn btn-outline-primary mt-2">
+                                           class="text-decoration-none  w-100 btn btn-outline-primary mb-2">
                                            Details
                                         </a>
-                                            <?php else: ?>
                                                 <button class="btn btn-primary w-100 add-to-cart" 
                                                         data-product-id="<?php echo $product['id']; ?>"
                                                         data-product-name="<?php echo htmlspecialchars($product['name']); ?>">
@@ -603,63 +603,161 @@ function buildQueryString($new_params = []) {
 }
 </style>
 
-<!-- JavaScript -->
+<!-- //// JavaScript section (shop.php ke end me) -->
+
 <script>
 $(document).ready(function() {
-    // Toggle grid/list view
-    $('#gridViewBtn').click(function() {
-        $('#productsGrid').removeClass('list-view').addClass('row');
-        $(this).removeClass('btn-outline-secondary').addClass('btn-primary');
-        $('#listViewBtn').removeClass('btn-primary').addClass('btn-outline-secondary');
-    });
+    // AJAX calls ko correct URL par point karo
+    const baseUrl = '<?php echo SITE_URL; ?>';
     
-    $('#listViewBtn').click(function() {
-        $('#productsGrid').removeClass('row').addClass('list-view');
-        $(this).removeClass('btn-outline-secondary').addClass('btn-primary');
-        $('#gridViewBtn').removeClass('btn-primary').addClass('btn-outline-secondary');
-    });
+    // Add to cart function ko update karo
+    function addToCart(productId, quantity, productName = '') {
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>user/ajax/add-to-cart.php', // Correct path
+            type: 'POST',
+            data: {
+                product_id: productId,
+                quantity: quantity
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Update cart count in header
+                    $('.cart-count').text(response.cart_count);
+                    
+                    // Update UI for this product
+                    const addButton = $(`.add-to-cart[data-product-id="${productId}"]`);
+                    if (addButton.length) {
+                        const productCard = addButton.closest('.product-card');
+                        const stock = addButton.closest('.card-body').find('.increase-cart').data('max-stock') || 10;
+                        
+                        const qtyControls = `
+                            <div class="btn-group w-100">
+                                <button class="btn btn-outline-primary decrease-cart" data-product-id="${productId}">
+                                    <i class="fas fa-minus"></i>
+                                </button>
+                                <button class="btn btn-outline-primary disabled" style="min-width: 50px;">1</button>
+                                <button class="btn btn-outline-primary increase-cart" data-product-id="${productId}" data-max-stock="${stock}">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                        `;
+                        
+                        addButton.replaceWith(qtyControls);
+                        
+                        // Re-bind events
+                        productCard.find('.increase-cart').click(function() {
+                            const pid = $(this).data('product-id');
+                            const maxStock = $(this).data('max-stock');
+                            const currentQty = parseInt($(this).siblings('button:eq(1)').text());
+                            
+                            updateCartQuantity(pid, currentQty + 1);
+                        });
+                        
+                        productCard.find('.decrease-cart').click(function() {
+                            const pid = $(this).data('product-id');
+                            const currentQty = parseInt($(this).siblings('button:eq(1)').text());
+                            
+                            if (currentQty > 1) {
+                                updateCartQuantity(pid, currentQty - 1);
+                            } else {
+                                removeFromCart(pid);
+                            }
+                        });
+                    }
+                    
+                    // Show success message
+                    if (productName) {
+                        showToast(`Added <strong>${productName}</strong> to cart!`, 'success');
+                    } else {
+                        showToast('Product added to cart!', 'success');
+                    }
+                } else {
+                    showToast(response.message || 'Error adding to cart', 'error');
+                }
+            },
+            error: function(xhr, status, error) {
+                showToast('Network error: ' + error, 'error');
+            }
+        });
+    }
     
-    // Add to cart
-    $('.add-to-cart').click(function() {
-        const productId = $(this).data('product-id');
-        const productName = $(this).data('product-name');
-        
-        addToCart(productId, 1, productName);
-    });
+    function updateCartQuantity(productId, quantity) {
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>user/ajax/update-cart.php',
+            type: 'POST',
+            data: {
+                product_id: productId,
+                quantity: quantity
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    const qtyButton = $(`.increase-cart[data-product-id="${productId}"]`).siblings('button:eq(1)');
+                    qtyButton.text(quantity);
+                    
+                    // Update cart count in header
+                    $('.cart-count').text(response.cart_count);
+                    showToast('Cart updated', 'success');
+                } else {
+                    showToast(response.message || 'Error updating cart', 'error');
+                }
+            },
+            error: function(xhr, status, error) {
+                showToast('Network error: ' + error, 'error');
+            }
+        });
+    }
     
-    // Increase cart quantity
-    $('.increase-cart').click(function() {
-        const productId = $(this).data('product-id');
-        const maxStock = $(this).data('max-stock');
-        const currentQty = parseInt($(this).siblings('button:eq(1)').text());
-        
-        if (currentQty < maxStock) {
-            addToCart(productId, 1);
-        } else {
-            showToast('Cannot add more than available stock', 'warning');
-        }
-    });
+    function removeFromCart(productId) {
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>user/ajax/remove-from-cart.php',
+            type: 'POST',
+            data: { product_id: productId },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Update cart count
+                    $('.cart-count').text(response.cart_count);
+                    
+                    // Replace with add button
+                    const productCard = $(`.decrease-cart[data-product-id="${productId}"]`).closest('.product-card');
+                    const productName = productCard.find('.product-name a').text().trim();
+                    
+                    const addButton = `
+                        <button class="btn btn-primary w-100 add-to-cart" 
+                                data-product-id="${productId}"
+                                data-product-name="${productName}">
+                            <i class="fas fa-cart-plus me-2"></i> Add to Cart
+                        </button>
+                    `;
+                    
+                    productCard.find('.btn-group').replaceWith(addButton);
+                    
+                    // Re-bind add to cart event
+                    productCard.find('.add-to-cart').click(function() {
+                        const pid = $(this).data('product-id');
+                        const pname = $(this).data('product-name');
+                        addToCart(pid, 1, pname);
+                    });
+                    
+                    showToast('Removed from cart', 'info');
+                }
+            },
+            error: function(xhr, status, error) {
+                showToast('Network error: ' + error, 'error');
+            }
+        });
+    }
     
-    // Decrease cart quantity
-    $('.decrease-cart').click(function() {
-        const productId = $(this).data('product-id');
-        const currentQty = parseInt($(this).siblings('button:eq(1)').text());
-        
-        if (currentQty > 1) {
-            updateCartQuantity(productId, currentQty - 1);
-        } else {
-            removeFromCart(productId);
-        }
-    });
-    
-    // Wishlist toggle
+    // Wishlist function update
     $('.wishlist-toggle').click(function() {
         const button = $(this);
         const productId = button.data('product-id');
         const isInWishlist = button.data('in-wishlist') === 'true';
         
         $.ajax({
-            url: '../ajax/toggle-wishlist.php',
+            url: '<?php echo SITE_URL; ?>user/ajax/toggle-wishlist.php',
             type: 'POST',
             data: {
                 product_id: productId,
@@ -683,179 +781,47 @@ $(document).ready(function() {
                 } else {
                     showToast(response.message || 'Error updating wishlist', 'error');
                 }
+            },
+            error: function(xhr, status, error) {
+                showToast('Network error: ' + error, 'error');
             }
         });
     });
     
-    // Price range validation
-    $('input[name="min_price"], input[name="max_price"]').on('change', function() {
-        const minPrice = parseFloat($('input[name="min_price"]').val()) || 0;
-        const maxPrice = parseFloat($('input[name="max_price"]').val()) || 0;
+    // Bind add to cart buttons
+    $('.add-to-cart').click(function() {
+        const productId = $(this).data('product-id');
+        const productName = $(this).data('product-name');
+        addToCart(productId, 1, productName);
+    });
+    
+    // Bind increase cart buttons
+    $('.increase-cart').click(function() {
+        const productId = $(this).data('product-id');
+        const maxStock = $(this).data('max-stock');
+        const currentQty = parseInt($(this).siblings('button:eq(1)').text());
         
-        if (maxPrice > 0 && minPrice > maxPrice) {
-            showToast('Minimum price cannot be greater than maximum price', 'warning');
-            $(this).val('');
+        if (currentQty < maxStock) {
+            updateCartQuantity(productId, currentQty + 1);
+        } else {
+            showToast('Cannot add more than available stock', 'warning');
         }
     });
     
-    // Auto-submit filters on change
-    $('select[name="category"], select[name="sort"]').change(function() {
-        $('#shopFilters').submit();
+    // Bind decrease cart buttons
+    $('.decrease-cart').click(function() {
+        const productId = $(this).data('product-id');
+        const currentQty = parseInt($(this).siblings('button:eq(1)').text());
+        
+        if (currentQty > 1) {
+            updateCartQuantity(productId, currentQty - 1);
+        } else {
+            removeFromCart(productId);
+        }
     });
+    
+    // Rest of your shop page JavaScript...
 });
-
-// Cart functions
-function addToCart(productId, quantity, productName = '') {
-    $.ajax({
-        url: '../ajax/add-to-cart.php',
-        type: 'POST',
-        data: {
-            product_id: productId,
-            quantity: quantity
-        },
-        dataType: 'json',
-        success: function(response) {
-            if (response.success) {
-                // Update cart count in header
-                $('.cart-count').text(response.cart_count);
-                
-                // Update UI for this product
-                const addButton = $(`.add-to-cart[data-product-id="${productId}"]`);
-                if (addButton.length) {
-                    const productCard = addButton.closest('.product-card');
-                    const stock = addButton.closest('.card-body').find('.increase-cart').data('max-stock') || 10;
-                    
-                    const qtyControls = `
-                        <div class="btn-group w-100">
-                            <button class="btn btn-outline-primary decrease-cart" data-product-id="${productId}">
-                                <i class="fas fa-minus"></i>
-                            </button>
-                            <button class="btn btn-outline-primary disabled" style="min-width: 50px;">1</button>
-                            <button class="btn btn-outline-primary increase-cart" data-product-id="${productId}" data-max-stock="${stock}">
-                                <i class="fas fa-plus"></i>
-                            </button>
-                        </div>
-                    `;
-                    
-                    addButton.replaceWith(qtyControls);
-                    
-                    // Re-bind events
-                    productCard.find('.increase-cart').click(function() {
-                        const pid = $(this).data('product-id');
-                        const maxStock = $(this).data('max-stock');
-                        const currentQty = parseInt($(this).siblings('button:eq(1)').text());
-                        
-                        if (currentQty < maxStock) {
-                            addToCart(pid, 1);
-                        } else {
-                            showToast('Cannot add more than available stock', 'warning');
-                        }
-                    });
-                    
-                    productCard.find('.decrease-cart').click(function() {
-                        const pid = $(this).data('product-id');
-                        const currentQty = parseInt($(this).siblings('button:eq(1)').text());
-                        
-                        if (currentQty > 1) {
-                            updateCartQuantity(pid, currentQty - 1);
-                        } else {
-                            removeFromCart(pid);
-                        }
-                    });
-                }
-                
-                // Show success message
-                if (productName) {
-                    showToast(`Added <strong>${productName}</strong> to cart!`, 'success');
-                } else {
-                    showToast('Product added to cart!', 'success');
-                }
-            } else {
-                showToast(response.message || 'Error adding to cart', 'error');
-            }
-        }
-    });
-}
-
-function updateCartQuantity(productId, quantity) {
-    $.ajax({
-        url: '../ajax/update-cart.php',
-        type: 'POST',
-        data: {
-            product_id: productId,
-            quantity: quantity
-        },
-        dataType: 'json',
-        success: function(response) {
-            if (response.success) {
-                const qtyButton = $(`.increase-cart[data-product-id="${productId}"]`).siblings('button:eq(1)');
-                qtyButton.text(quantity);
-                showToast('Cart updated', 'success');
-            } else {
-                showToast(response.message || 'Error updating cart', 'error');
-            }
-        }
-    });
-}
-
-function removeFromCart(productId) {
-    $.ajax({
-        url: '../ajax/remove-from-cart.php',
-        type: 'POST',
-        data: { product_id: productId },
-        dataType: 'json',
-        success: function(response) {
-            if (response.success) {
-                // Update cart count
-                $('.cart-count').text(response.cart_count);
-                
-                // Replace with add button
-                const productCard = $(`.decrease-cart[data-product-id="${productId}"]`).closest('.product-card');
-                const addButton = `
-                    <button class="btn btn-primary w-100 add-to-cart" 
-                            data-product-id="${productId}"
-                            data-product-name="${productCard.find('.product-name').text().trim()}">
-                        <i class="fas fa-cart-plus me-2"></i> Add to Cart
-                    </button>
-                `;
-                
-                productCard.find('.btn-group').replaceWith(addButton);
-                
-                // Re-bind add to cart event
-                productCard.find('.add-to-cart').click(function() {
-                    const pid = $(this).data('product-id');
-                    const pname = $(this).data('product-name');
-                    addToCart(pid, 1, pname);
-                });
-                
-                showToast('Removed from cart', 'info');
-            }
-        }
-    });
-}
-
-// Toast notification
-function showToast(message, type = 'info') {
-    const toast = $(`
-        <div class="toast align-items-center text-white bg-${type === 'error' ? 'danger' : type} border-0 position-fixed" 
-             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;" role="alert">
-            <div class="d-flex">
-                <div class="toast-body">
-                    ${message}
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>
-        </div>
-    `);
-    
-    $('body').append(toast);
-    const bsToast = new bootstrap.Toast(toast[0]);
-    bsToast.show();
-    
-    toast.on('hidden.bs.toast', function() {
-        $(this).remove();
-    });
-}
 </script>
 
 <?php require_once '../../includes/footer.php'; ?>

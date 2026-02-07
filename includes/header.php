@@ -6,6 +6,27 @@ if (!defined('DB_HOST')) {
 
 // Get current page
 $current_page = basename($_SERVER['PHP_SELF']);
+
+// Get cart and wishlist counts (only if user is logged in)
+$cart_count = 0;
+$wishlist_count = 0;
+
+if (isLoggedIn()) {
+    $db = getDB();
+    $user_id = $_SESSION['user_id'];
+    
+    // Get cart count
+    $stmt = $db->prepare("SELECT SUM(quantity) as total FROM cart_items WHERE user_id = ?");
+    $stmt->execute([$user_id]);
+    $cart_result = $stmt->fetch();
+    $cart_count = $cart_result['total'] ?? 0;
+    
+    // Get wishlist count
+    $stmt = $db->prepare("SELECT COUNT(*) as total FROM wishlist WHERE user_id = ?");
+    $stmt->execute([$user_id]);
+    $wishlist_result = $stmt->fetch();
+    $wishlist_count = $wishlist_result['total'] ?? 0;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -95,13 +116,44 @@ $current_page = basename($_SERVER['PHP_SELF']);
             transform: translateY(-50%);
             color: #666;
         }
+        
+        /* Cart and Wishlist Count Badge Styles */
+        .nav-link .cart-count,
+        .nav-link .wishlist-count {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background-color: #dc3545;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .nav-link {
+            position: relative;
+        }
+        
+        .nav-link .badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+        }
+        
+        .cart-icon, .wishlist-icon {
+            position: relative;
+        }
     </style>
 </head>
 <body>
     <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-light bg-white fixed-top shadow-sm">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="<?php echo SITE_URL; ?>user/dashboard.php">
+            <a class="navbar-brand fw-bold" href="<?php echo SITE_URL; ?>index.php">
                 <i class="fas fa-shopping-bag text-primary me-2"></i>
                 ShopEase<span class="text-primary">Pro</span>
             </a>
@@ -109,16 +161,60 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            
+            <?php if(!isLoggedIn()): ?>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>" 
-                           href="<?php echo SITE_URL; ?>signup.php">
-                            <i class="fas fa-home me-1"></i> Signup
+                        <a class="nav-link <?php echo ($current_page == 'index.php') ? 'active' : ''; ?>" 
+                           href="<?php echo SITE_URL; ?>index.php">
+                            <i class="fas fa-home me-1"></i> Home
                         </a>
                     </li>
+                <div class="d-lg-none">
+                    <a class="btn btn-primary me-2" href="<?php echo SITE_URL; ?>login.php">
+                        <i class="fas fa-sign-in-alt me-1"></i> Login
+                    </a>
+                    <a class="btn btn-outline-primary" href="<?php echo SITE_URL; ?>signup.php">
+                        <i class="fas fa-user-plus me-1"></i> Sign Up
+                    </a>
+                </div>
+            
+                    <?php endif;?>
                     
+                    
+                    <?php if (isLoggedIn()): ?>
+                    
+                        <!-- Cart and Wishlist for logged in users -->
+                        <li class="nav-item">
+                            <a class="nav-link cart-icon <?php echo ($current_page == 'cart.php') ? 'active' : ''; ?>" 
+                               href="<?php echo SITE_URL; ?>user/cart/cart.php">
+                                <i class="fas fa-shopping-cart"></i>
+                                <?php if ($cart_count > 0): ?>
+                                    <span class="cart-count badge bg-danger"><?php echo $cart_count; ?></span>
+                                <?php endif; ?>
+                            </a>
+                        </li>
+                        
+                        <li class="nav-item">
+                            <a class="nav-link wishlist-icon <?php echo ($current_page == 'wishlist.php') ? 'active' : ''; ?>" 
+                               href="<?php echo SITE_URL; ?>user/wishlist/wishlist.php">
+                                <i class="fas fa-heart"></i>
+                                <?php if ($wishlist_count > 0): ?>
+                                    <span class="wishlist-count badge bg-danger"><?php echo $wishlist_count; ?></span>
+                                <?php endif; ?>
+                            </a>
+                        </li>
+
+                        <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page == 'shop.php') ? 'active' : ''; ?>" 
+                           href="<?php echo SITE_URL; ?>user/orders/shop.php">
+                            <i class="fas fa-store me-1"></i> Shop
+                        </a>
+                    </li>
+                    <?php endif; ?>
+                </ul>
+                
+                <ul class="navbar-nav ms-auto">
                     <?php if (isLoggedIn()): ?>
                         <!-- User is logged in -->
                         <li class="nav-item dropdown">
@@ -127,19 +223,29 @@ $current_page = basename($_SERVER['PHP_SELF']);
                                 <i class="fas fa-user-circle me-1"></i>
                                 <?php echo $_SESSION['full_name'] ?? $_SESSION['username']; ?>
                             </a>
-                            <ul class="dropdown-menu">
+                            <ul class="dropdown-menu dropdown-menu-end">
                                 <?php if (isAdmin()): ?>
                                     <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>admin/dashboard.php">
                                         <i class="fas fa-tachometer-alt me-2"></i> Admin Dashboard
+                                    </a></li>
+                                <?php elseif (isVendor()): ?>
+                                    <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>vendor/dashboard.php">
+                                        <i class="fas fa-tachometer-alt me-2"></i> Vendor Dashboard
                                     </a></li>
                                 <?php else: ?>
                                     <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>user/dashboard.php">
                                         <i class="fas fa-tachometer-alt me-2"></i> User Dashboard
                                     </a></li>
                                 <?php endif; ?>
+                                
                                 <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>profile.php">
                                     <i class="fas fa-user me-2"></i> My Profile
                                 </a></li>
+                                
+                                <li><a class="dropdown-item" href="<?php echo SITE_URL; ?>user/orders/orders.php">
+                                    <i class="fas fa-shopping-bag me-2"></i> My Orders
+                                </a></li>
+                                
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item text-danger" href="<?php echo SITE_URL; ?>logout.php">
                                     <i class="fas fa-sign-out-alt me-2"></i> Logout
@@ -189,4 +295,30 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
+        
+        <?php if (isset($_SESSION['info'])): ?>
+            <div class="alert alert-info alert-dismissible fade show" role="alert">
+                <i class="fas fa-info-circle me-2"></i>
+                <?php 
+                    echo $_SESSION['info']; 
+                    unset($_SESSION['info']);
+                ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_SESSION['warning'])): ?>
+            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <?php 
+                    echo $_SESSION['warning']; 
+                    unset($_SESSION['warning']);
+                ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
     </div>
+
+    <!-- Main Content -->
+    <!-- <main class="container-fluid py-4">
+        <div class="container"> -->

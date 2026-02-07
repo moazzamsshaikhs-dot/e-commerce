@@ -161,141 +161,156 @@ logUserActivity($user_id, 'wishlist_view', 'Viewed wishlist');
         <?php endif; ?>
     </main>
 </div>
+<!-- // Wishlist page ke JavaScript section me -->
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+$(document).ready(function() {
     // Remove from wishlist
-    document.querySelectorAll('.remove-wishlist-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const productId = this.getAttribute('data-product-id');
-            const productCard = this.closest('.product-card');
-            
-            fetch('wishlist-ajax.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    action: 'remove',
-                    product_id: productId
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    productCard.remove();
-                    updateWishlistCount();
+    $('.remove-wishlist-btn').click(function() {
+        const button = $(this);
+        const productId = button.data('product-id');
+        const productCard = button.closest('.product-card');
+        
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>user/ajax/toggle-wishlist.php',
+            type: 'POST',
+            data: {
+                product_id: productId,
+                action: 'remove'
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    productCard.fadeOut(300, function() {
+                        $(this).remove();
+                        updateWishlistCount(response.count);
+                        
+                        // If no items left, reload page
+                        if ($('.product-card').length === 0) {
+                            setTimeout(() => {
+                                location.reload();
+                            }, 500);
+                        }
+                    });
                     showToast('Removed from wishlist', 'success');
-                    
-                    // If no items left, show empty message
-                    if (document.querySelectorAll('.product-card').length === 0) {
-                        location.reload();
-                    }
                 } else {
-                    showToast(data.message || 'Error removing item', 'error');
+                    showToast(response.message || 'Error removing item', 'error');
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('Network error', 'error');
-            });
+            },
+            error: function(xhr, status, error) {
+                showToast('Network error: ' + error, 'error');
+            }
         });
     });
     
-    // Add to cart
-    document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const productId = this.getAttribute('data-product-id');
-            
-            fetch('cart-ajax.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    action: 'add',
-                    product_id: productId,
-                    quantity: 1
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('Added to cart!', 'success');
+    // Add to cart from wishlist
+    $('.add-to-cart-btn').click(function() {
+        const button = $(this);
+        const productId = button.data('product-id');
+        const productCard = button.closest('.product-card');
+        const productName = productCard.find('.card-title a').text().trim();
+        
+        $.ajax({
+            url: '<?php echo SITE_URL; ?>user/ajax/add-to-cart.php',
+            type: 'POST',
+            data: {
+                product_id: productId,
+                quantity: 1
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Update header cart count
+                    $('.cart-count').text(response.cart_count);
+                    
+                    // Change button to added state
+                    button.html('<i class="fas fa-check me-1"></i> Added to Cart');
+                    button.removeClass('btn-primary').addClass('btn-success');
+                    button.prop('disabled', true);
+                    
+                    setTimeout(() => {
+                        button.html('<i class="fas fa-cart-plus me-1"></i> Add to Cart');
+                        button.removeClass('btn-success').addClass('btn-primary');
+                        button.prop('disabled', false);
+                    }, 2000);
+                    
+                    showToast(`Added ${productName} to cart!`, 'success');
                 } else {
-                    showToast(data.message || 'Error adding to cart', 'error');
+                    showToast(response.message || 'Error adding to cart', 'error');
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('Network error', 'error');
-            });
+            },
+            error: function(xhr, status, error) {
+                showToast('Network error: ' + error, 'error');
+            }
         });
     });
     
     // Clear all wishlist items
-    const clearWishlistBtn = document.getElementById('clearWishlistBtn');
-    if (clearWishlistBtn) {
-        clearWishlistBtn.addEventListener('click', function() {
-            if (confirm('Are you sure you want to clear all items from your wishlist?')) {
-                fetch('wishlist-ajax.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        action: 'clear_all'
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('Wishlist cleared', 'success');
+    $('#clearWishlistBtn').click(function() {
+        if (confirm('Are you sure you want to clear all items from your wishlist?')) {
+            const clearBtn = $(this);
+            clearBtn.html('<i class="fas fa-spinner fa-spin me-2"></i> Clearing...');
+            clearBtn.prop('disabled', true);
+            
+            $.ajax({
+                url: '<?php echo SITE_URL; ?>user/ajax/clear-wishlist.php',
+                type: 'POST',
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        showToast('Wishlist cleared successfully', 'success');
                         setTimeout(() => {
                             location.reload();
                         }, 1000);
                     } else {
-                        showToast(data.message || 'Error clearing wishlist', 'error');
+                        showToast(response.message || 'Error clearing wishlist', 'error');
+                        clearBtn.html('<i class="fas fa-trash me-2"></i> Clear All Wishlist Items');
+                        clearBtn.prop('disabled', false);
                     }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showToast('Network error', 'error');
-                });
-            }
-        });
-    }
-});
-
-function updateWishlistCount() {
-    const wishlistCount = document.querySelector('.wishlist-count');
-    if (wishlistCount) {
-        fetch('wishlist-ajax.php?action=get_count')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    wishlistCount.textContent = data.count;
+                },
+                error: function(xhr, status, error) {
+                    showToast('Network error: ' + error, 'error');
+                    clearBtn.html('<i class="fas fa-trash me-2"></i> Clear All Wishlist Items');
+                    clearBtn.prop('disabled', false);
                 }
             });
+        }
+    });
+});
+
+function updateWishlistCount(count) {
+    const wishlistCount = $('.wishlist-count');
+    if (wishlistCount.length) {
+        wishlistCount.text(count);
+    }
+    
+    // Also update header if exists
+    const headerWishlistCount = $('.wishlist-count-header');
+    if (headerWishlistCount.length) {
+        headerWishlistCount.text(count);
     }
 }
 
 function showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-    toast.style.top = '20px';
-    toast.style.right = '20px';
-    toast.style.zIndex = '9999';
-    toast.style.minWidth = '300px';
-    toast.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    document.body.appendChild(toast);
+    const toast = $(`
+        <div class="toast align-items-center text-white bg-${type === 'error' ? 'danger' : type} border-0 position-fixed" 
+             style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;" role="alert">
+            <div class="d-flex">
+                <div class="toast-body">
+                    ${message}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    `);
     
-    setTimeout(() => {
-        toast.remove();
-    }, 3000);
+    $('body').append(toast);
+    const bsToast = new bootstrap.Toast(toast[0]);
+    bsToast.show();
+    
+    toast.on('hidden.bs.toast', function() {
+        $(this).remove();
+    });
 }
 </script>
 

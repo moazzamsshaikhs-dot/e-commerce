@@ -121,13 +121,13 @@ $is_approved = ($vendor_status === 'approved');
                     <div class="col-6">
                         <div class="bg-white-10 p-2 rounded text-center">
                             <small class="d-block text-white-75">Products</small>
-                            <span class="fw-bold text-white"><?php echo $total_products; ?></span>
+                            <span class="fw-bold text-muted"><?php echo $total_products; ?></span>
                         </div>
                     </div>
                     <div class="col-6">
                         <div class="bg-white-10 p-2 rounded text-center">
                             <small class="d-block text-white-75">Orders</small>
-                            <span class="fw-bold text-white"><?php echo $total_orders; ?></span>
+                            <span class="fw-bold text-muted"><?php echo $total_orders; ?></span>
                         </div>
                     </div>
                 </div>
