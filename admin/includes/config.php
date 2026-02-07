@@ -20,7 +20,7 @@ define('OTP_EXPIRY_MINUTES', 10);
 define('OTP_LENGTH', 6);
 
 // File Upload Configuration
-define('UPLOAD_PATH', $_SERVER['DOCUMENT_ROOT'] . '/ecommerce-project/assets/uploads/');
+define('UPLOAD_PATHS', $_SERVER['DOCUMENT_ROOT'] . '/ecommerce-project/assets/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('ALLOWED_TYPES', ['jpg', 'jpeg', 'png', 'gif']);
 define('ALLOWED_MIME_TYPES', ['image/jpeg', 'image/png', 'image/gif']);
@@ -33,6 +33,11 @@ define('SALES_EMAIL', 'sales@shopease.com');
 define('NO_REPLY_EMAIL', 'no-reply@shopease.com');
 define('SEND_NOTIFICATIONS', 'true');
 define('SITE_PHONE', '03132842740');
+
+// config.php میں یہ شامل کریں
+define('ROOT_PATH', $_SERVER['DOCUMENT_ROOT'] . '/'); // یا آپ کے پروجیکٹ کا صحیح راستہ
+define('UPLOAD_PATH', ROOT_PATH . 'assets/images/products/');
+define('UPLOAD_URL', SITE_URL . 'assets/images/products/');
 // Start Session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -477,4 +482,72 @@ function logVendorActivity($user_id, $activity_type, $description) {
     }
 }
 
+?>
+
+
+<?php
+// Add these functions to your config.php file or create a separate helpers.php file
+
+/**
+ * Export data to CSV format
+ */
+function exportToCSV($data, $filename, $vendorInfo = null) {
+    // Set headers
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    
+    // Create output stream
+    $output = fopen('php://output', 'w');
+    
+    // Add vendor info as comment if provided
+    if ($vendorInfo) {
+        fwrite($output, "# Vendor: {$vendorInfo['full_name']} ({$vendorInfo['email']})\n");
+        fwrite($output, "# Export Date: " . date('Y-m-d H:i:s') . "\n");
+        fwrite($output, "# Total Records: " . (count($data) - 1) . "\n\n");
+    }
+    
+    // Write data
+    foreach ($data as $row) {
+        fputcsv($output, $row);
+    }
+    
+    fclose($output);
+    exit();
+}
+
+/**
+ * Log export activity
+ */
+function logExportActivity($user_id, $filename, $record_count, $format, $type, $status = 'success') {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("INSERT INTO import_export_logs 
+                              (type, filename, settings_count, import_mode, user_id, status) 
+                              VALUES ('export', ?, ?, ?, ?, ?)");
+        $stmt->execute([$filename, $record_count, $format . '|' . $type, $user_id, $status]);
+        return true;
+    } catch(PDOException $e) {
+        error_log("Export log error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Check if vendor can export (rate limiting)
+ */
+function canExport($user_id, $max_per_day = 10) {
+    try {
+        $db = getDB();
+        $today = date('Y-m-d');
+        $stmt = $db->prepare("SELECT COUNT(*) FROM import_export_logs 
+                              WHERE user_id = ? AND DATE(created_at) = ? AND type = 'export'");
+        $stmt->execute([$user_id, $today]);
+        $count = $stmt->fetchColumn();
+        
+        return $count < $max_per_day;
+    } catch(PDOException $e) {
+        error_log("Export check error: " . $e->getMessage());
+        return false;
+    }
+}
 ?>
