@@ -25,6 +25,11 @@ if (basename(dirname($_SERVER['PHP_SELF'])) == 'user' && !isUser()) {
     redirect('admin/dashboard.php');
 }
 
+// Check user type for vendor pages
+if (basename(dirname($_SERVER['PHP_SELF'])) == 'vendor' && !isVendor()) {
+    $_SESSION['error'] = 'Access denied. Vendor privileges required.';
+    redirect('index.php');
+}
 // Check session timeout (30 minutes)
 if (isset($_SESSION['login_time'])) {
     $session_duration = 30 * 60; // 30 minutes in seconds
@@ -37,4 +42,12 @@ if (isset($_SESSION['login_time'])) {
     // Update session time on activity
     $_SESSION['login_time'] = time();
 }
+
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id']) || !isset($_SESSION['user_type'])) {
+    header('Location: ' . SITE_URL . 'login.php');
+    exit();
+}
+
 ?>
