@@ -177,7 +177,7 @@ if (isset($_POST['update_status']) && isset($_POST['order_id']) && isset($_POST[
             logUserActivity($vendor_id, 'order_update', "Updated order #$order_id status to $new_status");
             
             // Send notification to customer
-            sendOrderStatusUpdateNotification($order_id, $new_status);
+            sendOrderStatusUpdateNotification($user_id, $order_id, $new_status);
             
             // Redirect to avoid resubmission
             redirect('orders.php');

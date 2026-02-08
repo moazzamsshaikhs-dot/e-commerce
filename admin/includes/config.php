@@ -550,4 +550,34 @@ function canExport($user_id, $max_per_day = 10) {
         return false;
     }
 }
+
+
+function sendOrderStatusUpdateNotification($user_id, $order_id, $new_status) {
+    try {
+        $db = getDB();
+        // Get user email
+        $stmt = $db->prepare("SELECT email, full_name FROM users WHERE id = ?");
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch();
+        
+        if (!$user) return false;
+        
+        // Prepare email
+        $subject = "Order #$order_id Status Update - " . SITE_NAME;
+        $message = "Hello " . $user['full_name'] . ",\n\n";
+        $message .= "Your order with ID #$order_id has been updated to the following status: " . ucfirst($new_status) . ".\n\n";
+        $message .= "Thank you for shopping with us!\n" . SITE_NAME . " Team";
+        
+        // Log the notification
+        error_log("Order status update for {$user['email']}: Order #$order_id is now '$new_status'");
+        
+        // In production, send actual email
+        mail($user['email'], $subject, $message);
+        
+        return true;
+    } catch(PDOException $e) {
+        error_log("Order status notification failed: " . $e->getMessage());
+        return false;
+    }
+}
 ?>
