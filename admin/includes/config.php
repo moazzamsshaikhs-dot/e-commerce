@@ -580,4 +580,116 @@ function sendOrderStatusUpdateNotification($user_id, $order_id, $new_status) {
         return false;
     }
 }
+
+function sendLowStockAlert($admin_email, $product_name, $current_stock) {
+    try {
+        // Prepare email
+        $subject = "Low Stock Alert - " . SITE_NAME;
+        $message = "Hello Admin,\n\n";
+        $message .= "The product '$product_name' is low on stock. Current stock level: $current_stock.\n\n";
+        $message .= "Please restock it as soon as possible.\n" . SITE_NAME . " Team";
+        
+        // Log the alert
+        error_log("Low stock alert for product '$product_name': Current stock is $current_stock");
+        
+        // In production, send actual email
+        mail($admin_email, $subject, $message);
+        
+        return true;
+    } catch(Exception $e) {
+        error_log("Low stock alert failed: " . $e->getMessage());
+        return false;
+    }
+}
+
+function sendWithdrawalRequestNotification($admin_email, $vendor_name, $withdrawal_amount, $withdrawal_method, $account_details, $notes) {
+    try {
+        // Prepare email
+        $subject = "New Withdrawal Request - " . SITE_NAME;
+        $message = "Hello Admin,\n\n";
+        $message .= "Vendor '$vendor_name' has requested a withdrawal of amount: $" . number_format($withdrawal_amount, 2) . ".\n\n";
+        $message .= "Withdrawal Method: $withdrawal_method\n";
+        if (!empty($account_details)) {
+            $account = json_decode($account_details, true);
+            $message .= "Account Details: " . ($account['account_holder_name'] ?? '') . " - " . ($account['bank_name'] ?? '') . "\n";
+        }
+        if (!empty($notes)) {
+            $message .= "Notes: $notes\n";
+        }
+        $message .= "Please review and process the request as soon as possible.\n" . SITE_NAME . " Team";
+        
+        // Log the notification
+        error_log("Withdrawal request from '$vendor_name': Amount $" . number_format($withdrawal_amount, 2));
+        
+        // In production, send actual email
+        mail($admin_email, $subject, $message);
+        
+        return true;
+    } catch(Exception $e) {
+        error_log("Withdrawal request notification failed: " . $e->getMessage());
+        return false;
+    }
+}
+
+function sendWithdrawalStatusNotification($vendor_email, $vendor_name, $withdrawal_amount, $withdrawal_method, $status, $notes = '') {
+    try {
+        // Prepare email
+        $subject = "Withdrawal Request Update - " . SITE_NAME;
+        $message = "Hello $vendor_name,\n\n";
+        $message .= "Your withdrawal request of amount: $" . number_format($withdrawal_amount, 2) . " via $withdrawal_method has been updated to the following status: " . ucfirst($status) . ".\n\n";
+        if (!empty($notes)) {
+            $message .= "Notes: $notes\n\n";
+        }
+        $message .= "Thank you for being a valued vendor!\n" . SITE_NAME . " Team";
+        
+        // Log the notification
+        error_log("Withdrawal status update for '$vendor_name': Amount $" . number_format($withdrawal_amount, 2) . " is now '$status'");
+        
+        // In production, send actual email
+        mail($vendor_email, $subject, $message);
+        
+        return true;
+    } catch(Exception $e) {
+        error_log("Withdrawal status notification failed: " . $e->getMessage());
+        return false;
+    }
+}
+function maskTaxID($taxId) {
+    if (empty($taxId)) return '';
+    $taxId = preg_replace('/[^0-9]/', '', $taxId);
+    if (strlen($taxId) <= 4) return str_repeat('•', strlen($taxId));
+    return str_repeat('•', strlen($taxId) - 4) . substr($taxId, -4);
+}
+function maskEmail($email) {
+    if (empty($email)) return '';
+    $parts = explode('@', $email);
+    if (count($parts) !== 2) return str_repeat('•', strlen($email));
+    
+    $name = $parts[0];
+    $domain = $parts[1];
+    
+    $maskedName = strlen($name) > 2 ? substr($name, 0, 1) . str_repeat('•', strlen($name) - 2) . substr($name, -1) : str_repeat('•', strlen($name));
+    $maskedDomain = strlen($domain) > 3 ? substr($domain, 0, 1) . str_repeat('•', strlen($domain) - 3) . substr($domain, -2) : str_repeat('•', strlen($domain));
+    
+    return $maskedName . '@' . $maskedDomain;
+}
+function maskPhone($phone) {
+    if (empty($phone)) return '';
+    $phone = preg_replace('/[^0-9]/', '', $phone);
+    if (strlen($phone) <= 4) return str_repeat('•', strlen($phone));
+    return str_repeat('•', strlen($phone) - 4) . substr($phone, -4);
+}
+
+function logActivity($user_id, $activity_type, $description,) {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            INSERT INTO user_activities (user_id, activity_type, description, ip_address, user_agent) 
+            VALUES (?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([$user_id, $activity_type, $description, getUserIP(), $_SERVER['HTTP_USER_AGENT'] ?? '']);
+    } catch(PDOException $e) {
+        error_log("Activity logging failed: " . $e->getMessage());
+    }
+}
 ?>

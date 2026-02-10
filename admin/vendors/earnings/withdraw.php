@@ -5,23 +5,27 @@ require_once '../../includes/auth-check.php';
 // Check if user is vendor
 if ($_SESSION['user_type'] !== 'vendor') {
     $_SESSION['error'] = 'Access denied. Vendor dashboard only.';
-    redirectToDashboard();
+    header('Location: ' . SITE_URL . 'index.php');
+    exit();
 }
 
 // Check if vendor is approved
+$vendor_id = $_SESSION['user_id'];
 try {
     $db = getDB();
     $stmt = $db->prepare("SELECT vendor_status FROM users WHERE id = ?");
-    $stmt->execute([$_SESSION['user_id']]);
+    $stmt->execute([$vendor_id]);
     $vendor_status = $stmt->fetchColumn();
     
     if ($vendor_status !== 'approved') {
-        $_SESSION['error'] = 'Your vendor account is not approved. Please wait for admin approval.';
-        redirect('../../vendor/dashboard.php');
+        $_SESSION['error'] = 'Your vendor account is not approved.';
+        header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
+        exit();
     }
 } catch(PDOException $e) {
-    $_SESSION['error'] = 'Error checking vendor status.';
-    redirect('../../vendor/dashboard.php');
+    $_SESSION['error'] = 'Error checking vendor status: ' . $e->getMessage();
+    header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
+    exit();
 }
 
 $page_title = 'Withdraw Earnings';
@@ -31,6 +35,11 @@ require_once '../../includes/header.php';
 try {
     $db = getDB();
     $vendor_id = $_SESSION['user_id'];
+    
+    // Get vendor details
+    $stmt = $db->prepare("SELECT full_name, email FROM users WHERE id = ?");
+    $stmt->execute([$vendor_id]);
+    $vendor = $stmt->fetch();
     
     // Get pending earnings
     $stmt = $db->prepare("
@@ -61,26 +70,26 @@ try {
     $pending_earnings = 0;
     $bank_accounts = [];
     $withdrawals = [];
+    $vendor = ['full_name' => '', 'email' => ''];
 }
 
 $errors = [];
-$success = '';
 $min_withdrawal = 50.00;
 
 // Process withdrawal request
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_withdrawal'])) {
     $withdrawal_amount = (float)$_POST['amount'];
-    $withdrawal_method = sanitize($_POST['method']);
+    $withdrawal_method = trim($_POST['method'] ?? '');
     $account_id = isset($_POST['account_id']) ? (int)$_POST['account_id'] : null;
-    $notes = isset($_POST['notes']) ? sanitize($_POST['notes']) : '';
+    $notes = isset($_POST['notes']) ? trim($_POST['notes']) : '';
     
     // Validation
     if ($withdrawal_amount < $min_withdrawal) {
-        $errors[] = "Minimum withdrawal amount is $$min_withdrawal";
+        $errors[] = "Minimum withdrawal amount is $" . number_format($min_withdrawal, 2);
     }
     
     if ($withdrawal_amount > $pending_earnings) {
-        $errors[] = "Insufficient pending earnings. Available: $$pending_earnings";
+        $errors[] = "Insufficient pending earnings. Available: $" . number_format($pending_earnings, 2);
     }
     
     if (empty($withdrawal_method)) {
@@ -93,6 +102,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_withdrawal'])
     
     if (empty($errors)) {
         try {
+            $db = getDB();
+            
             // Check if bank account belongs to vendor
             if ($withdrawal_method == 'bank') {
                 $stmt = $db->prepare("SELECT id FROM vendor_bank_accounts WHERE id = ? AND vendor_id = ?");
@@ -106,19 +117,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_withdrawal'])
             if (empty($errors)) {
                 $db->beginTransaction();
                 
-                // Insert withdrawal record
-                $stmt = $db->prepare("
-                    INSERT INTO vendor_withdrawals (vendor_id, withdrawal_method, withdrawal_amount, account_details, notes) 
-                    VALUES (?, ?, ?, ?, ?)
-                ");
-                
+                // Prepare account details
                 $account_details = '';
                 if ($withdrawal_method == 'bank' && $account_id) {
                     $stmt_acc = $db->prepare("SELECT * FROM vendor_bank_accounts WHERE id = ?");
                     $stmt_acc->execute([$account_id]);
                     $account = $stmt_acc->fetch();
-                    $account_details = json_encode($account);
+                    if ($account) {
+                        $account_details = json_encode([
+                            'bank_name' => $account['bank_name'],
+                            'account_holder' => $account['account_holder_name'],
+                            'account_number' => substr($account['account_number'], -4),
+                            'ifsc' => $account['ifsc_code']
+                        ]);
+                    }
                 }
+                
+                // Insert withdrawal record
+                $stmt = $db->prepare("
+                    INSERT INTO vendor_withdrawals (vendor_id, withdrawal_method, withdrawal_amount, account_details, notes, status) 
+                    VALUES (?, ?, ?, ?, ?, 'pending')
+                ");
                 
                 $stmt->execute([
                     $vendor_id,
@@ -128,33 +147,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_withdrawal'])
                     $notes
                 ]);
                 
-                // Update vendor earnings status to processing
-                $stmt = $db->prepare("
-                    UPDATE vendor_earnings 
-                    SET status = 'processing' 
-                    WHERE vendor_id = ? AND status = 'pending'
-                    LIMIT ?
-                ");
+                $withdrawal_id = $db->lastInsertId();
                 
-                // Estimate how many records to update based on amount (simplified)
-                $stmt->execute([$vendor_id, ceil($withdrawal_amount / 10)]);
+                // Update vendor earnings status to processing (simplified - in reality you'd track which earnings)
+                // For now, we'll just mark some earnings as processing
+                if ($withdrawal_amount > 0) {
+                    $stmt = $db->prepare("
+                        UPDATE vendor_earnings 
+                        SET status = 'processing' 
+                        WHERE vendor_id = ? AND status = 'pending'
+                        ORDER BY id ASC
+                        LIMIT ?
+                    ");
+                    
+                    // Estimate limit - assuming average earning is $10 per record
+                    $limit = ceil($withdrawal_amount / 10);
+                    $stmt->execute([$vendor_id, $limit]);
+                }
                 
                 $db->commit();
                 
-                $_SESSION['success'] = "Withdrawal request of $$withdrawal_amount submitted successfully!";
-                
-                // Log activity
-                logUserActivity($vendor_id, 'withdrawal_request', "Requested withdrawal of $$withdrawal_amount via $withdrawal_method");
-                
-                // Send notification to admin
-                sendWithdrawalRequestNotification($vendor_id, $withdrawal_amount);
+                $_SESSION['success'] = "Withdrawal request of $" . number_format($withdrawal_amount, 2) . " submitted successfully! It will be processed within 3-5 business days.";
                 
                 // Redirect to avoid resubmission
-                redirect('withdraw.php');
+                header('Location: withdraw.php');
+                exit();
+                
             }
             
         } catch(PDOException $e) {
-            $db->rollBack();
+            if (isset($db) && $db->inTransaction()) {
+                $db->rollBack();
+            }
             $errors[] = 'Error processing withdrawal: ' . $e->getMessage();
         }
     }
@@ -162,12 +186,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_withdrawal'])
 
 // Add bank account
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) {
-    $account_holder_name = sanitize($_POST['account_holder_name']);
-    $bank_name = sanitize($_POST['bank_name']);
-    $account_number = sanitize($_POST['account_number']);
-    $ifsc_code = sanitize($_POST['ifsc_code']);
-    $branch_name = sanitize($_POST['branch_name']);
-    $account_type = sanitize($_POST['account_type']);
+    $account_holder_name = trim($_POST['account_holder_name'] ?? '');
+    $bank_name = trim($_POST['bank_name'] ?? '');
+    $account_number = trim($_POST['account_number'] ?? '');
+    $ifsc_code = trim($_POST['ifsc_code'] ?? '');
+    $branch_name = trim($_POST['branch_name'] ?? '');
+    $account_type = trim($_POST['account_type'] ?? 'savings');
     $is_default = isset($_POST['is_default']) ? 1 : 0;
     
     // Validation
@@ -189,6 +213,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
     
     if (empty($errors)) {
         try {
+            $db = getDB();
+            
             // If setting as default, unset other defaults
             if ($is_default) {
                 $stmt = $db->prepare("UPDATE vendor_bank_accounts SET is_default = 0 WHERE vendor_id = ?");
@@ -212,22 +238,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                 $is_default
             ]);
             
-            $_SESSION['success'] = "Bank account added successfully!";
+            $_SESSION['success'] = "Bank account added successfully! It will be verified by admin within 24 hours.";
             
-            // Log activity
-            logUserActivity($vendor_id, 'bank_account_add', "Added new bank account: $bank_name");
-            
-            redirect('withdraw.php');
+            // Redirect to avoid resubmission
+            header('Location: withdraw.php');
+            exit();
             
         } catch(PDOException $e) {
             $errors[] = 'Error adding bank account: ' . $e->getMessage();
         }
     }
 }
+include_once '../../includes/header.php';
 ?>
 
+
 <div class="dashboard-container">
-    <?php include '../../includes/vendor-sidebar.php'; ?>
+    <?php 
+    // Check if vendor sidebar exists
+    $sidebar_path = '../../includes/vendor-sidebar.php';
+    if (file_exists($sidebar_path)) {
+        include_once $sidebar_path;
+    }
+    ?>
     
     <main class="main-content">
         <!-- Header -->
@@ -247,13 +280,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
         
         <!-- Error/Success Messages -->
         <?php if (!empty($errors)): ?>
-            <div class="alert alert-danger">
-                <ul class="mb-0">
+            <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <strong>Please fix the following errors:</strong>
+                <ul class="mb-0 mt-2">
                     <?php foreach($errors as $error): ?>
-                        <li><?php echo $error; ?></li>
+                        <li><?php echo htmlspecialchars($error); ?></li>
                     <?php endforeach; ?>
                 </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_SESSION['error'])): ?>
+        <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i>
+            <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_SESSION['success'])): ?>
+        <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
+            <i class="fas fa-check-circle me-2"></i>
+            <?php echo htmlspecialchars($_SESSION['success']); unset($_SESSION['success']); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
         <?php endif; ?>
         
         <!-- Earnings Summary -->
@@ -288,15 +340,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                                 <i class="fas fa-check-circle me-2"></i>
                                 Ready to Withdraw
                             </div>
-                            <button class="btn btn-warning w-100" data-bs-toggle="modal" data-bs-target="#withdrawModal">
+                            <button class="btn btn-warning w-100" data-bs-toggle="modal" data-bs-target="#withdrawModal" 
+                                    <?php echo empty($bank_accounts) ? 'disabled' : ''; ?>>
                                 <i class="fas fa-wallet me-2"></i> Request Withdrawal
                             </button>
+                            <?php if (empty($bank_accounts)): ?>
+                                <small class="text-muted d-block mt-2">Please add a bank account first</small>
+                            <?php endif; ?>
                         <?php else: ?>
                             <div class="alert alert-info mb-3">
                                 <i class="fas fa-clock me-2"></i>
                                 Need $<?php echo number_format($min_withdrawal - $pending_earnings, 2); ?> more
                             </div>
-                            <a href="../dashboard.php" class="btn btn-outline-primary w-100">
+                            <a href="<?php echo SITE_URL; ?>admin/vendor/dashboard.php" class="btn btn-outline-primary w-100">
                                 <i class="fas fa-chart-line me-2"></i> Boost Sales
                             </a>
                         <?php endif; ?>
@@ -330,7 +386,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                                 <div class="list-group-item border-0 px-0 py-3">
                                     <div class="d-flex justify-content-between align-items-center">
                                         <div>
-                                            <h6 class="mb-1"><?php echo $account['bank_name']; ?></h6>
+                                            <h6 class="mb-1"><?php echo htmlspecialchars($account['bank_name']); ?></h6>
                                             <small class="text-muted">
                                                 Account: ****<?php echo substr($account['account_number'], -4); ?> | 
                                                 <?php echo ucfirst($account['account_type']); ?>
@@ -346,13 +402,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                                                 </span>
                                             <?php else: ?>
                                                 <span class="badge bg-warning">
-                                                    <i class="fas fa-clock me-1"></i> Pending
+                                                    <i class="fas fa-clock me-1"></i> Pending Verification
                                                 </span>
                                             <?php endif; ?>
                                         </div>
                                     </div>
                                     <small class="text-muted d-block mt-1">
-                                        <?php echo $account['account_holder_name']; ?> | IFSC: <?php echo $account['ifsc_code']; ?>
+                                        <?php echo htmlspecialchars($account['account_holder_name']); ?> | IFSC: <?php echo htmlspecialchars($account['ifsc_code']); ?>
                                     </small>
                                 </div>
                                 <?php endforeach; ?>
@@ -478,8 +534,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                             $stmt = $db->prepare("
                                 SELECT 
                                     COUNT(*) as total_withdrawals,
-                                    SUM(CASE WHEN status = 'completed' THEN withdrawal_amount ELSE 0 END) as total_withdrawn,
-                                    MAX(withdrawal_amount) as largest_withdrawal
+                                    COALESCE(SUM(CASE WHEN status = 'completed' THEN withdrawal_amount ELSE 0 END), 0) as total_withdrawn,
+                                    COALESCE(MAX(withdrawal_amount), 0) as largest_withdrawal
                                 FROM vendor_withdrawals 
                                 WHERE vendor_id = ?
                             ");
@@ -495,11 +551,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                                 <small class="text-muted">Total</small>
                             </div>
                             <div class="col-4">
-                                <h4 class="fw-bold text-success mb-1">$<?php echo $stats['total_withdrawn']? $stats['total_withdrawn']: 0; ?></h4>
+                                <h4 class="fw-bold text-success mb-1">$<?php echo number_format($stats['total_withdrawn'], 2); ?></h4>
                                 <small class="text-muted">Withdrawn</small>
                             </div>
                             <div class="col-4">
-                                <h4 class="fw-bold text-warning mb-1">$<?php echo number_format($stats['largest_withdrawal'] ?? 0, 0); ?></h4>
+                                <h4 class="fw-bold text-warning mb-1">$<?php echo number_format($stats['largest_withdrawal'], 2); ?></h4>
                                 <small class="text-muted">Largest</small>
                             </div>
                         </div>
@@ -535,7 +591,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                                    min="<?php echo $min_withdrawal; ?>" 
                                    max="<?php echo $pending_earnings; ?>" 
                                    step="0.01" 
-                                   value="<?php echo min($pending_earnings, $min_withdrawal); ?>" 
+                                   value="<?php echo min($pending_earnings, max($min_withdrawal, $pending_earnings)); ?>" 
                                    required>
                         </div>
                         <div class="form-text">
@@ -546,10 +602,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                     
                     <div class="mb-3">
                         <label class="form-label fw-bold">Withdrawal Method *</label>
-                        <select class="form-select" name="method" required>
+                        <select class="form-select" name="method" id="withdrawalMethod" required>
                             <option value="">Select Method</option>
                             <option value="bank">Bank Transfer</option>
-                            <!-- Add more methods as needed -->
                         </select>
                     </div>
                     
@@ -560,29 +615,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                                 <small>No bank accounts added. Please add a bank account first.</small>
                             </div>
                         <?php else: ?>
-                            <select class="form-select" name="account_id">
-                                <option value="">Select Account</option>
-                                <?php foreach($bank_accounts as $account): ?>
-                                    <?php if ($account['is_verified']): ?>
+                            <?php 
+                            $verified_accounts = array_filter($bank_accounts, function($acc) {
+                                return $acc['is_verified'] == 1;
+                            });
+                            ?>
+                            <?php if (empty($verified_accounts)): ?>
+                                <div class="alert alert-warning">
+                                    <small>No verified bank accounts. Please wait for admin verification.</small>
+                                </div>
+                            <?php else: ?>
+                                <select class="form-select" name="account_id" required>
+                                    <option value="">Select Account</option>
+                                    <?php foreach($verified_accounts as $account): ?>
                                         <option value="<?php echo $account['id']; ?>" <?php echo $account['is_default'] ? 'selected' : ''; ?>>
-                                            <?php echo $account['bank_name']; ?> - ****<?php echo substr($account['account_number'], -4); ?>
-                                            <?php echo $account['is_default'] ? '(Default)' : ''; ?>
+                                            <?php echo htmlspecialchars($account['bank_name']); ?> - ****<?php echo substr($account['account_number'], -4); ?>
+                                            <?php echo $account['is_default'] ? ' (Default)' : ''; ?>
                                         </option>
-                                    <?php endif; ?>
-                                <?php endforeach; ?>
-                            </select>
+                                    <?php endforeach; ?>
+                                </select>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label fw-bold">Notes (Optional)</label>
+                        <label class="form-label">Notes (Optional)</label>
                         <textarea class="form-control" name="notes" rows="2" placeholder="Add any special instructions..."></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" name="request_withdrawal" class="btn btn-primary"
-                            <?php echo (empty($bank_accounts) || $pending_earnings < $min_withdrawal) ? 'disabled' : ''; ?>>
+                    <button type="submit" name="request_withdrawal" class="btn btn-primary" id="submitWithdrawalBtn">
                         <i class="fas fa-paper-plane me-2"></i> Submit Request
                     </button>
                 </div>
@@ -643,7 +706,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
                     
                     <div class="mb-3">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="is_default" id="is_default">
+                            <input class="form-check-input" type="checkbox" name="is_default" id="is_default" value="1">
                             <label class="form-check-label" for="is_default">
                                 Set as default account for withdrawals
                             </label>
@@ -661,134 +724,258 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_bank_account'])) 
     </div>
 </div>
 
-<style>
-.card.border-start {
-    border-left-width: 5px !important;
-}
-
-.avatar-lg {
-    width: 80px;
-    height: 80px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.list-group-item {
-    border-left: none;
-    border-right: none;
-}
-
-.list-group-item:first-child {
-    border-top: none;
-}
-
-.table th {
-    background: #f8f9fa;
-    font-weight: 600;
-}
-
-.modal-content {
-    border-radius: 10px;
-    border: none;
-}
-</style>
-
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Show/hide bank account field based on method selection
-document.querySelector('select[name="method"]').addEventListener('change', function() {
-    const bankField = document.getElementById('bankAccountField');
-    if (this.value === 'bank') {
-        bankField.style.display = 'block';
-        if (bankField.querySelector('select')) {
-            bankField.querySelector('select').required = true;
-        }
-    } else {
-        bankField.style.display = 'none';
-        if (bankField.querySelector('select')) {
-            bankField.querySelector('select').required = false;
-        }
-    }
-});
-
-// Amount validation
-document.querySelector('input[name="amount"]').addEventListener('input', function() {
-    const max = parseFloat(this.getAttribute('max'));
-    const min = parseFloat(this.getAttribute('min'));
-    const value = parseFloat(this.value);
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Withdraw page loaded');
     
-    if (value > max) {
-        this.value = max;
-        showToast('Amount cannot exceed available balance', 'warning');
+    // Auto-close alerts after 5 seconds
+    setTimeout(function() {
+        const alerts = document.querySelectorAll('.alert');
+        alerts.forEach(alert => {
+            try {
+                if (alert && bootstrap && bootstrap.Alert) {
+                    const bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                }
+            } catch (e) {
+                console.log('Could not close alert:', e);
+            }
+        });
+    }, 5000);
+    
+    // Show/hide bank account field based on method selection
+    const withdrawalMethod = document.getElementById('withdrawalMethod');
+    const bankAccountField = document.getElementById('bankAccountField');
+    const submitWithdrawalBtn = document.getElementById('submitWithdrawalBtn');
+    
+    if (withdrawalMethod) {
+        withdrawalMethod.addEventListener('change', function() {
+            if (this.value === 'bank') {
+                bankAccountField.style.display = 'block';
+                // Check if there are verified accounts
+                const selectElement = bankAccountField.querySelector('select');
+                if (selectElement) {
+                    selectElement.required = true;
+                }
+            } else {
+                bankAccountField.style.display = 'none';
+                const selectElement = bankAccountField.querySelector('select');
+                if (selectElement) {
+                    selectElement.required = false;
+                }
+            }
+            updateSubmitButton();
+        });
+        
+        // Initial check
+        if (withdrawalMethod.value === 'bank') {
+            bankAccountField.style.display = 'block';
+        }
     }
     
-    if (value < min) {
-        this.value = min;
-        showToast(`Minimum withdrawal is $${min}`, 'warning');
-    }
-});
-
-// Auto-close alerts
-setTimeout(function() {
-    const alerts = document.querySelectorAll('.alert');
-    alerts.forEach(alert => {
-        const bsAlert = new bootstrap.Alert(alert);
-        bsAlert.close();
-    });
-}, 5000);
-
-// Form submission handling
-document.querySelectorAll('form').forEach(form => {
-    form.addEventListener('submit', function(e) {
-        const submitBtn = this.querySelector('button[type="submit"]');
-        if (submitBtn && !submitBtn.disabled) {
-            const originalHTML = submitBtn.innerHTML;
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Processing...';
-            submitBtn.disabled = true;
+    // Amount validation
+    const amountInput = document.querySelector('input[name="amount"]');
+    if (amountInput) {
+        amountInput.addEventListener('input', function() {
+            const max = parseFloat(this.getAttribute('max'));
+            const min = parseFloat(this.getAttribute('min'));
+            let value = parseFloat(this.value) || 0;
             
-            setTimeout(() => {
-                submitBtn.innerHTML = originalHTML;
-                submitBtn.disabled = false;
-            }, 3000);
+            if (value > max) {
+                this.value = max.toFixed(2);
+                showToast('Amount cannot exceed available balance', 'warning');
+            }
+            
+            if (value < min) {
+                this.value = min.toFixed(2);
+                showToast(`Minimum withdrawal is $${min.toFixed(2)}`, 'warning');
+            }
+            
+            updateSubmitButton();
+        });
+    }
+    
+    // Update submit button state
+    function updateSubmitButton() {
+        if (!submitWithdrawalBtn) return;
+        
+        const amount = parseFloat(amountInput?.value) || 0;
+        const method = withdrawalMethod?.value;
+        const hasVerifiedAccounts = <?php echo !empty($verified_accounts) ? 'true' : 'false'; ?>;
+        
+        let disabled = false;
+        
+        if (amount < <?php echo $min_withdrawal; ?>) {
+            disabled = true;
         }
+        
+        if (!method) {
+            disabled = true;
+        }
+        
+        if (method === 'bank' && !hasVerifiedAccounts) {
+            disabled = true;
+        }
+        
+        submitWithdrawalBtn.disabled = disabled;
+    }
+    
+    // Initialize tooltips
+    const tooltipTriggerList = document.querySelectorAll('[title]');
+    if (tooltipTriggerList.length > 0 && bootstrap && bootstrap.Tooltip) {
+        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+            try {
+                new bootstrap.Tooltip(tooltipTriggerEl);
+            } catch (e) {
+                console.log('Tooltip error:', e);
+            }
+        });
+    }
+    
+    // Form submission loading states
+    document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const submitBtn = this.querySelector('button[type="submit"]');
+            if (submitBtn && !submitBtn.disabled) {
+                const originalHTML = submitBtn.innerHTML;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Processing...';
+                submitBtn.disabled = true;
+                
+                // Re-enable after 5 seconds (in case of error)
+                setTimeout(() => {
+                    submitBtn.innerHTML = originalHTML;
+                    submitBtn.disabled = false;
+                }, 5000);
+            }
+        });
     });
+    
+    // Initial button state check
+    updateSubmitButton();
 });
 
 // Helper function for toast messages
 function showToast(message, type = 'info') {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.querySelector('.toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+        document.body.appendChild(toastContainer);
+    }
+    
+    // Create toast
+    const toastId = 'toast-' + Date.now();
     const toast = document.createElement('div');
-    toast.className = `toast align-items-center text-white bg-${type} border-0`;
+    toast.className = `toast align-items-center text-white bg-${type === 'warning' ? 'warning' : type === 'success' ? 'success' : 'info'} border-0`;
+    toast.id = toastId;
     toast.setAttribute('role', 'alert');
+    
+    // Determine icon based on type
+    let icon = 'info-circle';
+    if (type === 'success') icon = 'check-circle';
+    if (type === 'warning') icon = 'exclamation-triangle';
+    
     toast.innerHTML = `
         <div class="d-flex">
-            <div class="toast-body">${message}</div>
+            <div class="toast-body">
+                <i class="fas fa-${icon} me-2"></i> ${message}
+            </div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
         </div>
     `;
     
-    const container = document.querySelector('.toast-container') || (() => {
-        const div = document.createElement('div');
-        div.className = 'toast-container position-fixed top-0 end-0 p-3';
-        document.body.appendChild(div);
-        return div;
-    })();
+    toastContainer.appendChild(toast);
     
-    container.appendChild(toast);
-    const bsToast = new bootstrap.Toast(toast);
-    bsToast.show();
+    // Initialize and show toast
+    if (bootstrap && bootstrap.Toast) {
+        const bsToast = new bootstrap.Toast(toast, {
+            autohide: true,
+            delay: 3000
+        });
+        bsToast.show();
+    } else {
+        // Fallback if Bootstrap not available
+        toast.style.display = 'block';
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
     
+    // Remove toast from DOM after it's hidden
     toast.addEventListener('hidden.bs.toast', function() {
         this.remove();
     });
 }
-
-// Initialize tooltips
-document.addEventListener('DOMContentLoaded', function() {
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[title]'));
-    tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-});
 </script>
+<style>
+    .dashboard-container {
+        display: flex;
+        min-height: 100vh;
+        background: #f8f9fa;
+    }
+    
+    .main-content {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+    }
+    
+    .dashboard-header {
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    
+    .card.border-start {
+        border-left-width: 5px !important;
+    }
+    
+    .avatar-lg {
+        width: 80px;
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .list-group-item {
+        border-left: none;
+        border-right: none;
+    }
+    
+    .list-group-item:first-child {
+        border-top: none;
+    }
+    
+    .table th {
+        background: #f8f9fa;
+        font-weight: 600;
+    }
+    
+    .modal-content {
+        border-radius: 10px;
+        border: none;
+    }
+    
+    .toast-container {
+        z-index: 9999;
+    }
+    
+    @media (max-width: 768px) {
+        .dashboard-container {
+            flex-direction: column;
+        }
+        
+        .main-content {
+            padding: 15px;
+        }
+    }
+    </style>
+<?php 
+// Include footer
+include_once '../../includes/footer.php';
 
-<?php require_once '../../includes/footer.php'; ?>
+?>
