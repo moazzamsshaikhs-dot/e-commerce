@@ -6,7 +6,7 @@ define('DB_PASS', ''); // XAMPP default password is empty
 define('DB_NAME', 'ecommerce_db');
 
 // Site Configuration
-define('SITE_URL', 'http://localhost/git-clone/e-commerce/');
+define('SITE_URL', 'http://localhost/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 
 // Email Configuration (for OTP sending)
@@ -462,7 +462,7 @@ function sendVendorRegistrationAlert($vendor_id) {
                 <p>Please review and approve/reject this vendor from the admin panel.</p>
                 ";
                 
-                sendEmail($admin['email'], $subject, $message);
+                mail($admin['email'], $subject, $message);
             }
             
             // Create admin notification
