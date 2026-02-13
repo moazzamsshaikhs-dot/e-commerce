@@ -142,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['success'] = 'Product added successfully! It will be available after admin approval.';
                 
                 // Redirect to products list
-                header('Location: products.php');
+                redirect(SITE_URL . 'admin/vendors/products/products.php');
                 exit();
             } else {
                 $errors[] = 'Failed to add product. Please try again.';

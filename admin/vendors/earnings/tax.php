@@ -102,7 +102,9 @@ try {
 ?>
 
 <div class="dashboard-container">
-    <?php include '../../includes/vendor-sidebar.php'; ?>
+    <?php
+    //  include '../../includes/vendor-sidebar.php'; 
+     ?>
     
     <main class="main-content">
         <!-- Header -->
@@ -856,7 +858,7 @@ document.querySelectorAll('.delete-document').forEach(button => {
     button.addEventListener('click', function() {
         const docId = this.getAttribute('data-id');
         if (confirm('Are you sure you want to delete this document?')) {
-            window.location.href = `delete_document.php?id=${docId}`;
+            window.open(`action/delete_document.php?id=${docId}`);
         }
     });
 });

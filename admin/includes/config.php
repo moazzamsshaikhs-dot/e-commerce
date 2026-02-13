@@ -687,9 +687,42 @@ function logActivity($user_id, $activity_type, $description,) {
             INSERT INTO user_activities (user_id, activity_type, description, ip_address, user_agent) 
             VALUES (?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$user_id, $activity_type, $description, getUserIP(), $_SERVER['HTTP_USER_AGENT'] ?? '']);
+        $ip_address = $_SERVER['REMOTE_ADDR'] ?? 'Unknown';
+        $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+        $stmt->execute([$user_id, $activity_type, $description, $ip_address, $user_agent]);
     } catch(PDOException $e) {
         error_log("Activity logging failed: " . $e->getMessage());
     }
+    return $db;
+}
+
+
+/**
+ * Redirect to dashboard based on user type
+ */
+function redirectToDashboard() {
+    if (isset($_SESSION['user_type'])) {
+        switch ($_SESSION['user_type']) {
+            case 'admin':
+                header('Location: ../../admin/dashboard.php');
+                break;
+            case 'vendor':
+                header('Location: ../../vendor/dashboard.php');
+                break;
+            default:
+                header('Location: ../../index.php');
+        }
+    } else {
+        header('Location: ../../login.php');
+    }
+    exit();
+}
+
+/**
+ * Simple redirect function
+ */
+function redirects($url) {
+    header('Location: ' . $url);
+    exit();
 }
 ?>
