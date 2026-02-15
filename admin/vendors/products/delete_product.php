@@ -10,9 +10,7 @@ ini_set('display_errors', 0);
 header('Content-Type: application/json');
 
 // Define SITE_URL if not defined
-if (!defined('SITE_URL')) {
-    define('SITE_URL', 'http://localhost/e-commerce/');
-}
+
 
 // Only allow POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

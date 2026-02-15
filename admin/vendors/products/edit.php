@@ -3,9 +3,7 @@ require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
 // Define SITE_URL if not defined
-if (!defined('SITE_URL')) {
-    define('SITE_URL', 'http://localhost/e-commerce/');
-}
+
 
 // Check if user is vendor
 if ($_SESSION['user_type'] !== 'vendor') {
