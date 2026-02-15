@@ -5,9 +5,7 @@ require_once '../../../includes/config.php';
 require_once '../../../includes/auth-check.php';
 
 // Define SITE_URL if not defined (FIXED)
-if (!defined('SITE_URL')) {
-    define('SITE_URL', 'http://localhost/e-commerce/');
-}
+
 
 // Set header for JSON response
 header('Content-Type: application/json');

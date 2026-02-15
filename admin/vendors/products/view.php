@@ -24,12 +24,12 @@ try {
     
     if ($vendor_status !== 'approved') {
         $_SESSION['error'] = 'Your vendor account is not approved. Please wait for admin approval.';
-        header('Location: ' . SITE_URL . 'vendor/dashboard.php');
+        header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
         exit();
     }
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Error checking vendor status: ' . $e->getMessage();
-    header('Location: ' . SITE_URL . 'vendor/dashboard.php');
+    header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
     exit();
 }
 
@@ -145,7 +145,7 @@ require_once '../../includes/header.php';
                     </h1>
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb mb-0">
-                            <li class="breadcrumb-item"><a href="<?php echo SITE_URL; ?>vendor/dashboard.php">Dashboard</a></li>
+                            <li class="breadcrumb-item"><a href="<?php echo SITE_URL; ?>admin/vendors/dashboard.php">Dashboard</a></li>
                             <li class="breadcrumb-item"><a href="products.php">Products</a></li>
                             <li class="breadcrumb-item active" aria-current="page">View</li>
                         </ol>

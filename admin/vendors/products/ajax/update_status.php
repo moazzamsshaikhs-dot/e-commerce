@@ -7,9 +7,7 @@ require_once '../../../includes/auth-check.php';
 header('Content-Type: application/json');
 
 // Define SITE_URL if not defined
-if (!defined('SITE_URL')) {
-    define('SITE_URL', 'http://localhost/e-commerce/');
-}
+
 
 // Check if user is vendor
 if (!isset($_SESSION['user_type']) || $_SESSION['user_type'] !== 'vendor') {
