@@ -2,10 +2,15 @@
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
+// Define SITE_URL if not defined
+if (!defined('SITE_URL')) {
+    define('SITE_URL', 'http://localhost/e-commerce/');
+}
+
 // Check if user is vendor
 if ($_SESSION['user_type'] !== 'vendor') {
     $_SESSION['error'] = 'Access denied. Vendor dashboard only.';
-    header(SITE_URL . 'index.php');
+    header('Location: ' . SITE_URL . 'index.php');
     exit();
 }
 
@@ -19,19 +24,19 @@ try {
     
     if ($vendor_status !== 'approved') {
         $_SESSION['error'] = 'Your vendor account is not approved. Please wait for admin approval.';
-        header(SITE_URL . 'vendor/dashboard.php');
+        header('Location: ' . SITE_URL . 'vendor/dashboard.php');
         exit();
     }
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Error checking vendor status: ' . $e->getMessage();
-    header(SITE_URL . 'admin/vendors/dashboard.php');
+    header('Location: ' . SITE_URL . 'vendor/dashboard.php');
     exit();
 }
 
 // Get product ID
 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
     $_SESSION['error'] = 'Invalid product ID.';
-    header(SITE_URL . 'admin/vendors/products.php');
+    header('Location: ' . SITE_URL . 'admin/vendors/products/products.php');
     exit();
 }
 
@@ -57,17 +62,17 @@ try {
     
     if (!$product) {
         $_SESSION['error'] = 'Product not found or access denied.';
-        header(SITE_URL . 'admin/vendors/products.php');
+        header('Location: ' . SITE_URL . 'admin/vendors/products/products.php');
         exit();
     }
     
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Error loading product: ' . $e->getMessage();
-    header(SITE_URL . 'admin/vendors/products.php');
+    header('Location: ' . SITE_URL . 'admin/vendors/products/products.php');
     exit();
 }
 
-// Get related products (same vendor, same category)
+// Get related products
 try {
     $db = getDB();
     $stmt = $db->prepare("SELECT id, name, price, image, stock, approved_status 
@@ -109,7 +114,7 @@ try {
     $rating_summary = [5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0];
 }
 
-// Get order history for this product
+// Get order history
 try {
     $db = getDB();
     $stmt = $db->prepare("SELECT o.*, oi.quantity, oi.unit_price, 
@@ -130,8 +135,6 @@ require_once '../../includes/header.php';
 ?>
 
 <div class="dashboard-container">
-    <?php include '../../includes/vendor-sidebar.php'; ?>
-    
     <main class="main-content">
         <!-- Header -->
         <div class="dashboard-header bg-white shadow-sm p-4 mb-4 rounded">
@@ -142,7 +145,7 @@ require_once '../../includes/header.php';
                     </h1>
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb mb-0">
-                            <li class="breadcrumb-item"><a href="../../../vendor/dashboard.php">Dashboard</a></li>
+                            <li class="breadcrumb-item"><a href="<?php echo SITE_URL; ?>vendor/dashboard.php">Dashboard</a></li>
                             <li class="breadcrumb-item"><a href="products.php">Products</a></li>
                             <li class="breadcrumb-item active" aria-current="page">View</li>
                         </ol>
@@ -236,7 +239,7 @@ require_once '../../includes/header.php';
                                         <div class="d-flex align-items-center mb-3">
                                             <div class="rating-stars me-2">
                                                 <?php
-                                                $avg_rating = (float)$product['avg_rating'];
+                                                $avg_rating = (float)($product['avg_rating'] ?? 0);
                                                 $full_stars = floor($avg_rating);
                                                 $has_half_star = ($avg_rating - $full_stars) >= 0.5;
                                                 
@@ -325,11 +328,12 @@ require_once '../../includes/header.php';
                                            target="_blank" class="btn btn-outline-success">
                                             <i class="fas fa-external-link-alt me-2"></i> View on Store
                                         </a>
-                                        <a href="delete.php?id=<?php echo $product_id; ?>" 
-                                           class="btn btn-outline-danger"
-                                           onclick="return confirm('Are you sure you want to delete this product?');">
+                                        <button type="button" 
+                                                class="btn btn-outline-danger"
+                                                data-bs-toggle="modal" 
+                                                data-bs-target="#deleteModal">
                                             <i class="fas fa-trash me-2"></i> Delete
-                                        </a>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -353,7 +357,7 @@ require_once '../../includes/header.php';
                                 <div class="rating-summary p-3 border rounded">
                                     <h6 class="mb-3">Rating Distribution</h6>
                                     <?php for($i = 5; $i >= 1; $i--): 
-                                        $count = $rating_summary[$i];
+                                        $count = $rating_summary[$i] ?? 0;
                                         $percentage = $product['total_reviews'] > 0 ? ($count / $product['total_reviews']) * 100 : 0;
                                     ?>
                                     <div class="d-flex align-items-center mb-2">
@@ -544,6 +548,44 @@ require_once '../../includes/header.php';
     </main>
 </div>
 
+<!-- Delete Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger" id="deleteModalLabel">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Delete Product
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning" role="alert">
+                    <i class="fas fa-exclamation-circle me-2"></i>
+                    <strong>Warning:</strong> This action cannot be undone!
+                </div>
+                <p>Are you sure you want to delete the product:</p>
+                <h5 class="text-center text-danger mb-4">
+                    "<?php echo htmlspecialchars($product['name']); ?>"
+                </h5>
+                <p class="text-muted">
+                    This will permanently remove the product from the store.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i> Cancel
+                </button>
+                <a href="delete.php?id=<?php echo $product_id; ?>" 
+                   class="btn btn-danger"
+                   onclick="return confirm('Are you absolutely sure? This cannot be undone.')">
+                    <i class="fas fa-trash me-2"></i> Delete Product
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
 .product-image-container {
     background: #f8f9fa;
@@ -593,20 +635,26 @@ require_once '../../includes/header.php';
 </style>
 
 <script>
-// Image preview for product image
+// FIXED: No Bootstrap initialization code that could cause errors
 document.addEventListener('DOMContentLoaded', function() {
     const mainImage = document.querySelector('.product-image-container img');
     
-    // Add click to enlarge functionality
     if (mainImage) {
         mainImage.addEventListener('click', function() {
             const src = this.src;
-            const modal = `
-                <div class="modal fade" id="imageModal" tabindex="-1">
+            
+            // Check if modal already exists
+            if (document.getElementById('imageModal')) {
+                document.getElementById('imageModal').remove();
+            }
+            
+            const modalHtml = `
+                <div class="modal fade" id="imageModal" tabindex="-1" aria-hidden="true">
                     <div class="modal-dialog modal-dialog-centered modal-lg">
                         <div class="modal-content border-0">
                             <div class="modal-header border-0">
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                <h5 class="modal-title">Product Image</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
                             <div class="modal-body text-center p-0">
                                 <img src="${src}" class="img-fluid" style="max-height: 70vh;">
@@ -616,30 +664,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             `;
             
-            document.body.insertAdjacentHTML('beforeend', modal);
-            const imageModal = new bootstrap.Modal(document.getElementById('imageModal'));
-            imageModal.show();
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
             
-            // Remove modal after close
-            document.getElementById('imageModal').addEventListener('hidden.bs.modal', function() {
-                this.remove();
-            });
+            // Initialize Bootstrap modal
+            const imageModalElement = document.getElementById('imageModal');
+            if (imageModalElement) {
+                const imageModal = new bootstrap.Modal(imageModalElement);
+                imageModal.show();
+                
+                imageModalElement.addEventListener('hidden.bs.modal', function() {
+                    this.remove();
+                });
+            }
         });
     }
-    
-    // Auto-refresh reviews section every 30 seconds
-    setInterval(function() {
-        const reviewsSection = document.querySelector('.reviews-list');
-        if (reviewsSection) {
-            fetch('?partial=reviews&id=<?php echo $product_id; ?>')
-                .then(response => response.text())
-                .then(html => {
-                    reviewsSection.innerHTML = html;
-                })
-                .catch(error => console.error('Error refreshing reviews:', error));
-        }
-    }, 30000);
 });
+
+// Image error handling
+document.addEventListener('error', function(e) {
+    if (e.target.tagName === 'IMG') {
+        if (!e.target.src.includes('default.png')) {
+            e.target.src = '<?php echo SITE_URL; ?>assets/images/products/default.png';
+        }
+    }
+}, true);
 </script>
 
 <?php require_once '../../includes/footer.php'; ?>
