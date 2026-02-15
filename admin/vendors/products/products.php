@@ -193,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_product']) && 
                     <a href="add.php" class="btn btn-primary">
                         <i class="fas fa-plus me-2"></i> Add New Product
                     </a>
-                    <a href="../../vendor/dashboard.php" class="btn btn-outline-secondary">
+                    <a href="<?php echo SITE_URL?>admin/vendors/dashboard.php" class="btn btn-outline-secondary">
                         <i class="fas fa-arrow-left me-2"></i> Back to Dashboard
                     </a>
                 </div>
