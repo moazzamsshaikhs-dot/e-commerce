@@ -2,10 +2,14 @@
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
+// Define SITE_URL if not defined
+
+
 // Check if user is vendor
 if ($_SESSION['user_type'] !== 'vendor') {
     $_SESSION['error'] = 'Access denied. Vendor only.';
-    redirect(SITE_URL . 'index.php');
+    header('Location: ' . SITE_URL . 'index.php');
+    exit();
 }
 
 // Check if vendor is approved
@@ -17,11 +21,13 @@ try {
     
     if ($vendor_status !== 'approved') {
         $_SESSION['warning'] = 'Your vendor account needs approval to access reviews.';
-        redirect(SITE_URL . 'admin/vendors/dashboard.php');
+        header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
+        exit();
     }
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Database error.';
-    redirect(SITE_URL . 'admin/vendors/dashboard.php');
+    header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
+    exit();
 }
 
 $page_title = 'Product Reviews';
@@ -68,7 +74,7 @@ try {
     
     $stmt = $db->prepare($count_sql);
     $stmt->execute($params);
-    $total_reviews = $stmt->fetch()['total'];
+    $total_reviews = $stmt->fetchColumn();
     $total_pages = ceil($total_reviews / $limit);
     
     // Get reviews data
@@ -121,10 +127,22 @@ try {
     $reviews = [];
     $stats = ['total' => 0, 'avg_rating' => 0];
 }
+
+// Function to log user activity (define if not exists)
+if (!function_exists('logUserActivity')) {
+    function logUserActivity($user_id, $type, $description) {
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("INSERT INTO user_activities (user_id, activity_type, description, created_at) VALUES (?, ?, ?, NOW())");
+            $stmt->execute([$user_id, $type, $description]);
+        } catch(Exception $e) {
+            // Silent fail
+        }
+    }
+}
 ?>
 
 <div class="dashboard-container">
-    <!-- Include Vendor Sidebar -->
     <?php include_once '../../includes/vendor-sidebar.php'; ?>
     
     <main class="main-content">
@@ -135,9 +153,6 @@ try {
                 <p class="text-muted mb-0">Manage customer reviews for your products</p>
             </div>
             <div class="d-flex gap-2">
-                <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#filterModal">
-                    <i class="fas fa-filter me-2"></i> Filter
-                </button>
                 <a href="responses.php" class="btn btn-primary">
                     <i class="fas fa-reply me-2"></i> Review Responses
                 </a>
@@ -233,25 +248,27 @@ try {
                                    value="<?php echo htmlspecialchars($search); ?>">
                         </div>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <select name="status" class="form-select">
                             <option value="all" <?php echo $filter_status == 'all' ? 'selected' : ''; ?>>All Status</option>
                             <option value="approved" <?php echo $filter_status == 'approved' ? 'selected' : ''; ?>>Approved</option>
                             <option value="pending" <?php echo $filter_status == 'pending' ? 'selected' : ''; ?>>Pending</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
+                        <select name="rating" class="form-select">
+                            <option value="all" <?php echo $filter_rating == 'all' ? 'selected' : ''; ?>>All Ratings</option>
+                            <option value="5" <?php echo $filter_rating == '5' ? 'selected' : ''; ?>>5 Stars</option>
+                            <option value="4" <?php echo $filter_rating == '4' ? 'selected' : ''; ?>>4 Stars</option>
+                            <option value="3" <?php echo $filter_rating == '3' ? 'selected' : ''; ?>>3 Stars</option>
+                            <option value="2" <?php echo $filter_rating == '2' ? 'selected' : ''; ?>>2 Stars</option>
+                            <option value="1" <?php echo $filter_rating == '1' ? 'selected' : ''; ?>>1 Star</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
                         <div class="d-flex gap-2">
-                            <select name="rating" class="form-select">
-                                <option value="all" <?php echo $filter_rating == 'all' ? 'selected' : ''; ?>>All Ratings</option>
-                                <option value="5" <?php echo $filter_rating == '5' ? 'selected' : ''; ?>>5 Stars</option>
-                                <option value="4" <?php echo $filter_rating == '4' ? 'selected' : ''; ?>>4 Stars</option>
-                                <option value="3" <?php echo $filter_rating == '3' ? 'selected' : ''; ?>>3 Stars</option>
-                                <option value="2" <?php echo $filter_rating == '2' ? 'selected' : ''; ?>>2 Stars</option>
-                                <option value="1" <?php echo $filter_rating == '1' ? 'selected' : ''; ?>>1 Star</option>
-                            </select>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-search"></i>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-filter"></i> Filter
                             </button>
                             <a href="reviews.php" class="btn btn-outline-secondary">
                                 <i class="fas fa-times"></i>
@@ -269,7 +286,7 @@ try {
                 <?php if ($total_reviews > 0): ?>
                 <div class="d-flex align-items-center">
                     <small class="text-muted me-3">Showing <?php echo count($reviews); ?> of <?php echo $total_reviews; ?></small>
-                    <a href="#" class="btn btn-sm btn-outline-primary">
+                    <a href="action/export.php?type=reviews" class="btn btn-sm btn-outline-primary">
                         <i class="fas fa-download me-2"></i> Export
                     </a>
                 </div>
@@ -297,9 +314,8 @@ try {
                                         <div class="flex-shrink-0">
                                             <div class="avatar-lg bg-light rounded-circle d-flex align-items-center justify-content-center">
                                                 <?php if ($review['profile_pic'] && $review['profile_pic'] !== 'default.png'): ?>
-                                                <img src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $review['profile_pic']; ?>" 
-                                                     alt="Profile" class="rounded-circle" width="60" height="60"
-                                                     onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
+                                                <img src="<?php echo SITE_URL; ?>assets/images/avatars/<?php echo $review['profile_pic']; ?>" 
+                                                     alt="Profile" class="rounded-circle" width="60" height="60">
                                                 <?php else: ?>
                                                     <i class="fas fa-user text-muted fa-2x"></i>
                                                 <?php endif; ?>
@@ -321,12 +337,12 @@ try {
                                 
                                 <!-- Review Content -->
                                 <div class="col-lg-6 col-md-5">
-                                    <!-- Product Info -->
+                                    <!-- Product Info - FIXED: Image path corrected -->
                                     <div class="mb-3">
                                         <div class="d-flex align-items-center mb-2">
                                             <div class="me-3">
                                                 <?php if ($review['product_image']): ?>
-                                                <img src="<?php echo SITE_URL; ?>uploads/products/<?php echo $review['product_image']; ?>" 
+                                                <img src="<?php echo SITE_URL; ?>assets/images/products/<?php echo $review['product_image']; ?>" 
                                                      alt="Product" class="rounded" width="50" height="50"
                                                      style="object-fit: cover;">
                                                 <?php else: ?>
@@ -376,7 +392,7 @@ try {
                                             <i class="fas fa-check me-1"></i> Approve
                                         </button>
                                         <?php else: ?>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary unapprove-btn"
+                                        <button type="button" class="btn btn-sm btn-outline-warning unapprove-btn"
                                                 data-review-id="<?php echo $review['id']; ?>">
                                             <i class="fas fa-times me-1"></i> Unapprove
                                         </button>
@@ -400,25 +416,6 @@ try {
                                            class="btn btn-sm btn-outline-info w-100">
                                             <i class="fas fa-chart-bar me-1"></i> View Ratings
                                         </a>
-                                        <a href="#" class="btn btn-sm btn-outline-secondary w-100" 
-                                           data-bs-toggle="modal" data-bs-target="#reviewModal<?php echo $review['id']; ?>">
-                                            <i class="fas fa-eye me-1"></i> View Details
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Review Details Modal -->
-                            <div class="modal fade" id="reviewModal<?php echo $review['id']; ?>" tabindex="-1">
-                                <div class="modal-dialog modal-lg">
-                                    <div class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">Review Details</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <div class="modal-body">
-                                            <!-- Modal content here -->
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -431,7 +428,7 @@ try {
                     <nav class="mt-4">
                         <ul class="pagination justify-content-center">
                             <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="?page=<?php echo $page-1; ?>&<?php echo http_build_query($_GET); ?>">
+                                <a class="page-link" href="?page=<?php echo $page-1; ?>&status=<?php echo urlencode($filter_status); ?>&rating=<?php echo urlencode($filter_rating); ?>&search=<?php echo urlencode($search); ?>">
                                     <i class="fas fa-chevron-left"></i>
                                 </a>
                             </li>
@@ -439,7 +436,7 @@ try {
                             <?php for($i = 1; $i <= $total_pages; $i++): ?>
                                 <?php if ($i == 1 || $i == $total_pages || ($i >= $page-2 && $i <= $page+2)): ?>
                                 <li class="page-item <?php echo $i == $page ? 'active' : ''; ?>">
-                                    <a class="page-link" href="?page=<?php echo $i; ?>&<?php echo http_build_query($_GET); ?>">
+                                    <a class="page-link" href="?page=<?php echo $i; ?>&status=<?php echo urlencode($filter_status); ?>&rating=<?php echo urlencode($filter_rating); ?>&search=<?php echo urlencode($search); ?>">
                                         <?php echo $i; ?>
                                     </a>
                                 </li>
@@ -451,7 +448,7 @@ try {
                             <?php endfor; ?>
                             
                             <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="?page=<?php echo $page+1; ?>&<?php echo http_build_query($_GET); ?>">
+                                <a class="page-link" href="?page=<?php echo $page+1; ?>&status=<?php echo urlencode($filter_status); ?>&rating=<?php echo urlencode($filter_rating); ?>&search=<?php echo urlencode($search); ?>">
                                     <i class="fas fa-chevron-right"></i>
                                 </a>
                             </li>
@@ -462,63 +459,6 @@ try {
             </div>
         </div>
     </main>
-</div>
-
-<!-- Filter Modal -->
-<div class="modal fade" id="filterModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Filter Reviews</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="filterForm" method="GET">
-                    <div class="mb-3">
-                        <label class="form-label">Date Range</label>
-                        <div class="row g-2">
-                            <div class="col">
-                                <input type="date" name="date_from" class="form-control">
-                            </div>
-                            <div class="col">
-                                <input type="date" name="date_to" class="form-control">
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Rating</label>
-                        <select name="rating_filter" class="form-select">
-                            <option value="all">All Ratings</option>
-                            <option value="5">5 Stars Only</option>
-                            <option value="4-5">4 & 5 Stars</option>
-                            <option value="1-3">1-3 Stars</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Status</label>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="status_filter[]" value="approved" id="approvedCheck">
-                            <label class="form-check-label" for="approvedCheck">
-                                Approved
-                            </label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="status_filter[]" value="pending" id="pendingCheck">
-                            <label class="form-check-label" for="pendingCheck">
-                                Pending
-                            </label>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" form="filterForm" class="btn btn-primary">Apply Filters</button>
-            </div>
-        </div>
-    </div>
 </div>
 
 <!-- Reply Modal -->
@@ -538,7 +478,7 @@ try {
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Your Reply</label>
-                        <textarea name="reply_text" class="form-control" rows="4" 
+                        <textarea name="response_text" class="form-control" rows="4" 
                                   placeholder="Type your response here..." required></textarea>
                     </div>
                     <div class="form-check mb-3">
@@ -557,22 +497,8 @@ try {
     </div>
 </div>
 
-<!-- Reviews CSS -->
 <style>
 /* Reviews specific styles */
-.review-card {
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.review-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08) !important;
-}
-
-.star-rating .fa-star {
-    font-size: 1.2rem;
-}
-
 .avatar-lg {
     width: 60px;
     height: 60px;
@@ -583,11 +509,6 @@ try {
     overflow: hidden;
 }
 
-.review-actions .btn {
-    font-size: 0.85rem;
-    padding: 0.25rem 0.75rem;
-}
-
 .progress {
     border-radius: 10px;
 }
@@ -595,9 +516,18 @@ try {
 .progress-bar {
     border-radius: 10px;
 }
+
+.pagination .page-link {
+    border: none;
+    margin: 0 2px;
+    border-radius: 8px;
+}
+
+.pagination .page-item.active .page-link {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
 </style>
 
-<!-- Reviews JavaScript -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Reply button handler
@@ -615,21 +545,31 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Approve review
-    document.querySelectorAll('.approve-btn').forEach(btn => {
+    document.querySelectorAll('.approve-btn, .unapprove-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const reviewId = this.getAttribute('data-review-id');
-            if (confirm('Are you sure you want to approve this review?')) {
-                approveReview(reviewId, true);
-            }
-        });
-    });
-    
-    // Unapprove review
-    document.querySelectorAll('.unapprove-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const reviewId = this.getAttribute('data-review-id');
-            if (confirm('Are you sure you want to unapprove this review?')) {
-                approveReview(reviewId, false);
+            const action = this.classList.contains('approve-btn') ? 'approve' : 'unapprove';
+            
+            if (confirm('Are you sure you want to ' + action + ' this review?')) {
+                const formData = new FormData();
+                formData.append('review_id', reviewId);
+                formData.append('action', action);
+                
+                fetch('action/approve.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('Error: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('Network error: ' + error);
+                });
             }
         });
     });
@@ -638,8 +578,28 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const reviewId = this.getAttribute('data-review-id');
+            const reason = prompt('Please enter reason for deletion (optional):');
+            
             if (confirm('Are you sure you want to delete this review? This action cannot be undone.')) {
-                deleteReview(reviewId);
+                const formData = new FormData();
+                formData.append('review_id', reviewId);
+                formData.append('reason', reason || '');
+                
+                fetch('action/delete.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert('Error: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('Network error: ' + error);
+                });
             }
         });
     });
@@ -668,51 +628,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
-
-function approveReview(reviewId, approve) {
-    const formData = new FormData();
-    formData.append('review_id', reviewId);
-    formData.append('action', approve ? 'approve' : 'unapprove');
-    
-    fetch('action/approve.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert(approve ? 'Review approved!' : 'Review unapproved!');
-            location.reload();
-        } else {
-            alert('Error: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Network error: ' + error);
-    });
-}
-
-function deleteReview(reviewId) {
-    const formData = new FormData();
-    formData.append('review_id', reviewId);
-    
-    fetch('action/delete.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Review deleted!');
-            location.reload();
-        } else {
-            alert('Error: ' + data.message);
-        }
-    })
-    .catch(error => {
-        alert('Network error: ' + error);
-    });
-}
 </script>
 
 <?php require_once '../../includes/footer.php'; ?>

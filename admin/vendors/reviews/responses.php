@@ -2,10 +2,14 @@
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
+// Define SITE_URL if not defined
+
+
 // Check if user is vendor
 if ($_SESSION['user_type'] !== 'vendor') {
     $_SESSION['error'] = 'Access denied. Vendor only.';
-    redirect(SITE_URL . 'index.php');
+    header('Location: ' . SITE_URL . 'index.php');
+    exit();
 }
 
 // Check if vendor is approved
@@ -17,11 +21,13 @@ try {
     
     if ($vendor_status !== 'approved') {
         $_SESSION['warning'] = 'Your vendor account needs approval.';
-        redirect(SITE_URL . 'admin/vendors/dashboard.php');
+        header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
+        exit();
     }
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Database error.';
-    redirect(SITE_URL . 'admin/vendors/dashboard.php');
+    header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
+    exit();
 }
 
 $page_title = 'Review Responses';
@@ -60,14 +66,13 @@ try {
                    vr.is_public, vr.is_edited,
                    DATE_FORMAT(r.created_at, '%d %b %Y %h:%i %p') as review_date_formatted,
                    DATE_FORMAT(vr.created_at, '%d %b %Y %h:%i %p') as response_date_formatted,
-                   (SELECT COUNT(*) FROM review_likes WHERE review_id = r.id) as likes_count,
-                   (SELECT COUNT(*) FROM review_reports WHERE review_id = r.id) as reports_count
+                   (SELECT COUNT(*) FROM review_likes WHERE review_id = r.id) as likes_count
             FROM reviews r
             JOIN products p ON r.product_id = p.id
             JOIN users u ON r.user_id = u.id
             LEFT JOIN vendor_responses vr ON r.id = vr.review_id
             $where_clause
-            ORDER BY vr.created_at DESC, r.created_at DESC
+            ORDER BY COALESCE(vr.created_at, r.created_at) DESC
             LIMIT :offset, :limit";
     
     $stmt = $db->prepare($sql);
@@ -105,46 +110,16 @@ try {
     $stats = ['total' => 0, 'replied' => 0, 'unreplied' => 0];
 }
 
-// Handle actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    $response_id = $_POST['response_id'] ?? 0;
-    
-    try {
-        if ($action === 'delete_response' && $response_id) {
-            // Verify ownership
-            $stmt = $db->prepare("
-                DELETE vr FROM vendor_responses vr
-                JOIN reviews r ON vr.review_id = r.id
-                JOIN products p ON r.product_id = p.id
-                WHERE vr.id = ? AND p.vendor_id = ?
-            ");
-            $stmt->execute([$response_id, $_SESSION['user_id']]);
-            
-            $_SESSION['success'] = 'Response deleted successfully!';
-            redirect('responses.php');
-            
-        } elseif ($action === 'update_response') {
-            $response_text = $_POST['response_text'] ?? '';
-            $is_public = isset($_POST['is_public']) ? 1 : 0;
-            $response_id = $_POST['response_id'] ?? 0;
-            
-            if ($response_text && $response_id) {
-                $stmt = $db->prepare("
-                    UPDATE vendor_responses vr
-                    JOIN reviews r ON vr.review_id = r.id
-                    JOIN products p ON r.product_id = p.id
-                    SET vr.response_text = ?, vr.is_public = ?, vr.is_edited = 1, vr.updated_at = NOW()
-                    WHERE vr.id = ? AND p.vendor_id = ?
-                ");
-                $stmt->execute([$response_text, $is_public, $response_id, $_SESSION['user_id']]);
-                
-                $_SESSION['success'] = 'Response updated successfully!';
-                redirect('responses.php');
-            }
+// Function to log user activity
+if (!function_exists('logUserActivity')) {
+    function logUserActivity($user_id, $type, $description) {
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("INSERT INTO user_activities (user_id, activity_type, description, created_at) VALUES (?, ?, ?, NOW())");
+            $stmt->execute([$user_id, $type, $description]);
+        } catch(Exception $e) {
+            // Silent fail
         }
-    } catch(PDOException $e) {
-        $_SESSION['error'] = 'Error processing action: ' . $e->getMessage();
     }
 }
 ?>
@@ -224,36 +199,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <!-- Filter and Search -->
         <div class="card border-0 shadow-sm mb-4">
             <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-8">
-                        <form method="GET" class="input-group">
-                            <span class="input-group-text bg-light border-end-0">
+                <form method="GET" class="row g-3">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text bg-light">
                                 <i class="fas fa-search text-muted"></i>
                             </span>
                             <input type="text" name="search" class="form-control" 
                                    placeholder="Search reviews or responses..." 
                                    value="<?php echo htmlspecialchars($search); ?>">
-                            <select name="filter" class="form-select" style="max-width: 200px;">
-                                <option value="all" <?php echo $filter === 'all' ? 'selected' : ''; ?>>All Reviews</option>
-                                <option value="replied" <?php echo $filter === 'replied' ? 'selected' : ''; ?>>Replied Only</option>
-                                <option value="unreplied" <?php echo $filter === 'unreplied' ? 'selected' : ''; ?>>Need Reply</option>
-                            </select>
-                            <button type="submit" class="btn btn-primary">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <select name="filter" class="form-select">
+                            <option value="all" <?php echo $filter === 'all' ? 'selected' : ''; ?>>All Reviews</option>
+                            <option value="replied" <?php echo $filter === 'replied' ? 'selected' : ''; ?>>Replied Only</option>
+                            <option value="unreplied" <?php echo $filter === 'unreplied' ? 'selected' : ''; ?>>Need Reply</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary w-100">
                                 <i class="fas fa-filter"></i> Filter
                             </button>
-                        </form>
-                    </div>
-                    <div class="col-md-4 text-end">
-                        <div class="btn-group">
-                            <button class="btn btn-outline-secondary" onclick="exportResponses()">
-                                <i class="fas fa-download me-2"></i> Export
-                            </button>
-                            <a href="reviews.php" class="btn btn-primary">
-                                <i class="fas fa-plus me-2"></i> Reply to New Review
+                            <a href="responses.php" class="btn btn-outline-secondary">
+                                <i class="fas fa-times"></i>
                             </a>
                         </div>
                     </div>
-                </div>
+                </form>
             </div>
         </div>
         
@@ -290,7 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <div class="d-flex align-items-center">
                                             <div class="avatar-sm bg-light rounded-circle d-flex align-items-center justify-content-center me-3">
                                                 <?php if ($response['product_image']): ?>
-                                                <img src="<?php echo SITE_URL; ?>uploads/products/<?php echo $response['product_image']; ?>" 
+                                                <img src="<?php echo SITE_URL; ?>assets/images/products/<?php echo $response['product_image']; ?>" 
                                                      alt="Product" class="rounded-circle" width="40" height="40">
                                                 <?php else: ?>
                                                     <i class="fas fa-box text-muted"></i>
@@ -343,10 +317,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                 </div>
                                                 <div class="card-body">
                                                     <div class="mb-3">
-                                                        <strong>Customer:</strong> 
-                                                        <?php echo $response['customer_fullname'] ?? $response['customer_name']; ?>
-                                                    </div>
-                                                    <div class="mb-3">
                                                         <strong>Rating:</strong>
                                                         <?php for($i = 1; $i <= 5; $i++): ?>
                                                             <i class="fas fa-star <?php echo $i <= $response['rating'] ? 'text-warning' : 'text-muted'; ?>"></i>
@@ -357,16 +327,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                         <strong>Review:</strong>
                                                         <p class="mt-2"><?php echo nl2br(htmlspecialchars($response['review_text'])); ?></p>
                                                     </div>
-                                                    <div class="d-flex gap-2">
-                                                        <small class="text-muted">
-                                                            <i class="fas fa-thumbs-up me-1"></i> <?php echo $response['likes_count']; ?> likes
-                                                        </small>
-                                                        <?php if ($response['reports_count'] > 0): ?>
-                                                        <small class="text-danger">
-                                                            <i class="fas fa-flag me-1"></i> <?php echo $response['reports_count']; ?> reports
-                                                        </small>
-                                                        <?php endif; ?>
-                                                    </div>
+                                                    <?php if ($response['likes_count'] > 0): ?>
+                                                    <small class="text-muted">
+                                                        <i class="fas fa-thumbs-up me-1"></i> <?php echo $response['likes_count']; ?> likes
+                                                    </small>
+                                                    <?php endif; ?>
                                                 </div>
                                             </div>
                                         </div>
@@ -387,13 +352,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                         <small class="text-muted"><?php echo $response['response_date_formatted']; ?></small>
                                                     </div>
                                                     <div class="card-body">
-                                                        <form method="POST" class="response-form" 
-                                                              data-response-id="<?php echo $response['response_id']; ?>">
+                                                        <form method="POST" action="responses.php" class="response-form">
                                                             <input type="hidden" name="action" value="update_response">
                                                             <input type="hidden" name="response_id" value="<?php echo $response['response_id']; ?>">
                                                             
                                                             <div class="mb-3">
-                                                                <label class="form-label">Your Response</label>
                                                                 <textarea name="response_text" class="form-control" rows="4" required><?php echo htmlspecialchars($response['response_text']); ?></textarea>
                                                             </div>
                                                             
@@ -406,14 +369,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                                 </label>
                                                             </div>
                                                             
-                                                            <div class="d-flex justify-content-between">
+                                                            <div class="d-flex gap-2">
                                                                 <button type="submit" class="btn btn-primary">
                                                                     <i class="fas fa-save me-1"></i> Update Response
                                                                 </button>
                                                                 
                                                                 <button type="button" class="btn btn-outline-danger delete-response-btn" 
                                                                         data-response-id="<?php echo $response['response_id']; ?>">
-                                                                    <i class="fas fa-trash me-1"></i> Delete Response
+                                                                    <i class="fas fa-trash me-1"></i> Delete
                                                                 </button>
                                                             </div>
                                                         </form>
@@ -429,11 +392,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                         </h6>
                                                     </div>
                                                     <div class="card-body">
-                                                        <form method="POST" action="../action/reply.php" class="new-response-form">
+                                                        <form method="POST" action="action/reply.php" class="new-response-form">
                                                             <input type="hidden" name="review_id" value="<?php echo $response['id']; ?>">
                                                             
                                                             <div class="mb-3">
-                                                                <label class="form-label">Your Response</label>
                                                                 <textarea name="response_text" class="form-control" rows="4" 
                                                                           placeholder="Thank the customer for their review and address any concerns..." 
                                                                           required></textarea>
@@ -443,86 +405,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                                 <input type="checkbox" name="is_public" class="form-check-input" 
                                                                        id="newPublic<?php echo $index; ?>" checked>
                                                                 <label class="form-check-label" for="newPublic<?php echo $index; ?>">
-                                                                    Make response public (visible to all customers)
+                                                                    Make response public
                                                                 </label>
                                                             </div>
                                                             
-                                                            <div class="d-grid">
-                                                                <button type="submit" class="btn btn-success">
-                                                                    <i class="fas fa-paper-plane me-1"></i> Send Response
-                                                                </button>
-                                                            </div>
+                                                            <button type="submit" class="btn btn-success w-100">
+                                                                <i class="fas fa-paper-plane me-1"></i> Send Response
+                                                            </button>
                                                         </form>
                                                     </div>
                                                 </div>
                                             <?php endif; ?>
-                                            
-                                            <!-- Response Tips -->
-                                            <div class="card border mt-3">
-                                                <div class="card-body p-3">
-                                                    <small class="text-muted">
-                                                        <i class="fas fa-lightbulb me-1 text-warning"></i>
-                                                        <strong>Response Tips:</strong> Be professional, thank customers, address concerns, and avoid arguments.
-                                                    </small>
-                                                </div>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                         <?php endforeach; ?>
-                    </div>
-                    
-                    <!-- Response Stats -->
-                    <div class="mt-4 pt-4 border-top">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6>Response Statistics</h6>
-                                <div class="d-flex align-items-center mt-3">
-                                    <div class="progress flex-grow-1 me-3" style="height: 20px;">
-                                        <div class="progress-bar bg-success" 
-                                             style="width: <?php echo $stats['total'] > 0 ? ($stats['replied'] / $stats['total']) * 100 : 0; ?>%">
-                                            <?php echo $stats['total'] > 0 ? round(($stats['replied'] / $stats['total']) * 100, 1) : 0; ?>%
-                                        </div>
-                                    </div>
-                                    <div class="text-end" style="min-width: 100px;">
-                                        <small class="text-muted"><?php echo $stats['replied']; ?> of <?php echo $stats['total']; ?> replied</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-6 text-end">
-                                <h6>Average Response Time</h6>
-                                <?php
-                                try {
-                                    $stmt = $db->prepare("
-                                        SELECT AVG(TIMESTAMPDIFF(HOUR, r.created_at, vr.created_at)) as avg_hours
-                                        FROM vendor_responses vr
-                                        JOIN reviews r ON vr.review_id = r.id
-                                        JOIN products p ON r.product_id = p.id
-                                        WHERE p.vendor_id = ?
-                                    ");
-                                    $stmt->execute([$_SESSION['user_id']]);
-                                    $avg_time = $stmt->fetchColumn();
-                                    
-                                    if ($avg_time) {
-                                        if ($avg_time < 24) {
-                                            echo '<h3 class="text-success">' . round($avg_time, 1) . ' hours</h3>';
-                                        } elseif ($avg_time < 168) {
-                                            echo '<h3 class="text-warning">' . round($avg_time/24, 1) . ' days</h3>';
-                                        } else {
-                                            echo '<h3 class="text-danger">' . round($avg_time/168, 1) . ' weeks</h3>';
-                                        }
-                                    } else {
-                                        echo '<p class="text-muted">No data available</p>';
-                                    }
-                                } catch(PDOException $e) {
-                                    echo '<p class="text-muted">Error calculating</p>';
-                                }
-                                ?>
-                                <small class="text-muted">Lower is better</small>
-                            </div>
-                        </div>
                     </div>
                 <?php endif; ?>
             </div>
@@ -543,7 +442,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <form id="deleteForm" method="POST" style="display: inline;">
+                <form id="deleteForm" method="POST" action="responses.php" style="display: inline;">
                     <input type="hidden" name="action" value="delete_response">
                     <input type="hidden" name="response_id" id="deleteResponseId">
                     <button type="submit" class="btn btn-danger">Delete</button>
@@ -562,16 +461,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 .accordion-button:not(.collapsed) {
     background: #e7f1ff;
     color: #0d6efd;
-    box-shadow: none;
 }
 
 .accordion-button:focus {
     box-shadow: none;
     border-color: #86b7fe;
-}
-
-.response-form textarea {
-    min-height: 120px;
 }
 
 .avatar-sm {
@@ -580,6 +474,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     display: flex;
     align-items: center;
     justify-content: center;
+    border-radius: 50%;
+    overflow: hidden;
 }
 
 .avatar-lg {
@@ -588,16 +484,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     display: flex;
     align-items: center;
     justify-content: center;
-}
-
-.progress {
-    border-radius: 10px;
-}
-
-.progress-bar {
-    border-radius: 10px;
-    font-size: 0.75rem;
-    line-height: 20px;
+    border-radius: 50%;
 }
 </style>
 
@@ -614,18 +501,19 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Update response form
-    document.querySelectorAll('.response-form').forEach(form => {
+    // Response form submission
+    document.querySelectorAll('.response-form, .new-response-form').forEach(form => {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             const formData = new FormData(this);
+            const action = this.action || 'responses.php';
             
-            fetch('responses.php', {
+            fetch(action, {
                 method: 'POST',
                 body: formData
             })
             .then(response => response.text())
-            .then(data => {
+            .then(() => {
                 location.reload();
             })
             .catch(error => {
@@ -633,37 +521,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     });
-    
-    // New response form
-    document.querySelectorAll('.new-response-form').forEach(form => {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const formData = new FormData(this);
-            
-            fetch(this.action, {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Response sent successfully!');
-                    location.reload();
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            })
-            .catch(error => {
-                alert('Network error: ' + error);
-            });
-        });
-    });
 });
-
-function exportResponses() {
-    // This would typically call an export script
-    window.location.href = 'action/export.php?type=responses';
-}
 </script>
 
 <?php require_once '../../includes/footer.php'; ?>
