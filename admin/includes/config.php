@@ -39,6 +39,26 @@ define('ROOT_PATH', $_SERVER['DOCUMENT_ROOT'] . '/'); // یا آپ کے پروج
 define('UPLOAD_PATH', ROOT_PATH . 'assets/images/products/');
 define('UPLOAD_URL', SITE_URL . 'assets/images/products/');
 // Start Session
+
+function secureSessionStart() {
+    $session_name = 'secure_session';
+    $secure = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on';
+    $httponly = true;
+    
+    session_name($session_name);
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'domain' => $_SERVER['HTTP_HOST'],
+        'secure' => $secure,
+        'httponly' => $httponly,
+        'samesite' => 'Strict'
+    ]);    
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+}
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -77,7 +97,9 @@ function isLoggedIn() {
 function isAdmin() {
     return isLoggedIn() && isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'admin';
 }
-
+function isVendor() {
+    return isLoggedIn() && isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'vendor';
+}
 // Function to check if user is regular user
 function isUser() {
     return isLoggedIn() && isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'user';
@@ -88,6 +110,7 @@ function redirect($url) {
     echo "<script>window.location.href='" . $url . "';</script>";
     exit();
 }
+
 
 // Sanitize input data
 function sanitize($data) {
@@ -128,10 +151,11 @@ function sendOTPEmail($email, $otp) {
     error_log("OTP for $email: $otp");
     
     // Uncomment to actually send email
-    // return mail($email, $subject, $message, $headers);
+   // return mail($email, $subject, $message, $headers);
     
     return true; // For demo purposes
 }
+
 
 // Send OTP via SMS (Simulated)
 function sendOTPSMS($phone, $otp) {
@@ -176,6 +200,7 @@ function hashPassword($password) {
 function verifyPassword($password, $hash) {
     return password_verify($password, $hash);
 }
+
 ?>
 
 
@@ -318,50 +343,22 @@ function validatePasswordStrength($password) {
     
     return $errors;
 }
+//===========================================
 
-// Generate secure token
-function generateSecureToken($length = 32) {
-    return bin2hex(random_bytes($length));
-}
-
-// Check if user subscription is active
-function isSubscriptionActive($user_id) {
+/**
+ * Check if user subscription is active
+ */
+function validateUsername($username) {
     try {
         $db = getDB();
-        $stmt = $db->prepare("
-            SELECT subscription_plan, subscription_expiry 
-            FROM users 
-            WHERE id = ?
-        ");
-        $stmt->execute([$user_id]);
-        $user = $stmt->fetch();
-        
-        if (!$user) return false;
-        
-        // Free plan is always active
-        if ($user['subscription_plan'] === 'free') {
-            return true;
-        }
-        
-        // Check if premium/business subscription has expired
-        if ($user['subscription_expiry'] && strtotime($user['subscription_expiry']) < time()) {
-            // Auto-downgrade to free plan
-            $update_stmt = $db->prepare("
-                UPDATE users 
-                SET subscription_plan = 'free', subscription_expiry = NULL 
-                WHERE id = ?
-            ");
-            $update_stmt->execute([$user_id]);
-            return false;
-        }
-        
-        return true;
+        $stmt = $db->prepare("SELECT id FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        return $stmt->fetchColumn() !== false;
     } catch(PDOException $e) {
-        error_log("Subscription check failed: " . $e->getMessage());
+        error_log("Username validation failed: " . $e->getMessage());
         return false;
     }
 }
-
 // Get user subscription details
 function getUserSubscription($user_id) {
     try {
@@ -392,7 +389,9 @@ function getSubscriptionPlans() {
     }
 }
 
-// Send security alert email
+/**
+ * Send security alert email
+ */
 function sendSecurityAlert($user_id, $alert_type, $details = '') {
     try {
         $db = getDB();
@@ -429,7 +428,6 @@ function sendSecurityAlert($user_id, $alert_type, $details = '') {
         
         $message .= "\nThank you,\n" . SITE_NAME . " Security Team";
         
-        // Log the alert
         error_log("Security Alert for {$user['email']}: {$alert_type}");
         
         // In production, send actual email
@@ -441,7 +439,6 @@ function sendSecurityAlert($user_id, $alert_type, $details = '') {
         return false;
     }
 }
-
 // Is code ko comment kardo:
 /*
 if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
@@ -449,16 +446,6 @@ if (!isset($_SERVER['HTTPS']) || $_SERVER['HTTPS'] !== 'on') {
     exit();
 }
 */
-
-
-
-
-
-// Helper function for redirect
-// function redirect($url) {
-//     header("Location: $url");
-//     exit();
-// }
 
 // Helper function for logging vendor activities
 function logVendorActivity($user_id, $activity_type, $description) {
@@ -487,6 +474,64 @@ function logVendorActivity($user_id, $activity_type, $description) {
 
 <?php
 // Add these functions to your config.php file or create a separate helpers.php file
+
+
+
+
+// ============================================
+// UPLOAD FUNCTIONS
+// ============================================
+
+/**
+ * Get upload error message
+ */
+function getUploadError($error_code) {
+    $errors = [
+        UPLOAD_ERR_INI_SIZE => 'File too large (server limit)',
+        UPLOAD_ERR_FORM_SIZE => 'File too large (form limit)',
+        UPLOAD_ERR_PARTIAL => 'File partially uploaded',
+        UPLOAD_ERR_NO_FILE => 'No file uploaded',
+        UPLOAD_ERR_NO_TMP_DIR => 'Missing temp folder',
+        UPLOAD_ERR_CANT_WRITE => 'Failed to write file',
+        UPLOAD_ERR_EXTENSION => 'File upload stopped'
+    ];
+    return $errors[$error_code] ?? 'Unknown error';
+}
+
+// ============================================
+// PRODUCT FUNCTIONS
+// ============================================
+
+/**
+ * Get all product categories
+ */
+function getProductCategories() {
+    try {
+        $db = getDB();
+        $stmt = $db->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category != '' ORDER BY category");
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch(PDOException $e) {
+        error_log("Get categories failed: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get product by ID
+ */
+function getProductById($product_id) {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT * FROM products WHERE id = ?");
+        $stmt->execute([$product_id]);
+        return $stmt->fetch();
+    } catch(PDOException $e) {
+        error_log("Get product failed: " . $e->getMessage());
+        return null;
+    }
+}
+
+
 
 /**
  * Export data to CSV format
@@ -725,4 +770,6 @@ function redirects($url) {
     header('Location: ' . $url);
     exit();
 }
+
+
 ?>

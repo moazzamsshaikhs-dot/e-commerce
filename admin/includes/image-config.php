@@ -9,13 +9,7 @@ define('DB_NAME', 'ecommerce_db');
 define('SITE_URL', 'http://localhost/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 
-// Product Image Configuration
-define('PRODUCT_IMAGE_PATH', $_SERVER['DOCUMENT_ROOT'] . '../assets/images/products/');
-define('PRODUCT_IMAGE_URL', SITE_URL . 'assets/images/products/');
 
-// Allowed image types for products
-define('ALLOWED_PRODUCT_IMAGES', ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp']);
-define('MAX_PRODUCT_IMAGE_SIZE', 10 * 1024 * 1024); // 10MB
 
 // Email Configuration (for OTP sending)
 define('SMTP_HOST', 'smtp.gmail.com');
@@ -558,4 +552,67 @@ function getProductById($product_id) {
         return null;
     }
 }
+
+
+
+// admin/includes/image-config.php
+// IMAGE CONFIGURATION ONLY - ABSOLUTELY NO FUNCTIONS!
+
+// Prevent direct access
+if (!defined('SITE_URL')) {
+    die('Please include config.php first');
+}
+
+// ============================================
+// IMAGE UPLOAD CONFIGURATION ONLY
+// ============================================
+
+// Product Image paths
+define('PRODUCT_IMAGE_PATH', $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/products/');
+define('PRODUCT_IMAGE_URL', SITE_URL . 'assets/images/products/');
+
+// Profile Image paths
+define('PROFILE_IMAGE_PATH', $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/profiles/');
+define('PROFILE_IMAGE_URL', SITE_URL . 'assets/images/profiles/');
+
+// Document paths
+define('DOCUMENT_UPLOAD_PATH', $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/uploads/documents/');
+define('DOCUMENT_UPLOAD_URL', SITE_URL . 'uploads/documents/');
+
+// Allowed image types
+define('ALLOWED_PRODUCT_IMAGES', ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp']);
+define('MAX_PRODUCT_IMAGE_SIZE', 10 * 1024 * 1024); // 10MB
+
+// Create directories if they don't exist
+$directories = [
+    PRODUCT_IMAGE_PATH,
+    PROFILE_IMAGE_PATH,
+    DOCUMENT_UPLOAD_PATH
+];
+
+foreach ($directories as $dir) {
+    if (!file_exists($dir)) {
+        mkdir($dir, 0777, true);
+    }
+}
+
+// Create default product image if it doesn't exist
+$default_image_path = PRODUCT_IMAGE_PATH . 'default.jpg';
+if (!file_exists($default_image_path) && function_exists('imagecreatetruecolor')) {
+    $default_image = @imagecreatetruecolor(400, 400);
+    if ($default_image) {
+        $bg_color = imagecolorallocate($default_image, 240, 240, 240);
+        $text_color = imagecolorallocate($default_image, 180, 180, 180);
+        imagefill($default_image, 0, 0, $bg_color);
+        imagestring($default_image, 5, 120, 180, 'No Image', $text_color);
+        imagestring($default_image, 3, 100, 220, 'Product Image', $text_color);
+        imagejpeg($default_image, $default_image_path, 80);
+        imagedestroy($default_image);
+    }
+}
+
+// ============================================
+// END OF CONFIGURATIONS - NO FUNCTIONS BELOW THIS LINE
+// ============================================
+
 ?>
