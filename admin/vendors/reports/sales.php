@@ -1,4 +1,5 @@
 <?php
+// admin/vendors/reports/sales.php
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
@@ -55,45 +56,159 @@ try {
     $stmt->execute([$vendor_id]);
     $vendor = $stmt->fetch();
     
-    // Get sales statistics
+    // Build WHERE clause for queries
     $params = [$vendor_id];
     $where_clause = "WHERE p.vendor_id = ?";
     
-    // Add date filters
     if (!empty($filter_start) && !empty($filter_end)) {
         $where_clause .= " AND DATE(o.order_date) BETWEEN ? AND ?";
         $params[] = $filter_start;
         $params[] = $filter_end;
     }
     
-    // Add product filter
     if (!empty($filter_product)) {
         $where_clause .= " AND p.id = ?";
         $params[] = $filter_product;
     }
     
-    // Add status filter
     if (!empty($filter_status)) {
         $where_clause .= " AND o.status = ?";
         $params[] = $filter_status;
     }
     
-    // Total Sales
+    // ============================================
+    // SALES CHART DATA - Monthly Trend (Last 12 Months)
+    // ============================================
     $stmt = $db->prepare("
         SELECT 
+            DATE_FORMAT(o.order_date, '%Y-%m') as month,
+            COUNT(DISTINCT o.id) as order_count,
             COALESCE(SUM(o.total_amount), 0) as total_sales,
-            COUNT(DISTINCT o.id) as total_orders,
-            COALESCE(SUM(oi.quantity), 0) as total_items,
-            COUNT(DISTINCT o.user_id) as total_customers
+            COUNT(DISTINCT o.user_id) as customer_count
         FROM orders o
         JOIN order_items oi ON o.id = oi.order_id
         JOIN products p ON oi.product_id = p.id
-        $where_clause
+        WHERE p.vendor_id = ?
+        AND o.order_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+        GROUP BY DATE_FORMAT(o.order_date, '%Y-%m')
+        ORDER BY month ASC
     ");
-    $stmt->execute($params);
-    $sales_stats = $stmt->fetch();
+    $stmt->execute([$vendor_id]);
+    $monthly_sales = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Sales by product
+    // Prepare chart data arrays
+    $chart_months = [];
+    $chart_sales = [];
+    $chart_orders = [];
+    
+    // Fill with last 12 months even if no data
+    for ($i = 11; $i >= 0; $i--) {
+        $month = date('Y-m', strtotime("-$i months"));
+        $month_display = date('M Y', strtotime("-$i months"));
+        $chart_months[] = $month_display;
+        
+        // Find if we have data for this month
+        $found = false;
+        foreach ($monthly_sales as $data) {
+            if ($data['month'] == $month) {
+                $chart_sales[] = (float)$data['total_sales'];
+                $chart_orders[] = (int)$data['order_count'];
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            $chart_sales[] = 0;
+            $chart_orders[] = 0;
+        }
+    }
+    
+    // ============================================
+    // CATEGORY DISTRIBUTION CHART DATA
+    // ============================================
+    $stmt = $db->prepare("
+        SELECT 
+            COALESCE(p.category, 'Uncategorized') as category,
+            COUNT(DISTINCT p.id) as product_count,
+            SUM(oi.quantity) as total_sold,
+            SUM(oi.subtotal) as total_revenue
+        FROM products p
+        LEFT JOIN order_items oi ON p.id = oi.product_id
+        LEFT JOIN orders o ON oi.order_id = o.id
+        WHERE p.vendor_id = ?
+        AND (o.order_date IS NULL OR DATE(o.order_date) BETWEEN ? AND ?)
+        GROUP BY p.category
+        ORDER BY total_revenue DESC
+    ");
+    $stmt->execute([$vendor_id, $filter_start, $filter_end]);
+    $category_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $category_labels = [];
+    $category_values = [];
+    $category_colors = [
+        '#4361ee', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6',
+        '#ec4899', '#14b8a6', '#f97316', '#6b7280', '#64748b'
+    ];
+    
+    foreach ($category_data as $index => $cat) {
+        if ($index < 5) { // Top 5 categories
+            $category_labels[] = $cat['category'] ?: 'Uncategorized';
+            $category_values[] = (float)$cat['total_revenue'];
+        }
+    }
+    
+    // If no categories, add default
+    if (empty($category_labels)) {
+        $category_labels = ['No Sales'];
+        $category_values = [1];
+    }
+    
+    // ============================================
+    // ORDER STATUS CHART DATA
+    // ============================================
+    $stmt = $db->prepare("
+        SELECT 
+            o.status,
+            COUNT(DISTINCT o.id) as order_count,
+            SUM(o.total_amount) as total_sales
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        JOIN products p ON oi.product_id = p.id
+        WHERE p.vendor_id = ?
+        AND DATE(o.order_date) BETWEEN ? AND ?
+        GROUP BY o.status
+        ORDER BY order_count DESC
+    ");
+    $stmt->execute([$vendor_id, $filter_start, $filter_end]);
+    $status_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    $status_labels = [];
+    $status_values = [];
+    $status_colors = [
+        'delivered' => '#22c55e',
+        'shipped' => '#3b82f6',
+        'processing' => '#f59e0b',
+        'pending' => '#f97316',
+        'cancelled' => '#ef4444',
+        'refunded' => '#6b7280'
+    ];
+    
+    foreach ($status_data as $status) {
+        if (!empty($status['status'])) {
+            $status_labels[] = ucfirst($status['status']);
+            $status_values[] = (int)$status['order_count'];
+        }
+    }
+    
+    // If no status data, add default
+    if (empty($status_labels)) {
+        $status_labels = ['No Orders'];
+        $status_values = [1];
+    }
+    
+    // ============================================
+    // TOP PRODUCTS DATA
+    // ============================================
     $stmt = $db->prepare("
         SELECT 
             p.id,
@@ -108,40 +223,18 @@ try {
         LEFT JOIN order_items oi ON p.id = oi.product_id
         LEFT JOIN orders o ON oi.order_id = o.id
         WHERE p.vendor_id = ?
-        " . (!empty($filter_start) && !empty($filter_end) ? "AND DATE(o.order_date) BETWEEN ? AND ?" : "") . "
+        AND (o.order_date IS NULL OR DATE(o.order_date) BETWEEN ? AND ?)
         GROUP BY p.id
+        HAVING total_revenue > 0
         ORDER BY total_revenue DESC
         LIMIT 10
     ");
+    $stmt->execute([$vendor_id, $filter_start, $filter_end]);
+    $sales_by_product = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $product_params = [$vendor_id];
-    if (!empty($filter_start) && !empty($filter_end)) {
-        $product_params[] = $filter_start;
-        $product_params[] = $filter_end;
-    }
-    $stmt->execute($product_params);
-    $sales_by_product = $stmt->fetchAll();
-    
-    // Sales by month (for chart)
-    $stmt = $db->prepare("
-        SELECT 
-            DATE_FORMAT(o.order_date, '%Y-%m') as month,
-            COUNT(DISTINCT o.id) as order_count,
-            COALESCE(SUM(o.total_amount), 0) as total_sales,
-            COUNT(DISTINCT o.user_id) as customer_count
-        FROM orders o
-        JOIN order_items oi ON o.id = oi.order_id
-        JOIN products p ON oi.product_id = p.id
-        WHERE p.vendor_id = ?
-        AND o.order_date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-        GROUP BY DATE_FORMAT(o.order_date, '%Y-%m')
-        ORDER BY month DESC
-        LIMIT 12
-    ");
-    $stmt->execute([$vendor_id]);
-    $monthly_sales = $stmt->fetchAll();
-    
-    // Top customers
+    // ============================================
+    // TOP CUSTOMERS DATA
+    // ============================================
     $stmt = $db->prepare("
         SELECT 
             u.id,
@@ -156,26 +249,42 @@ try {
         JOIN order_items oi ON o.id = oi.order_id
         JOIN products p ON oi.product_id = p.id
         WHERE p.vendor_id = ?
-        " . (!empty($filter_start) && !empty($filter_end) ? "AND DATE(o.order_date) BETWEEN ? AND ?" : "") . "
+        AND DATE(o.order_date) BETWEEN ? AND ?
         GROUP BY u.id
         ORDER BY total_spent DESC
         LIMIT 10
     ");
+    $stmt->execute([$vendor_id, $filter_start, $filter_end]);
+    $top_customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $customer_params = [$vendor_id];
-    if (!empty($filter_start) && !empty($filter_end)) {
-        $customer_params[] = $filter_start;
-        $customer_params[] = $filter_end;
-    }
-    $stmt->execute($customer_params);
-    $top_customers = $stmt->fetchAll();
-    
-    // Get all vendor products for filter dropdown
+    // ============================================
+    // PRODUCTS FOR FILTER DROPDOWN
+    // ============================================
     $stmt = $db->prepare("SELECT id, name FROM products WHERE vendor_id = ? ORDER BY name");
     $stmt->execute([$vendor_id]);
-    $vendor_products = $stmt->fetchAll();
+    $vendor_products = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Calculate conversion rate (if there's analytics data)
+    // ============================================
+    // SALES STATISTICS
+    // ============================================
+    $stmt = $db->prepare("
+        SELECT 
+            COALESCE(SUM(o.total_amount), 0) as total_sales,
+            COUNT(DISTINCT o.id) as total_orders,
+            COALESCE(SUM(oi.quantity), 0) as total_items,
+            COUNT(DISTINCT o.user_id) as total_customers,
+            COALESCE(AVG(o.total_amount), 0) as avg_order_value
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        JOIN products p ON oi.product_id = p.id
+        $where_clause
+    ");
+    $stmt->execute($params);
+    $sales_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    // ============================================
+    // CONVERSION DATA
+    // ============================================
     $stmt = $db->prepare("
         SELECT 
             COALESCE(SUM(p.views), 0) as total_views,
@@ -184,27 +293,69 @@ try {
         WHERE p.vendor_id = ?
     ");
     $stmt->execute([$vendor_id]);
-    $conversion_data = $stmt->fetch();
+    $conversion_data = $stmt->fetch(PDO::FETCH_ASSOC);
     
     $conversion_rate = 0;
     if ($conversion_data['total_views'] > 0) {
         $conversion_rate = ($conversion_data['total_sales'] / $conversion_data['total_views']) * 100;
     }
     
+    // ============================================
+    // DETAILED SALES TABLE
+    // ============================================
+    $detailed_params = $params;
+    $detailed_sql = "
+        SELECT 
+            o.id,
+            o.order_number,
+            o.order_date,
+            o.total_amount,
+            o.status,
+            o.payment_method,
+            o.payment_status,
+            u.username,
+            u.full_name,
+            COUNT(DISTINCT oi.product_id) as product_count,
+            SUM(oi.quantity) as item_count
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        JOIN products p ON oi.product_id = p.id
+        JOIN users u ON o.user_id = u.id
+        $where_clause
+        GROUP BY o.id
+        ORDER BY o.order_date DESC
+        LIMIT 20
+    ";
+    
+    $stmt = $db->prepare($detailed_sql);
+    $stmt->execute($params);
+    $detailed_sales = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Error loading sales data: ' . $e->getMessage();
     error_log("Sales Report Error: " . $e->getMessage());
+    
+    // Set default empty values
     $sales_stats = [
         'total_sales' => 0,
         'total_orders' => 0,
         'total_items' => 0,
-        'total_customers' => 0
+        'total_customers' => 0,
+        'avg_order_value' => 0
     ];
     $sales_by_product = [];
     $monthly_sales = [];
     $top_customers = [];
     $vendor_products = [];
     $conversion_rate = 0;
+    $detailed_sales = [];
+    $chart_months = [];
+    $chart_sales = [];
+    $chart_orders = [];
+    $category_labels = ['No Data'];
+    $category_values = [1];
+    $status_labels = ['No Data'];
+    $status_values = [1];
 }
 
 // Log activity
@@ -280,6 +431,7 @@ require_once '../../includes/header.php';
                             <option value="processing" <?php echo $filter_status == 'processing' ? 'selected' : ''; ?>>Processing</option>
                             <option value="shipped" <?php echo $filter_status == 'shipped' ? 'selected' : ''; ?>>Shipped</option>
                             <option value="delivered" <?php echo $filter_status == 'delivered' ? 'selected' : ''; ?>>Delivered</option>
+                            <option value="cancelled" <?php echo $filter_status == 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
                         </select>
                     </div>
                     <div class="col-12">
@@ -364,11 +516,11 @@ require_once '../../includes/header.php';
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <h6 class="text-muted mb-2">Conversion Rate</h6>
-                                <h2 class="mb-0"><?php echo number_format($conversion_rate, 2); ?>%</h2>
+                                <h6 class="text-muted mb-2">Avg Order Value</h6>
+                                <h2 class="mb-0">$<?php echo number_format($sales_stats['avg_order_value'], 2); ?></h2>
                                 <small class="text-info">
-                                    <i class="fas fa-eye me-1"></i>
-                                    <?php echo number_format($conversion_data['total_views'] ?? 0); ?> product views
+                                    <i class="fas fa-chart-line me-1"></i>
+                                    Per transaction
                                 </small>
                             </div>
                             <div class="stats-icon info">
@@ -533,11 +685,15 @@ require_once '../../includes/header.php';
                             <div class="col-md-6">
                                 <div class="text-center">
                                     <canvas id="categoryChart" width="200" height="200"></canvas>
+                                    <p class="mt-2 mb-0 fw-bold">By Category</p>
+                                    <small class="text-muted">Revenue distribution</small>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="text-center">
                                     <canvas id="statusChart" width="200" height="200"></canvas>
+                                    <p class="mt-2 mb-0 fw-bold">By Order Status</p>
+                                    <small class="text-muted">Order count</small>
                                 </div>
                             </div>
                         </div>
@@ -547,8 +703,7 @@ require_once '../../includes/header.php';
                                 <div class="col-6">
                                     <div class="bg-light p-3 rounded text-center">
                                         <div class="text-primary fw-bold">
-                                            $<?php echo number_format($sales_stats['total_orders'] > 0 ? 
-                                                $sales_stats['total_sales'] / $sales_stats['total_orders'] : 0, 2); ?>
+                                            $<?php echo number_format($sales_stats['avg_order_value'], 2); ?>
                                         </div>
                                         <small class="text-muted">Average Order Value</small>
                                     </div>
@@ -556,10 +711,9 @@ require_once '../../includes/header.php';
                                 <div class="col-6">
                                     <div class="bg-light p-3 rounded text-center">
                                         <div class="text-success fw-bold">
-                                            $<?php echo number_format($sales_stats['total_customers'] > 0 ? 
-                                                $sales_stats['total_sales'] / $sales_stats['total_customers'] : 0, 2); ?>
+                                            <?php echo $sales_stats['total_customers']; ?>
                                         </div>
-                                        <small class="text-muted">Customer Lifetime Value</small>
+                                        <small class="text-muted">Total Customers</small>
                                     </div>
                                 </div>
                             </div>
@@ -573,9 +727,7 @@ require_once '../../includes/header.php';
         <div class="card border-0 shadow-sm mt-4">
             <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
                 <h5 class="mb-0 fw-bold">Detailed Sales Report</h5>
-                <button class="btn btn-sm btn-outline-primary" onclick="toggleFilters()">
-                    <i class="fas fa-sliders-h me-1"></i> More Filters
-                </button>
+                <span class="badge bg-info">Last 20 Orders</span>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -593,97 +745,62 @@ require_once '../../includes/header.php';
                             </tr>
                         </thead>
                         <tbody>
-                            <?php 
-                            // Get detailed sales
-                            try {
-                                $detailed_params = [$vendor_id];
-                                $detailed_where = "WHERE p.vendor_id = ?";
-                                
-                                if (!empty($filter_start) && !empty($filter_end)) {
-                                    $detailed_where .= " AND DATE(o.order_date) BETWEEN ? AND ?";
-                                    $detailed_params[] = $filter_start;
-                                    $detailed_params[] = $filter_end;
-                                }
-                                
-                                $stmt = $db->prepare("
-                                    SELECT 
-                                        o.id,
-                                        o.order_number,
-                                        o.order_date,
-                                        o.total_amount,
-                                        o.status,
-                                        o.payment_method,
-                                        o.payment_status,
-                                        u.username,
-                                        u.full_name,
-                                        COUNT(DISTINCT oi.product_id) as product_count,
-                                        SUM(oi.quantity) as item_count
-                                    FROM orders o
-                                    JOIN order_items oi ON o.id = oi.order_id
-                                    JOIN products p ON oi.product_id = p.id
-                                    JOIN users u ON o.user_id = u.id
-                                    $detailed_where
-                                    GROUP BY o.id
-                                    ORDER BY o.order_date DESC
-                                    LIMIT 20
-                                ");
-                                $stmt->execute($detailed_params);
-                                $detailed_sales = $stmt->fetchAll();
-                                
-                                foreach($detailed_sales as $sale):
-                            ?>
-                            <tr>
-                                <td>
-                                    <small class="text-muted">
-                                        <?php echo date('M d, Y', strtotime($sale['order_date'])); ?><br>
-                                        <?php echo date('h:i A', strtotime($sale['order_date'])); ?>
-                                    </small>
-                                </td>
-                                <td>
-                                    <a href="../orders/view.php?id=<?php echo $sale['id']; ?>" 
-                                       class="text-decoration-none fw-bold">
-                                        #<?php echo $sale['order_number']; ?>
-                                    </a>
-                                </td>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div class="avatar-sm me-2">
-                                            <i class="fas fa-user text-muted"></i>
+                            <?php if (empty($detailed_sales)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-4">No sales data available</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach($detailed_sales as $sale): ?>
+                                <tr>
+                                    <td>
+                                        <small class="text-muted">
+                                            <?php echo date('M d, Y', strtotime($sale['order_date'])); ?><br>
+                                            <?php echo date('h:i A', strtotime($sale['order_date'])); ?>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <a href="../orders/view.php?id=<?php echo $sale['id']; ?>" 
+                                           class="text-decoration-none fw-bold">
+                                            #<?php echo $sale['order_number']; ?>
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <div class="avatar-sm me-2">
+                                                <i class="fas fa-user text-muted"></i>
+                                            </div>
+                                            <div>
+                                                <div><?php echo htmlspecialchars($sale['full_name'] ?? $sale['username']); ?></div>
+                                                <small class="text-muted">@<?php echo htmlspecialchars($sale['username']); ?></small>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div><?php echo htmlspecialchars($sale['full_name'] ?? $sale['username']); ?></div>
-                                            <small class="text-muted">@<?php echo htmlspecialchars($sale['username']); ?></small>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="badge bg-info"><?php echo $sale['product_count']; ?> products</span>
-                                </td>
-                                <td class="fw-bold"><?php echo $sale['item_count']; ?></td>
-                                <td class="fw-bold">$<?php echo number_format($sale['total_amount'], 2); ?></td>
-                                <td>
-                                    <span class="badge bg-<?php 
-                                        echo $sale['status'] == 'delivered' ? 'success' : 
-                                             ($sale['status'] == 'pending' ? 'warning' : 'info'); 
-                                    ?>">
-                                        <?php echo ucfirst($sale['status']); ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="badge bg-<?php 
-                                        echo $sale['payment_status'] == 'completed' ? 'success' : 
-                                             ($sale['payment_status'] == 'pending' ? 'warning' : 'danger'); 
-                                    ?>">
-                                        <?php echo ucfirst($sale['payment_method'] ?? 'Unknown'); ?>
-                                    </span>
-                                </td>
-                            </tr>
-                            <?php 
-                                endforeach;
-                            } catch(PDOException $e) {
-                                echo '<tr><td colspan="8" class="text-center text-muted py-4">Error loading detailed sales</td></tr>';
-                            }
-                            ?>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info"><?php echo $sale['product_count']; ?> products</span>
+                                    </td>
+                                    <td class="fw-bold"><?php echo $sale['item_count']; ?></td>
+                                    <td class="fw-bold">$<?php echo number_format($sale['total_amount'], 2); ?></td>
+                                    <td>
+                                        <span class="badge bg-<?php 
+                                            echo $sale['status'] == 'delivered' ? 'success' : 
+                                                 ($sale['status'] == 'shipped' ? 'info' :
+                                                 ($sale['status'] == 'processing' ? 'primary' :
+                                                 ($sale['status'] == 'pending' ? 'warning' : 'danger'))); 
+                                        ?>">
+                                            <?php echo ucfirst($sale['status']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-<?php 
+                                            echo $sale['payment_status'] == 'completed' ? 'success' : 
+                                                 ($sale['payment_status'] == 'pending' ? 'warning' : 'danger'); 
+                                        ?>">
+                                            <?php echo ucfirst($sale['payment_method'] ?? 'Unknown'); ?>
+                                        </span>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -757,7 +874,6 @@ require_once '../../includes/header.php';
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-/* Custom styles for reports */
 .stats-card {
     transition: transform 0.3s ease;
 }
@@ -812,58 +928,156 @@ require_once '../../includes/header.php';
     background-color: rgba(67, 97, 238, 0.05);
 }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 <script>
-// Sales Chart
+// Sales Chart Data from PHP
+const chartMonths = <?php echo json_encode($chart_months); ?>;
+const chartSales = <?php echo json_encode($chart_sales); ?>;
+const chartOrders = <?php echo json_encode($chart_orders); ?>;
+
+// Category Chart Data
+const categoryLabels = <?php echo json_encode($category_labels); ?>;
+const categoryValues = <?php echo json_encode($category_values); ?>;
+const categoryColors = ['#4361ee', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6b7280'];
+
+// Status Chart Data
+const statusLabels = <?php echo json_encode($status_labels); ?>;
+const statusValues = <?php echo json_encode($status_values); ?>;
+const statusColors = {
+    'Delivered': '#22c55e',
+    'Shipped': '#3b82f6',
+    'Processing': '#f59e0b',
+    'Pending': '#f97316',
+    'Cancelled': '#ef4444',
+    'Refunded': '#6b7280'
+};
+
 let salesChart;
+
+// Initialize Sales Chart
 function initSalesChart() {
     const ctx = document.getElementById('salesChart').getContext('2d');
-    
-    const months = <?php echo json_encode(array_column($monthly_sales, 'month')); ?>;
-    const sales = <?php echo json_encode(array_column($monthly_sales, 'total_sales')); ?>;
-    const orders = <?php echo json_encode(array_column($monthly_sales, 'order_count')); ?>;
     
     salesChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: months.reverse().map(m => {
-                const [year, month] = m.split('-');
-                return new Date(year, month-1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-            }),
-            datasets: [{
-                label: 'Sales ($)',
-                data: sales.reverse(),
-                borderColor: '#4361ee',
-                backgroundColor: 'rgba(67, 97, 238, 0.1)',
-                fill: true,
-                tension: 0.4
-            }, {
-                label: 'Orders',
-                data: orders.reverse(),
-                borderColor: '#22c55e',
-                backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                fill: true,
-                tension: 0.4
-            }]
+            labels: chartMonths,
+            datasets: [
+                {
+                    label: 'Sales ($)',
+                    data: chartSales,
+                    borderColor: '#4361ee',
+                    backgroundColor: 'rgba(67, 97, 238, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Orders',
+                    data: chartOrders,
+                    borderColor: '#22c55e',
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    yAxisID: 'y1'
+                }
+            ]
         },
         options: {
             responsive: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
             plugins: {
                 legend: {
                     position: 'top',
                 },
                 tooltip: {
-                    mode: 'index',
-                    intersect: false,
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.dataset.label.includes('Sales')) {
+                                label += '$' + context.parsed.y.toLocaleString();
+                            } else {
+                                label += context.parsed.y;
+                            }
+                            return label;
+                        }
+                    }
                 }
             },
             scales: {
                 y: {
-                    beginAtZero: true,
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Sales ($)'
+                    },
                     ticks: {
                         callback: function(value) {
                             return '$' + value.toLocaleString();
+                        }
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Orders'
+                    },
+                    grid: {
+                        drawOnChartArea: false,
+                    },
+                    ticks: {
+                        stepSize: 1,
+                        precision: 0
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Initialize Category Distribution Chart
+function initCategoryChart() {
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: categoryLabels,
+            datasets: [{
+                data: categoryValues,
+                backgroundColor: categoryColors.slice(0, categoryLabels.length),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 12,
+                        font: { size: 10 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const value = context.raw;
+                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                            return `${context.label}: $${value.toLocaleString()} (${percentage}%)`;
                         }
                     }
                 }
@@ -872,141 +1086,182 @@ function initSalesChart() {
     });
 }
 
-//Category Distribution Chart
-function initCategoryChart() {
-   const ctx = document.getElementById('categoryChart').getContext('2d');
-    
-   new Chart(ctx, {
-       type: 'doughnut',
-       data: {
-           labels: ['Electronics', 'Clothing', 'Home', 'Books', 'Other'],
-           datasets: [{
-               data: [35, 25, 20, 10, 10],
-               backgroundColor: [
-                   '#4361ee',
-                   '#22c55e',
-                   '#f59e0b',
-                   '#8b5cf6',
-                   '#6b7280'
-               ]
-           }]
-       },
-       options: {
-           responsive: true,
-           plugins: {
-               legend: {
-                   position: 'bottom'
-               }
-           }
-        }
-   });
-}
-
-// Order Status Chart
+// Initialize Order Status Chart
 function initStatusChart() {
     const ctx = document.getElementById('statusChart').getContext('2d');
+    
+    const backgroundColors = statusLabels.map(label => {
+        return statusColors[label] || '#6b7280';
+    });
     
     new Chart(ctx, {
         type: 'pie',
         data: {
-            labels: ['Delivered', 'Processing', 'Pending', 'Cancelled'],
+            labels: statusLabels,
             datasets: [{
-                data: [60, 25, 10, 5],
-                backgroundColor: [
-                    '#22c55e',
-                    '#3b82f6',
-                    '#f59e0b',
-                    '#ef4444'
-                ]
+                data: statusValues,
+                backgroundColor: backgroundColors,
+                borderWidth: 1
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: true,
             plugins: {
                 legend: {
-                    position: 'bottom'
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 12,
+                        font: { size: 10 }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const value = context.raw;
+                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                            return `${context.label}: ${value} orders (${percentage}%)`;
+                        }
+                    }
                 }
             }
         }
     });
 }
 
-// Update chart view
+// Update chart view (for dropdown)
 function updateChart(view) {
     // This would make an AJAX call to get different time period data
-    alert('Would fetch ' + view + ' data via AJAX');
-    // For now, just show an alert
+    Swal.fire({
+        title: 'Loading...',
+        text: 'Fetching ' + view + ' data',
+        icon: 'info',
+        timer: 1500,
+        showConfirmButton: false
+    });
+    // For now, just show a message
+    setTimeout(() => {
+        window.location.reload();
+    }, 1500);
 }
 
 // Print report
 function printReport() {
-    const printContent = document.querySelector('.main-content').innerHTML;
-    const originalContent = document.body.innerHTML;
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank');
     
-    document.body.innerHTML = `
+    // Get current filters
+    const startDate = '<?php echo $filter_start; ?>';
+    const endDate = '<?php echo $filter_end; ?>';
+    
+    // Format dates
+    const formattedStart = new Date(startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    const formattedEnd = new Date(endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    
+    // Get stats
+    const totalSales = <?php echo $sales_stats['total_sales']; ?>;
+    const totalOrders = <?php echo $sales_stats['total_orders']; ?>;
+    const totalItems = <?php echo $sales_stats['total_items']; ?>;
+    const totalCustomers = <?php echo $sales_stats['total_customers']; ?>;
+    const avgOrder = <?php echo $sales_stats['avg_order_value']; ?>;
+    
+    // Generate print content
+    printWindow.document.write(`
         <html>
             <head>
                 <title>Sales Report - <?php echo htmlspecialchars($vendor['full_name'] ?? 'Vendor'); ?></title>
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
                 <style>
-                    body { font-family: Arial, sans-serif; padding: 20px; }
-                    .no-print { display: none !important; }
-                    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                    th { background-color: #f2f2f2; }
-                    .header { text-align: center; margin-bottom: 30px; }
-                    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 20px 0; }
-                    .stat-box { border: 1px solid #ddd; padding: 15px; text-align: center; }
+                    body { font-family: Arial, sans-serif; padding: 30px; }
+                    .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #4361ee; padding-bottom: 20px; }
+                    .header h1 { color: #4361ee; }
+                    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 30px 0; }
+                    .stat-box { background: #f8f9fa; padding: 20px; text-align: center; border-radius: 8px; border-left: 4px solid #4361ee; }
+                    .stat-box h3 { margin: 0; color: #4361ee; }
+                    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+                    th { background: #4361ee; color: white; padding: 10px; text-align: left; }
+                    td { padding: 8px; border-bottom: 1px solid #ddd; }
+                    tr:nth-child(even) { background: #f9f9f9; }
+                    .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; border-top: 1px solid #ddd; padding-top: 20px; }
+                    @media print {
+                        .no-print { display: none; }
+                        button { display: none; }
+                    }
                 </style>
             </head>
             <body>
                 <div class="header">
                     <h1>Sales Report</h1>
-                    <p>Vendor: <?php echo htmlspecialchars($vendor['full_name'] ?? ''); ?></p>
-                    <p>Period: <?php echo date('M d, Y', strtotime($filter_start)); ?> to <?php echo date('M d, Y', strtotime($filter_end)); ?></p>
-                    <p>Generated: <?php echo date('M d, Y h:i A'); ?></p>
+                    <p><strong>Vendor:</strong> <?php echo htmlspecialchars($vendor['full_name'] ?? ''); ?></p>
+                    <p><strong>Period:</strong> ${formattedStart} to ${formattedEnd}</p>
+                    <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
                 </div>
                 
-                <div class="stats">
+                <div class="stats-grid">
                     <div class="stat-box">
-                        <h3>$<?php echo number_format($sales_stats['total_sales'], 2); ?></h3>
-                        <p>Total Sales</p>
+                        <h3>$${totalSales.toLocaleString()}</h3>
+                        <p class="text-muted">Total Sales</p>
                     </div>
                     <div class="stat-box">
-                        <h3><?php echo $sales_stats['total_orders']; ?></h3>
-                        <p>Total Orders</p>
+                        <h3>${totalOrders.toLocaleString()}</h3>
+                        <p class="text-muted">Total Orders</p>
                     </div>
                     <div class="stat-box">
-                        <h3><?php echo $sales_stats['total_items']; ?></h3>
-                        <p>Items Sold</p>
+                        <h3>${totalItems.toLocaleString()}</h3>
+                        <p class="text-muted">Items Sold</p>
                     </div>
                     <div class="stat-box">
-                        <h3><?php echo $sales_stats['total_customers']; ?></h3>
-                        <p>Customers</p>
+                        <h3>$${avgOrder.toLocaleString()}</h3>
+                        <p class="text-muted">Avg Order Value</p>
                     </div>
                 </div>
                 
-                ${printContent}
+                <h3>Recent Orders</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Order #</th>
+                            <th>Customer</th>
+                            <th>Items</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach(array_slice($detailed_sales, 0, 10) as $sale): ?>
+                        <tr>
+                            <td><?php echo date('M d, Y', strtotime($sale['order_date'])); ?></td>
+                            <td><?php echo $sale['order_number']; ?></td>
+                            <td><?php echo htmlspecialchars($sale['full_name'] ?? $sale['username']); ?></td>
+                            <td><?php echo $sale['item_count']; ?></td>
+                            <td>$${<?php echo $sale['total_amount']; ?>.toFixed(2)}</td>
+                            <td><?php echo ucfirst($sale['status']); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                
+                <div class="footer">
+                    <p>This is a computer-generated report. No signature required.</p>
+                    <p><?php echo SITE_NAME; ?> - Vendor Dashboard</p>
+                </div>
                 
                 <script>
-                    window.print();
-                    window.onafterprint = function() {
-                        window.location.reload();
-                    };
+                    window.onload = function() { 
+                        window.print(); 
+                        setTimeout(function() { window.close(); }, 1000);
+                    }
                 <\/script>
             </body>
         </html>
-    `;
+    `);
+    
+    printWindow.document.close();
 }
 
-// Toggle advanced filters
-function toggleFilters() {
-    const filters = document.querySelectorAll('.advanced-filter');
-    filters.forEach(filter => {
-        filter.style.display = filter.style.display === 'none' ? 'block' : 'none';
-    });
-}
-
-// Initialize charts when page loads
+// Initialize all charts when page loads
 document.addEventListener('DOMContentLoaded', function() {
     initSalesChart();
     initCategoryChart();
@@ -1030,12 +1285,12 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Auto-refresh every 5 minutes (optional)
+// Auto-refresh every 10 minutes (optional)
 setTimeout(function() {
     if (confirm('Refresh sales data?')) {
         window.location.reload();
     }
-}, 300000);
+}, 600000);
 </script>
 
 <?php require_once '../../includes/footer.php'; ?>

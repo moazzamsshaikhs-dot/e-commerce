@@ -1,4 +1,5 @@
 <?php
+// admin/vendors/reports/performance.php
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
@@ -45,7 +46,7 @@ try {
     $stmt->execute([$vendor_id]);
     $vendor = $stmt->fetch();
     
-    // Performance Overview Stats
+    // Performance Overview Stats - FIXED: Use COALESCE for all columns
     $stmt = $db->prepare("
         SELECT 
             -- Sales Performance
@@ -76,7 +77,19 @@ try {
     $stmt->execute([$vendor_id, $filter_start, $filter_end]);
     $performance_stats = $stmt->fetch();
     
-    // Calculate additional metrics
+    // Ensure all values are numeric (fix for deprecated warning)
+    $performance_stats['total_revenue'] = (float)($performance_stats['total_revenue'] ?? 0);
+    $performance_stats['total_orders'] = (int)($performance_stats['total_orders'] ?? 0);
+    $performance_stats['total_items_sold'] = (int)($performance_stats['total_items_sold'] ?? 0);
+    $performance_stats['total_customers'] = (int)($performance_stats['total_customers'] ?? 0);
+    $performance_stats['active_customers'] = (int)($performance_stats['active_customers'] ?? 0);
+    $performance_stats['total_products'] = (int)($performance_stats['total_products'] ?? 0);
+    $performance_stats['in_stock_products'] = (int)($performance_stats['in_stock_products'] ?? 0);
+    $performance_stats['out_of_stock_products'] = (int)($performance_stats['out_of_stock_products'] ?? 0);
+    $performance_stats['avg_rating'] = (float)($performance_stats['avg_rating'] ?? 0);
+    $performance_stats['total_reviews'] = (int)($performance_stats['total_reviews'] ?? 0);
+    
+    // Calculate additional metrics with null checks
     $avg_order_value = $performance_stats['total_orders'] > 0 ? 
         $performance_stats['total_revenue'] / $performance_stats['total_orders'] : 0;
     
@@ -107,6 +120,38 @@ try {
     $stmt->execute([$vendor_id]);
     $monthly_trend = $stmt->fetchAll();
     
+    // Prepare chart data for monthly trend
+    $trend_months = [];
+    $trend_revenue = [];
+    $trend_orders = [];
+    $trend_customers = [];
+    
+    foreach(array_reverse($monthly_trend) as $trend) {
+        $trend_months[] = date('M Y', strtotime($trend['month'] . '-01'));
+        $trend_revenue[] = (float)$trend['revenue'];
+        $trend_orders[] = (int)$trend['orders'];
+        $trend_customers[] = (int)$trend['customers'];
+    }
+    
+    // Fill missing months with zeros
+    if (count($trend_months) < 6) {
+        $current = new DateTime();
+        for ($i = 5; $i >= 0; $i--) {
+            $month = $current->format('M Y');
+            if (!in_array($month, $trend_months)) {
+                array_unshift($trend_months, $month);
+                array_unshift($trend_revenue, 0);
+                array_unshift($trend_orders, 0);
+                array_unshift($trend_customers, 0);
+            }
+            $current->modify('-1 month');
+        }
+        $trend_months = array_slice($trend_months, 0, 6);
+        $trend_revenue = array_slice($trend_revenue, 0, 6);
+        $trend_orders = array_slice($trend_orders, 0, 6);
+        $trend_customers = array_slice($trend_customers, 0, 6);
+    }
+    
     // Top Performing Products
     $stmt = $db->prepare("
         SELECT 
@@ -117,25 +162,24 @@ try {
             p.price,
             p.stock,
             COUNT(DISTINCT oi.order_id) as order_count,
-            SUM(oi.quantity) as total_sold,
-            SUM(oi.subtotal) as total_revenue,
+            COALESCE(SUM(oi.quantity), 0) as total_sold,
+            COALESCE(SUM(oi.subtotal), 0) as total_revenue,
             COALESCE(AVG(r.rating), 0) as avg_rating,
             COUNT(r.id) as review_count,
             p.views as product_views,
             CASE 
-                WHEN SUM(oi.quantity) > 0 THEN (SUM(oi.quantity) / p.views) * 100
+                WHEN p.views > 0 AND COALESCE(SUM(oi.quantity), 0) > 0 THEN (COALESCE(SUM(oi.quantity), 0) / p.views) * 100
                 ELSE 0 
             END as conversion_rate
         FROM products p
         LEFT JOIN order_items oi ON p.id = oi.product_id
         LEFT JOIN reviews r ON p.id = r.product_id
         WHERE p.vendor_id = ?
-        AND (oi.created_at IS NULL OR DATE(oi.created_at) BETWEEN ? AND ?)
         GROUP BY p.id
         ORDER BY total_revenue DESC
         LIMIT 10
     ");
-    $stmt->execute([$vendor_id, $filter_start, $filter_end]);
+    $stmt->execute([$vendor_id]);
     $top_products = $stmt->fetchAll();
     
     // Customer Retention Analysis
@@ -148,12 +192,12 @@ try {
             END as customer_segment,
             COUNT(*) as customer_count,
             SUM(total_spent) as segment_revenue,
-            AVG(total_spent) as avg_spent
+            COALESCE(AVG(total_spent), 0) as avg_spent
         FROM (
             SELECT 
                 u.id,
                 COUNT(DISTINCT o.id) as order_count,
-                SUM(o.total_amount) as total_spent,
+                COALESCE(SUM(o.total_amount), 0) as total_spent,
                 MAX(o.order_date) as last_order
             FROM users u
             JOIN orders o ON u.id = o.user_id
@@ -175,19 +219,30 @@ try {
             COALESCE(p.category, 'Uncategorized') as category,
             COUNT(DISTINCT p.id) as product_count,
             COUNT(DISTINCT oi.order_id) as order_count,
-            SUM(oi.quantity) as total_sold,
-            SUM(oi.subtotal) as total_revenue,
+            COALESCE(SUM(oi.quantity), 0) as total_sold,
+            COALESCE(SUM(oi.subtotal), 0) as total_revenue,
             COALESCE(AVG(r.rating), 0) as avg_rating
         FROM products p
         LEFT JOIN order_items oi ON p.id = oi.product_id
         LEFT JOIN reviews r ON p.id = r.product_id
         WHERE p.vendor_id = ?
-        AND (oi.created_at IS NULL OR DATE(oi.created_at) BETWEEN ? AND ?)
         GROUP BY p.category
         ORDER BY total_revenue DESC
     ");
-    $stmt->execute([$vendor_id, $filter_start, $filter_end]);
+    $stmt->execute([$vendor_id]);
     $category_performance = $stmt->fetchAll();
+    
+    // Prepare category chart data
+    $category_labels = [];
+    $category_revenue = [];
+    $category_colors = ['#4361ee', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6b7280'];
+    
+    foreach($category_performance as $index => $cat) {
+        if ($index < 5) { // Top 5 categories
+            $category_labels[] = $cat['category'] ?: 'Uncategorized';
+            $category_revenue[] = (float)$cat['total_revenue'];
+        }
+    }
     
     // Inventory Performance
     $stmt = $db->prepare("
@@ -198,23 +253,38 @@ try {
                 WHEN stock >= 10 THEN 'In Stock'
             END as stock_status,
             COUNT(*) as product_count,
-            SUM(views) as total_views,
-            SUM(sales_count) as total_sales,
-            AVG(price) as avg_price
+            COALESCE(SUM(views), 0) as total_views,
+            COALESCE(SUM(sales_count), 0) as total_sales,
+            COALESCE(AVG(price), 0) as avg_price
         FROM products
         WHERE vendor_id = ?
-        GROUP BY stock_status
+        GROUP BY 
+            CASE 
+                WHEN stock = 0 THEN 'Out of Stock'
+                WHEN stock < 10 THEN 'Low Stock'
+                WHEN stock >= 10 THEN 'In Stock'
+            END
         ORDER BY product_count DESC
     ");
     $stmt->execute([$vendor_id]);
     $inventory_analysis = $stmt->fetchAll();
+    
+    // Prepare inventory chart data
+    $inventory_labels = [];
+    $inventory_counts = [];
+    $inventory_colors = ['#22c55e', '#f59e0b', '#ef4444'];
+    
+    foreach($inventory_analysis as $inv) {
+        $inventory_labels[] = $inv['stock_status'];
+        $inventory_counts[] = (int)$inv['product_count'];
+    }
     
     // Review Performance
     $stmt = $db->prepare("
         SELECT 
             rating,
             COUNT(*) as review_count,
-            AVG(LENGTH(review_text)) as avg_review_length,
+            COALESCE(AVG(LENGTH(review_text)), 0) as avg_review_length,
             SUM(CASE WHEN vendor_responded = 1 THEN 1 ELSE 0 END) as responded_reviews
         FROM reviews r
         JOIN products p ON r.product_id = p.id
@@ -228,9 +298,19 @@ try {
     
     // Calculate Review Distribution
     $total_reviews = array_sum(array_column($review_analysis, 'review_count'));
-    $review_distribution = [];
+    $review_distribution = [
+        5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0
+    ];
+    $review_response_rate = 0;
+    $responded_count = 0;
+    
     foreach($review_analysis as $review) {
-        $review_distribution[$review['rating']] = $review['review_count'];
+        $review_distribution[$review['rating']] = (int)$review['review_count'];
+        $responded_count += (int)($review['responded_reviews'] ?? 0);
+    }
+    
+    if ($total_reviews > 0) {
+        $review_response_rate = ($responded_count / $total_reviews) * 100;
     }
     
     // Vendor Growth Metrics
@@ -252,7 +332,7 @@ try {
     $stmt->execute([$vendor_id]);
     $growth_metrics = $stmt->fetchAll();
     
-    // Benchmark Calculations (Placeholder - you can add actual benchmarks)
+    // Benchmark Calculations
     $industry_benchmarks = [
         'conversion_rate' => 2.5,
         'avg_order_value' => 85.00,
@@ -284,17 +364,27 @@ try {
     $inventory_analysis = [];
     $review_analysis = [];
     $growth_metrics = [];
-    $review_distribution = [];
+    $review_distribution = [5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0];
     $industry_benchmarks = [
         'conversion_rate' => 2.5,
         'avg_order_value' => 85.00,
         'customer_retention' => 35.0,
         'avg_rating' => 4.2
     ];
+    $trend_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+    $trend_revenue = [0, 0, 0, 0, 0, 0];
+    $trend_orders = [0, 0, 0, 0, 0, 0];
+    $trend_customers = [0, 0, 0, 0, 0, 0];
+    $category_labels = ['No Data'];
+    $category_revenue = [1];
+    $inventory_labels = ['No Data'];
+    $inventory_counts = [1];
     
     $avg_order_value = 0;
     $customer_retention_rate = 0;
     $sell_through_rate = 0;
+    $total_reviews = 0;
+    $review_response_rate = 0;
 }
 
 // Log activity
@@ -383,7 +473,7 @@ require_once '../../includes/header.php';
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <h6 class="text-muted mb-2">Revenue</h6>
-                                <h2 class="mb-0">$<?php echo number_format($performance_stats['total_revenue'], 2); ?></h2>
+                                <h2 class="mb-0">$<?php echo number_format((float)$performance_stats['total_revenue'], 2); ?></h2>
                                 <small class="<?php echo $performance_stats['total_revenue'] > 0 ? 'text-success' : 'text-muted'; ?>">
                                     <i class="fas fa-<?php echo $performance_stats['total_revenue'] > 0 ? 'trend-up' : 'minus'; ?> me-1"></i>
                                     Total Revenue
@@ -396,7 +486,7 @@ require_once '../../includes/header.php';
                         <div class="mt-3">
                             <div class="d-flex justify-content-between small">
                                 <span>Benchmark:</span>
-                                <span class="fw-bold">$<?php echo number_format($industry_benchmarks['avg_order_value'] * $performance_stats['total_orders'], 2); ?></span>
+                                <span class="fw-bold">$<?php echo number_format((float)($industry_benchmarks['avg_order_value'] * $performance_stats['total_orders']), 2); ?></span>
                             </div>
                         </div>
                     </div>
@@ -410,10 +500,10 @@ require_once '../../includes/header.php';
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <h6 class="text-muted mb-2">Customer Retention</h6>
-                                <h2 class="mb-0"><?php echo number_format($customer_retention_rate, 1); ?>%</h2>
+                                <h2 class="mb-0"><?php echo number_format((float)$customer_retention_rate, 1); ?>%</h2>
                                 <small class="<?php echo $customer_retention_rate >= $industry_benchmarks['customer_retention'] ? 'text-success' : 'text-warning'; ?>">
                                     <i class="fas fa-<?php echo $customer_retention_rate >= $industry_benchmarks['customer_retention'] ? 'users' : 'user-minus'; ?> me-1"></i>
-                                    <?php echo $performance_stats['active_customers']; ?> active customers
+                                    <?php echo (int)$performance_stats['active_customers']; ?> active customers
                                 </small>
                             </div>
                             <div class="stats-icon success">
@@ -437,10 +527,10 @@ require_once '../../includes/header.php';
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <h6 class="text-muted mb-2">Average Rating</h6>
-                                <h2 class="mb-0"><?php echo number_format($performance_stats['avg_rating'], 1); ?>/5</h2>
+                                <h2 class="mb-0"><?php echo number_format((float)$performance_stats['avg_rating'], 1); ?>/5</h2>
                                 <small class="<?php echo $performance_stats['avg_rating'] >= $industry_benchmarks['avg_rating'] ? 'text-success' : 'text-warning'; ?>">
                                     <i class="fas fa-star me-1"></i>
-                                    from <?php echo $performance_stats['total_reviews']; ?> reviews
+                                    from <?php echo (int)$performance_stats['total_reviews']; ?> reviews
                                 </small>
                             </div>
                             <div class="stats-icon warning">
@@ -464,10 +554,10 @@ require_once '../../includes/header.php';
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <h6 class="text-muted mb-2">Conversion Rate</h6>
-                                <h2 class="mb-0"><?php echo number_format($sell_through_rate, 2); ?>%</h2>
+                                <h2 class="mb-0"><?php echo number_format((float)$sell_through_rate, 2); ?>%</h2>
                                 <small class="<?php echo $sell_through_rate >= $industry_benchmarks['conversion_rate'] ? 'text-success' : 'text-warning'; ?>">
                                     <i class="fas fa-chart-line me-1"></i>
-                                    <?php echo $performance_stats['total_items_sold']; ?> items sold
+                                    <?php echo (int)$performance_stats['total_items_sold']; ?> items sold
                                 </small>
                             </div>
                             <div class="stats-icon info">
@@ -504,7 +594,7 @@ require_once '../../includes/header.php';
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
                         <h5 class="mb-0 fw-bold">Customer Segments</h5>
-                        <span class="badge bg-primary"><?php echo $performance_stats['total_customers']; ?> total</span>
+                        <span class="badge bg-primary"><?php echo (int)$performance_stats['total_customers']; ?> total</span>
                     </div>
                     <div class="card-body">
                         <?php if (empty($customer_segments)): ?>
@@ -516,7 +606,7 @@ require_once '../../includes/header.php';
                             <div class="list-group list-group-flush">
                                 <?php foreach($customer_segments as $segment): 
                                     $percentage = $performance_stats['total_customers'] > 0 ? 
-                                        ($segment['customer_count'] / $performance_stats['total_customers']) * 100 : 0;
+                                        ((int)$segment['customer_count'] / (int)$performance_stats['total_customers']) * 100 : 0;
                                 ?>
                                 <div class="list-group-item border-0 px-0 py-3">
                                     <div class="d-flex justify-content-between align-items-center">
@@ -527,8 +617,8 @@ require_once '../../includes/header.php';
                                             </small>
                                         </div>
                                         <div class="text-end">
-                                            <div class="fw-bold"><?php echo $segment['customer_count']; ?></div>
-                                            <small class="text-success">$<?php echo number_format($segment['avg_spent'], 2); ?> avg</small>
+                                            <div class="fw-bold"><?php echo (int)$segment['customer_count']; ?></div>
+                                            <small class="text-success">$<?php echo number_format((float)$segment['avg_spent'], 2); ?> avg</small>
                                         </div>
                                     </div>
                                     <div class="progress mt-2" style="height: 6px;">
@@ -548,7 +638,7 @@ require_once '../../includes/header.php';
                 </div>
             </div>
             
-            <!-- Product Performance -->
+            <!-- Top Products -->
             <div class="col-lg-6">
                 <div class="card border-0 shadow-sm h-100">
                     <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
@@ -593,18 +683,18 @@ require_once '../../includes/header.php';
                                                     </div>
                                                     <div>
                                                         <div class="fw-bold"><?php echo htmlspecialchars(substr($product['name'], 0, 20)); ?><?php echo strlen($product['name']) > 20 ? '...' : ''; ?></div>
-                                                        <small class="text-muted">Stock: <?php echo $product['stock']; ?></small>
+                                                        <small class="text-muted">Stock: <?php echo (int)$product['stock']; ?></small>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td class="fw-bold"><?php echo $product['total_sold'] ?? 0; ?></td>
-                                            <td class="text-success fw-bold">$<?php echo number_format($product['total_revenue'] ?? 0, 2); ?></td>
+                                            <td class="fw-bold"><?php echo (int)($product['total_sold'] ?? 0); ?></td>
+                                            <td class="text-success fw-bold">$<?php echo number_format((float)($product['total_revenue'] ?? 0), 2); ?></td>
                                             <td>
                                                 <div class="d-flex align-items-center">
                                                     <div class="text-warning me-1">
                                                         <i class="fas fa-star"></i>
                                                     </div>
-                                                    <span><?php echo number_format($product['avg_rating'] ?? 0, 1); ?></span>
+                                                    <span><?php echo number_format((float)($product['avg_rating'] ?? 0), 1); ?></span>
                                                 </div>
                                             </td>
                                             <td>
@@ -612,7 +702,7 @@ require_once '../../includes/header.php';
                                                     echo ($product['conversion_rate'] ?? 0) >= 3 ? 'success' : 
                                                          (($product['conversion_rate'] ?? 0) >= 1 ? 'warning' : 'secondary'); 
                                                 ?>">
-                                                    <?php echo number_format($product['conversion_rate'] ?? 0, 1); ?>%
+                                                    <?php echo number_format((float)($product['conversion_rate'] ?? 0), 1); ?>%
                                                 </span>
                                             </td>
                                         </tr>
@@ -655,15 +745,15 @@ require_once '../../includes/header.php';
                                             <td>
                                                 <span class="badge bg-info"><?php echo htmlspecialchars($category['category']); ?></span>
                                             </td>
-                                            <td class="fw-bold"><?php echo $category['product_count']; ?></td>
-                                            <td><?php echo $category['order_count']; ?></td>
-                                            <td class="text-success fw-bold">$<?php echo number_format($category['total_revenue'], 2); ?></td>
+                                            <td class="fw-bold"><?php echo (int)$category['product_count']; ?></td>
+                                            <td><?php echo (int)($category['order_count'] ?? 0); ?></td>
+                                            <td class="text-success fw-bold">$<?php echo number_format((float)$category['total_revenue'], 2); ?></td>
                                             <td>
                                                 <div class="d-flex align-items-center">
                                                     <div class="text-warning me-1">
                                                         <i class="fas fa-star"></i>
                                                     </div>
-                                                    <span><?php echo number_format($category['avg_rating'], 1); ?></span>
+                                                    <span><?php echo number_format((float)$category['avg_rating'], 1); ?></span>
                                                 </div>
                                             </td>
                                         </tr>
@@ -699,7 +789,7 @@ require_once '../../includes/header.php';
                                 <div class="col-md-6">
                                     <div class="list-group list-group-flush">
                                         <?php for($i = 5; $i >= 1; $i--): 
-                                            $count = $review_distribution[$i] ?? 0;
+                                            $count = (int)($review_distribution[$i] ?? 0);
                                             $percentage = $total_reviews > 0 ? ($count / $total_reviews) * 100 : 0;
                                         ?>
                                         <div class="list-group-item border-0 px-0 py-2">
@@ -725,22 +815,15 @@ require_once '../../includes/header.php';
                             <div class="mt-3">
                                 <div class="row text-center">
                                     <div class="col-4">
-                                        <div class="fw-bold text-primary"><?php echo $total_reviews; ?></div>
+                                        <div class="fw-bold text-primary"><?php echo (int)$total_reviews; ?></div>
                                         <small class="text-muted">Total Reviews</small>
                                     </div>
                                     <div class="col-4">
-                                        <div class="fw-bold text-success"><?php echo number_format($performance_stats['avg_rating'], 1); ?>/5</div>
+                                        <div class="fw-bold text-success"><?php echo number_format((float)$performance_stats['avg_rating'], 1); ?>/5</div>
                                         <small class="text-muted">Average Rating</small>
                                     </div>
                                     <div class="col-4">
-                                        <?php 
-                                            $response_rate = 0;
-                                            if (!empty($review_analysis)) {
-                                                $responded = array_sum(array_column($review_analysis, 'responded_reviews'));
-                                                $response_rate = $total_reviews > 0 ? ($responded / $total_reviews) * 100 : 0;
-                                            }
-                                        ?>
-                                        <div class="fw-bold text-info"><?php echo number_format($response_rate, 1); ?>%</div>
+                                        <div class="fw-bold text-info"><?php echo number_format((float)$review_response_rate, 1); ?>%</div>
                                         <small class="text-muted">Response Rate</small>
                                     </div>
                                 </div>
@@ -777,13 +860,13 @@ require_once '../../includes/header.php';
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <div>
                                                     <span class="badge bg-<?php echo $bg_color; ?> me-2">
-                                                        <?php echo $inventory['product_count']; ?>
+                                                        <?php echo (int)$inventory['product_count']; ?>
                                                     </span>
                                                     <span><?php echo $inventory['stock_status']; ?></span>
                                                 </div>
                                                 <div class="text-end">
                                                     <small class="text-muted">
-                                                        <?php echo $inventory['total_sales']; ?> sales
+                                                        <?php echo (int)($inventory['total_sales'] ?? 0); ?> sales
                                                     </small>
                                                 </div>
                                             </div>
@@ -791,7 +874,7 @@ require_once '../../includes/header.php';
                                                 <div class="progress-bar bg-<?php echo $bg_color; ?>" 
                                                      style="width: <?php 
                                                         $percentage = $performance_stats['total_products'] > 0 ? 
-                                                            ($inventory['product_count'] / $performance_stats['total_products']) * 100 : 0;
+                                                            ((int)$inventory['product_count'] / (int)$performance_stats['total_products']) * 100 : 0;
                                                         echo $percentage;
                                                      ?>%">
                                                 </div>
@@ -809,7 +892,7 @@ require_once '../../includes/header.php';
                                             <strong>Inventory Tip:</strong> 
                                             <?php 
                                                 $out_of_stock_percentage = $performance_stats['total_products'] > 0 ? 
-                                                    ($performance_stats['out_of_stock_products'] / $performance_stats['total_products']) * 100 : 0;
+                                                    ((int)$performance_stats['out_of_stock_products'] / (int)$performance_stats['total_products']) * 100 : 0;
                                                 if ($out_of_stock_percentage > 20) {
                                                     echo 'High percentage of out-of-stock items. Consider restocking popular products.';
                                                 } elseif ($performance_stats['in_stock_products'] < 5) {
@@ -842,7 +925,7 @@ require_once '../../includes/header.php';
                                 <div class="card border-0 bg-light h-100">
                                     <div class="card-body">
                                         <div class="d-flex">
-                                            <div class="avatar-sm bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3">
+                                            <div class="avatar-sm bg-primary bg-opacity-10 rounded-circle p-3 d-flex align-items-center justify-content-center me-3">
                                                 <i class="fas fa-bullseye text-primary"></i>
                                             </div>
                                             <div>
@@ -864,7 +947,7 @@ require_once '../../includes/header.php';
                                 <div class="card border-0 bg-light h-100">
                                     <div class="card-body">
                                         <div class="d-flex">
-                                            <div class="avatar-sm bg-success bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3">
+                                            <div class="avatar-sm bg-success bg-opacity-10 p-3 rounded-circle d-flex align-items-center justify-content-center me-3">
                                                 <i class="fas fa-users text-success"></i>
                                             </div>
                                             <div>
@@ -886,7 +969,7 @@ require_once '../../includes/header.php';
                                 <div class="card border-0 bg-light h-100">
                                     <div class="card-body">
                                         <div class="d-flex">
-                                            <div class="avatar-sm bg-warning bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3">
+                                            <div class="avatar-sm bg-warning bg-opacity-10 p-3 rounded-circle d-flex align-items-center justify-content-center me-3">
                                                 <i class="fas fa-star text-warning"></i>
                                             </div>
                                             <div>
@@ -989,22 +1072,19 @@ let performanceChart;
 function initPerformanceChart() {
     const ctx = document.getElementById('performanceChart').getContext('2d');
     
-    const months = <?php echo json_encode(array_column($monthly_trend, 'month')); ?>;
-    const revenue = <?php echo json_encode(array_column($monthly_trend, 'revenue')); ?>;
-    const orders = <?php echo json_encode(array_column($monthly_trend, 'orders')); ?>;
-    const customers = <?php echo json_encode(array_column($monthly_trend, 'customers')); ?>;
+    const months = <?php echo json_encode($trend_months); ?>;
+    const revenue = <?php echo json_encode($trend_revenue); ?>;
+    const orders = <?php echo json_encode($trend_orders); ?>;
+    const customers = <?php echo json_encode($trend_customers); ?>;
     
     performanceChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: months.map(m => {
-                const [year, month] = m.split('-');
-                return new Date(year, month-1).toLocaleDateString('en-US', { month: 'short' });
-            }).reverse(),
+            labels: months,
             datasets: [
                 {
                     label: 'Revenue ($)',
-                    data: revenue.reverse(),
+                    data: revenue,
                     borderColor: '#4361ee',
                     backgroundColor: 'rgba(67, 97, 238, 0.1)',
                     fill: true,
@@ -1013,7 +1093,7 @@ function initPerformanceChart() {
                 },
                 {
                     label: 'Orders',
-                    data: orders.reverse(),
+                    data: orders,
                     borderColor: '#22c55e',
                     backgroundColor: 'rgba(34, 197, 94, 0.1)',
                     fill: true,
@@ -1022,7 +1102,7 @@ function initPerformanceChart() {
                 },
                 {
                     label: 'Customers',
-                    data: customers.reverse(),
+                    data: customers,
                     borderColor: '#f59e0b',
                     backgroundColor: 'rgba(245, 158, 11, 0.1)',
                     fill: true,
@@ -1045,7 +1125,21 @@ function initPerformanceChart() {
                 },
                 tooltip: {
                     mode: 'index',
-                    intersect: false
+                    intersect: false,
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.dataset.label.includes('Revenue')) {
+                                label += '$' + context.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                            } else {
+                                label += context.parsed.y;
+                            }
+                            return label;
+                        }
+                    }
                 }
             },
             scales: {
@@ -1074,6 +1168,10 @@ function initPerformanceChart() {
                     grid: {
                         drawOnChartArea: false,
                     },
+                    ticks: {
+                        stepSize: 1,
+                        precision: 0
+                    }
                 }
             }
         }
@@ -1086,11 +1184,11 @@ function initReviewDistributionChart() {
     
     const labels = ['5 Stars', '4 Stars', '3 Stars', '2 Stars', '1 Star'];
     const data = [
-        <?php echo $review_distribution[5] ?? 0; ?>,
-        <?php echo $review_distribution[4] ?? 0; ?>,
-        <?php echo $review_distribution[3] ?? 0; ?>,
-        <?php echo $review_distribution[2] ?? 0; ?>,
-        <?php echo $review_distribution[1] ?? 0; ?>
+        <?php echo (int)($review_distribution[5] ?? 0); ?>,
+        <?php echo (int)($review_distribution[4] ?? 0); ?>,
+        <?php echo (int)($review_distribution[3] ?? 0); ?>,
+        <?php echo (int)($review_distribution[2] ?? 0); ?>,
+        <?php echo (int)($review_distribution[1] ?? 0); ?>
     ];
     
     new Chart(ctx, {
@@ -1118,7 +1216,7 @@ function initReviewDistributionChart() {
                     callbacks: {
                         label: function(context) {
                             const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                            const percentage = Math.round((context.raw / total) * 100);
+                            const percentage = total > 0 ? Math.round((context.raw / total) * 100) : 0;
                             return `${context.label}: ${context.raw} reviews (${percentage}%)`;
                         }
                     }
@@ -1132,9 +1230,15 @@ function initReviewDistributionChart() {
 function initInventoryChart() {
     const ctx = document.getElementById('inventoryChart').getContext('2d');
     
-    const labels = <?php echo json_encode(array_column($inventory_analysis, 'stock_status')); ?>;
-    const data = <?php echo json_encode(array_column($inventory_analysis, 'product_count')); ?>;
-    const colors = ['#22c55e', '#f59e0b', '#ef4444']; // Green, Yellow, Red
+    const labels = <?php echo json_encode($inventory_labels); ?>;
+    const data = <?php echo json_encode($inventory_counts); ?>;
+    const colors = {
+        'In Stock': '#22c55e',
+        'Low Stock': '#f59e0b',
+        'Out of Stock': '#ef4444'
+    };
+    
+    const backgroundColors = labels.map(label => colors[label] || '#6b7280');
     
     new Chart(ctx, {
         type: 'pie',
@@ -1142,7 +1246,7 @@ function initInventoryChart() {
             labels: labels,
             datasets: [{
                 data: data,
-                backgroundColor: colors
+                backgroundColor: backgroundColors
             }]
         },
         options: {
@@ -1155,7 +1259,7 @@ function initInventoryChart() {
                     callbacks: {
                         label: function(context) {
                             const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                            const percentage = Math.round((context.raw / total) * 100);
+                            const percentage = total > 0 ? Math.round((context.raw / total) * 100) : 0;
                             return `${context.label}: ${context.raw} products (${percentage}%)`;
                         }
                     }
@@ -1167,72 +1271,80 @@ function initInventoryChart() {
 
 // Print report
 function printReport() {
-    const printContent = document.querySelector('.main-content').innerHTML;
-    const originalContent = document.body.innerHTML;
+    const printWindow = window.open('', '_blank');
     
-    document.body.innerHTML = `
+    const content = document.querySelector('.main-content').innerHTML;
+    const vendorName = <?php echo json_encode($vendor['full_name'] ?? 'Vendor'); ?>;
+    const startDate = <?php echo json_encode($filter_start); ?>;
+    const endDate = <?php echo json_encode($filter_end); ?>;
+    
+    printWindow.document.write(`
         <html>
             <head>
-                <title>Performance Report - <?php echo htmlspecialchars($vendor['full_name'] ?? 'Vendor'); ?></title>
+                <title>Performance Report - ${vendorName}</title>
                 <style>
                     body { font-family: Arial, sans-serif; padding: 20px; }
-                    .no-print { display: none !important; }
                     table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
                     th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
                     th { background-color: #f2f2f2; }
                     .header { text-align: center; margin-bottom: 30px; }
                     .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 20px 0; }
                     .stat-box { border: 1px solid #ddd; padding: 15px; text-align: center; }
-                    .chart-container { margin: 20px 0; text-align: center; }
                     .insight-box { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; }
+                    @media print {
+                        .no-print { display: none; }
+                        button { display: none; }
+                    }
                 </style>
             </head>
             <body>
                 <div class="header">
                     <h1>Performance Report</h1>
-                    <p>Vendor: <?php echo htmlspecialchars($vendor['full_name'] ?? ''); ?></p>
-                    <p>Period: <?php echo date('M d, Y', strtotime($filter_start)); ?> to <?php echo date('M d, Y', strtotime($filter_end)); ?></p>
-                    <p>Generated: <?php echo date('M d, Y h:i A'); ?></p>
+                    <p>Vendor: ${vendorName}</p>
+                    <p>Period: ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}</p>
+                    <p>Generated: ${new Date().toLocaleString()}</p>
                 </div>
                 
                 <div class="stats">
                     <div class="stat-box">
-                        <h3>$<?php echo number_format($performance_stats['total_revenue'], 2); ?></h3>
+                        <h3>$${<?php echo number_format((float)$performance_stats['total_revenue'], 2); ?>}</h3>
                         <p>Revenue</p>
                     </div>
                     <div class="stat-box">
-                        <h3><?php echo number_format($customer_retention_rate, 1); ?>%</h3>
+                        <h3><?php echo number_format((float)$customer_retention_rate, 1); ?>%</h3>
                         <p>Customer Retention</p>
                     </div>
                     <div class="stat-box">
-                        <h3><?php echo number_format($performance_stats['avg_rating'], 1); ?>/5</h3>
+                        <h3><?php echo number_format((float)$performance_stats['avg_rating'], 1); ?>/5</h3>
                         <p>Average Rating</p>
                     </div>
                     <div class="stat-box">
-                        <h3><?php echo number_format($sell_through_rate, 2); ?>%</h3>
+                        <h3><?php echo number_format((float)$sell_through_rate, 2); ?>%</h3>
                         <p>Conversion Rate</p>
                     </div>
                 </div>
                 
                 <h2>Performance Summary</h2>
                 <div class="insight-box">
-                    <p><strong>Total Products:</strong> <?php echo $performance_stats['total_products']; ?></p>
-                    <p><strong>Total Customers:</strong> <?php echo $performance_stats['total_customers']; ?></p>
-                    <p><strong>Active Customers:</strong> <?php echo $performance_stats['active_customers']; ?></p>
-                    <p><strong>Total Reviews:</strong> <?php echo $performance_stats['total_reviews']; ?></p>
+                    <p><strong>Total Products:</strong> <?php echo (int)$performance_stats['total_products']; ?></p>
+                    <p><strong>Total Customers:</strong> <?php echo (int)$performance_stats['total_customers']; ?></p>
+                    <p><strong>Active Customers:</strong> <?php echo (int)$performance_stats['active_customers']; ?></p>
+                    <p><strong>Total Reviews:</strong> <?php echo (int)$performance_stats['total_reviews']; ?></p>
                 </div>
                 
-                ${printContent}
+                ${content.replace(/<button/g, '<button class="no-print"').replace(/<a/g, '<a class="no-print"')}
                 
                 <script>
-                    window.print();
-                    window.onafterprint = function() {
-                        window.location.reload();
-                    };
+                    window.onload = function() { 
+                        window.print(); 
+                        setTimeout(function() { window.close(); }, 1000);
+                    }
                 <\/script>
             </body>
         </html>
-    `;
+    `);
+    
+    printWindow.document.close();
 }
 
 // Initialize charts when page loads
