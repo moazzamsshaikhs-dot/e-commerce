@@ -1,0 +1,28 @@
+# uploads/documents/.htaccess
+# Allow direct access to document files for viewing
+<IfModule mod_rewrite.c>
+    RewriteEngine Off
+</IfModule>
+
+# Allow access to all files
+<FilesMatch ".*">
+    Order Allow,Deny
+    Allow from all
+</FilesMatch>
+
+# Set proper headers for PDF files
+<FilesMatch "\.(pdf)$">
+    Header set Content-Type "application/pdf"
+    Header set Content-Disposition "inline"
+</FilesMatch>
+
+# Set proper headers for images
+<FilesMatch "\.(jpg|jpeg|png|gif)$">
+    Header set Content-Disposition "inline"
+</FilesMatch>
+
+# Prevent PHP execution in this directory
+<FilesMatch "\.(php|phtml|php3|php4|php5|phps)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
