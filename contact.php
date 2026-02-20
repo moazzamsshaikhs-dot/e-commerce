@@ -1,9 +1,9 @@
 <?php
-require_once 'includes/config.php';
-require_once 'includes/auth-check.php';
+require_once 'admin/includes/config.php';
+require_once 'admin/includes/auth-check.php';
 
 $page_title = 'Contact Us';
-require_once 'includes/header.php';
+require_once 'admin/includes/header.php';
 
 // Handle contact form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_contact'])) {
@@ -20,6 +20,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_contact'])) {
         $_SESSION['error'] = 'Please enter a valid email address';
     } else {
         // In a real system, you would:
+        // $user = new User($name, $email, $subject, $message, $user_type);
+        // $_SESSION['user'] = $user;
+        // $_SESSION['user_id'] = $user->id;
+        // $_SESSION['user_type'] = $user->user_type;
         // 1. Save to database
         // 2. Send email to admin
         // 3. Send confirmation to user

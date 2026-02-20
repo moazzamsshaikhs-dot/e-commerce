@@ -167,7 +167,7 @@ function redirectToDashboard() {
                 redirect('admin/dashboard.php');
                 break;
             case 'vendor':
-                redirect(SITE_URL . 'admin/vendorS/dashboard.php');
+                redirect(SITE_URL . 'admin/vendors/dashboard.php');
                 break;
             default:
                 redirect('user/dashboard.php');

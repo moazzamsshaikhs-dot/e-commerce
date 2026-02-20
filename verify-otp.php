@@ -81,7 +81,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // Redirect to dashboard
                         if ($user['user_type'] === 'admin') {
                             redirect('admin/dashboard.php');
-                        } else {
+                        } else if ($user['user_type'] === 'vendor') {
+                            redirect('admin/vendors/dashboard.php');
+                        }else{
                             redirect('user/dashboard.php');
                         }
                     }
