@@ -235,19 +235,51 @@ function updateVendorSocial($vendor_id) {
 }
 
 /**
- * Upload vendor avatar
+ * Upload vendor avatar - FIXED VERSION WITH PROPER DEBUGGING
  */
 function uploadVendorAvatar($vendor_id) {
     global $db, $vendor;
     
+    // Define debug log path properly
+    $debug_log = $_SERVER['DOCUMENT_ROOT'] . '/ecommerce/upload_debug.log';
+    
+    // Create debug directory if it doesn't exist
+    $debug_dir = dirname($debug_log);
+    if (!file_exists($debug_dir)) {
+        mkdir($debug_dir, 0777, true);
+    }
+    
+    // Helper function for debug logging
+    function debug_log($message, $log_file) {
+        $timestamp = date('Y-m-d H:i:s');
+        $log_message = "[$timestamp] $message\n";
+        
+        // Try to write to file
+        if (@file_put_contents($log_file, $log_message, FILE_APPEND) === false) {
+            // If file write fails, log to PHP error log instead
+            error_log("DEBUG: " . $message);
+        }
+    }
+    
+    debug_log("========== AVATAR UPLOAD STARTED ==========", $debug_log);
+    debug_log("Vendor ID: " . $vendor_id, $debug_log);
+    debug_log("POST data: " . print_r($_POST, true), $debug_log);
+    debug_log("FILES data: " . print_r($_FILES, true), $debug_log);
+    
     if (isset($_FILES['profile_pic']) && $_FILES['profile_pic']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['profile_pic'];
+        
+        debug_log("File name: " . $file['name'], $debug_log);
+        debug_log("File type: " . $file['type'], $debug_log);
+        debug_log("File size: " . $file['size'], $debug_log);
+        debug_log("File tmp_name: " . $file['tmp_name'], $debug_log);
         
         // Validate file type
         $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
         $file_type = $file['type'];
         
         if (!in_array($file_type, $allowed_types)) {
+            debug_log("ERROR: Invalid file type: " . $file_type, $debug_log);
             $_SESSION['error'] = 'Only JPG, PNG, GIF and WebP images are allowed';
             redirect('profile.php');
         }
@@ -255,37 +287,93 @@ function uploadVendorAvatar($vendor_id) {
         // Validate file size
         $max_size = 2 * 1024 * 1024; // 2MB
         if ($file['size'] > $max_size) {
+            debug_log("ERROR: File too large: " . $file['size'], $debug_log);
             $_SESSION['error'] = 'Image size must be less than 2MB';
             redirect('profile.php');
         }
         
-        // Define upload directory
-        $upload_dir = $_SERVER['DOCUMENT_ROOT'] . SITE_URL . 'assets/images/profiles/';
+        // Define upload directory - FIXED PATH FOR XAMPP
+        $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/profiles/';
+        debug_log("Upload directory: " . $upload_dir, $debug_log);
         
         // Create directory if it doesn't exist
         if (!file_exists($upload_dir)) {
-            mkdir($upload_dir, 0777, true);
+            debug_log("Directory doesn't exist, creating...", $debug_log);
+            if (!mkdir($upload_dir, 0777, true)) {
+                debug_log("ERROR: Failed to create directory", $debug_log);
+                $_SESSION['error'] = 'Failed to create upload directory';
+                redirect('profile.php');
+            }
+            debug_log("Directory created successfully", $debug_log);
         }
         
+        // Check if directory is writable
+        if (!is_writable($upload_dir)) {
+            debug_log("ERROR: Directory not writable", $debug_log);
+            debug_log("Directory permissions: " . substr(sprintf('%o', fileperms($upload_dir)), -4), $debug_log);
+            
+            // Try to fix permissions
+            chmod($upload_dir, 0777);
+            
+            if (!is_writable($upload_dir)) {
+                $_SESSION['error'] = 'Upload directory is not writable. Please check permissions.';
+                redirect('profile.php');
+            }
+        }
+        debug_log("Directory is writable", $debug_log);
+        
         // Generate unique filename
-        $file_ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
         $profile_pic = 'vendor_' . $vendor_id . '_' . time() . '.' . $file_ext;
         $upload_path = $upload_dir . $profile_pic;
         
+        debug_log("Generated filename: " . $profile_pic, $debug_log);
+        debug_log("Full upload path: " . $upload_path, $debug_log);
+        
+        // Check if we can write to the directory
+        $test_file = $upload_dir . 'test.txt';
+        if (@file_put_contents($test_file, 'test')) {
+            debug_log("Can write to directory - test file created", $debug_log);
+            unlink($test_file);
+        } else {
+            debug_log("ERROR: Cannot write to directory - test file failed", $debug_log);
+        }
+        
         if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+            debug_log("SUCCESS: File moved to: " . $upload_path, $debug_log);
+            
+            // Verify file exists
+            if (file_exists($upload_path)) {
+                debug_log("File exists at destination", $debug_log);
+                debug_log("File size at destination: " . filesize($upload_path), $debug_log);
+            } else {
+                debug_log("ERROR: File does not exist at destination after move!", $debug_log);
+            }
+            
             // Delete old profile picture if not default
             if (!empty($vendor['profile_pic']) && $vendor['profile_pic'] != 'default.png') {
                 $old_file = $upload_dir . $vendor['profile_pic'];
                 if (file_exists($old_file)) {
                     unlink($old_file);
+                    debug_log("Deleted old file: " . $old_file, $debug_log);
                 }
             }
             
             // Update database
+            debug_log("Updating database with filename: " . $profile_pic, $debug_log);
             $stmt = $db->prepare("UPDATE users SET profile_pic = ?, updated_at = NOW() WHERE id = ?");
             $result = $stmt->execute([$profile_pic, $vendor_id]);
             
+            debug_log("Database update result: " . ($result ? 'SUCCESS' : 'FAILED'), $debug_log);
+            debug_log("Rows affected: " . $stmt->rowCount(), $debug_log);
+            
             if ($result) {
+                // Verify database was updated
+                $stmt = $db->prepare("SELECT profile_pic FROM users WHERE id = ?");
+                $stmt->execute([$vendor_id]);
+                $db_profile_pic = $stmt->fetchColumn();
+                debug_log("Database now has: " . $db_profile_pic, $debug_log);
+                
                 // Update session
                 $_SESSION['profile_pic'] = $profile_pic;
                 
@@ -294,23 +382,40 @@ function uploadVendorAvatar($vendor_id) {
                 }
                 
                 $_SESSION['success'] = 'Profile picture updated successfully!';
+                debug_log("SUCCESS: All steps completed", $debug_log);
             } else {
+                debug_log("ERROR: Database update failed", $debug_log);
                 $_SESSION['error'] = 'Failed to update database';
             }
         } else {
-            $_SESSION['error'] = 'Failed to upload image. Check directory permissions.';
-            error_log("Upload failed. Path: " . $upload_path);
+            $error = error_get_last();
+            debug_log("ERROR: move_uploaded_file failed", $debug_log);
+            debug_log("PHP Error: " . print_r($error, true), $debug_log);
+            $_SESSION['error'] = 'Failed to upload image. Error: ' . ($error['message'] ?? 'Unknown error');
         }
     } else {
-        $error_code = $_FILES['profile_pic']['error'] ?? 'Unknown';
-        $_SESSION['error'] = 'Error uploading file. Error code: ' . $error_code;
+        $error_code = $_FILES['profile_pic']['error'] ?? 'No file uploaded';
+        debug_log("ERROR: File upload error. Code: " . $error_code, $debug_log);
+        
+        $error_messages = [
+            UPLOAD_ERR_INI_SIZE => 'The uploaded file exceeds the upload_max_filesize directive in php.ini',
+            UPLOAD_ERR_FORM_SIZE => 'The uploaded file exceeds the MAX_FILE_SIZE directive in the HTML form',
+            UPLOAD_ERR_PARTIAL => 'The uploaded file was only partially uploaded',
+            UPLOAD_ERR_NO_FILE => 'No file was uploaded',
+            UPLOAD_ERR_NO_TMP_DIR => 'Missing a temporary folder',
+            UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
+            UPLOAD_ERR_EXTENSION => 'A PHP extension stopped the file upload',
+        ];
+        $error_message = $error_messages[$error_code] ?? 'Unknown upload error';
+        $_SESSION['error'] = 'Error uploading file: ' . $error_message;
     }
     
+    debug_log("========== AVATAR UPLOAD ENDED ==========\n\n", $debug_log);
     redirect('profile.php');
 }
 
 /**
- * Upload vendor document
+ * Upload vendor document - FIXED VERSION
  */
 function uploadVendorDocument($vendor_id) {
     global $db;
@@ -346,16 +451,31 @@ function uploadVendorDocument($vendor_id) {
         redirect('profile.php');
     }
     
-    // Define upload directory
-    $upload_dir = $_SERVER['DOCUMENT_ROOT'] . SITE_URL . 'uploads/documents/';
+    // Define upload directory - FIXED PATH FOR XAMPP
+    $upload_dir = $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/uploads/documents/';
     
     // Create directory if not exists
     if (!file_exists($upload_dir)) {
-        mkdir($upload_dir, 0777, true);
+        if (!mkdir($upload_dir, 0777, true)) {
+            $_SESSION['error'] = 'Failed to create document directory';
+            error_log("Failed to create document directory: " . $upload_dir);
+            redirect('profile.php');
+        }
+    }
+    
+    // Check if directory is writable
+    if (!is_writable($upload_dir)) {
+        // Try to fix permissions
+        chmod($upload_dir, 0777);
+        if (!is_writable($upload_dir)) {
+            $_SESSION['error'] = 'Document directory is not writable';
+            error_log("Document directory not writable: " . $upload_dir);
+            redirect('profile.php');
+        }
     }
     
     // Generate unique filename
-    $file_ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     $document_file = 'doc_' . $vendor_id . '_' . time() . '.' . $file_ext;
     $upload_path = $upload_dir . $document_file;
     
@@ -388,8 +508,9 @@ function uploadVendorDocument($vendor_id) {
             error_log("Document upload error: " . $e->getMessage());
         }
     } else {
-        $_SESSION['error'] = 'Failed to upload document';
-        error_log("Document upload failed. Path: " . $upload_path);
+        $error = error_get_last();
+        $_SESSION['error'] = 'Failed to upload document. Error: ' . ($error['message'] ?? 'Unknown error');
+        error_log("Document upload failed. Path: " . $upload_path . " Error: " . print_r($error, true));
     }
     
     redirect('profile.php');
@@ -463,11 +584,12 @@ function uploadVendorDocument($vendor_id) {
                             <?php 
                             $profile_pic = !empty($vendor['profile_pic']) ? $vendor['profile_pic'] : 'default.png';
                             $profile_pic_url = SITE_URL . 'assets/images/profiles/' . $profile_pic;
+                            $default_url = SITE_URL . 'assets/images/avatars/default.png';
                             ?>
                             <img src="<?php echo $profile_pic_url; ?>" 
                                  alt="Profile" class="rounded-circle border border-4 border-white shadow" 
                                  width="150" height="150" style="object-fit: cover;"
-                                 onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
+                                 onerror="this.onerror=null; this.src='<?php echo $default_url; ?>';">
                             <button class="btn btn-primary btn-sm position-absolute bottom-0 end-0 rounded-circle" 
                                     data-bs-toggle="modal" data-bs-target="#avatarModal" style="width: 40px; height: 40px;">
                                 <i class="fas fa-camera"></i>
@@ -817,10 +939,11 @@ function uploadVendorDocument($vendor_id) {
                         <?php 
                         $preview_pic = !empty($vendor['profile_pic']) ? $vendor['profile_pic'] : 'default.png';
                         $preview_url = SITE_URL . 'assets/images/profiles/' . $preview_pic;
+                        $default_url = SITE_URL . 'assets/images/avatars/default.png';
                         ?>
                         <img id="avatarPreview" src="<?php echo $preview_url; ?>" 
                              alt="Preview" class="rounded-circle border" width="150" height="150" style="object-fit: cover;"
-                             onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
+                             onerror="this.onerror=null; this.src='<?php echo $default_url; ?>';">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Choose new profile picture</label>

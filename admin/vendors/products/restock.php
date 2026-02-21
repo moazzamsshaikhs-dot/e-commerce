@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (isset($_POST['return_to']) && $_POST['return_to'] === 'product') {
                 header('Location: edit.php?id=' . $product_id);
             } else {
-                header('Location: low-stock.php');
+                header('Location: products.php');
             }
             exit();
             
@@ -120,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $page_title = 'Restock Product';
-require_once '../../../includes/header.php';
+require_once '../../includes/header.php';
 ?>
 
 <div class="container-fluid py-4">
