@@ -67,21 +67,25 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <h1 class="h3 mb-0">Welcome, <?php echo $_SESSION['full_name']; ?>!</h1>
-                    <p class="text-muted mb-0">
-                        <i class="fas fa-crown me-1 text-<?php 
+                    <!-- <p class="text-muted mb-0">
+                         <i class="fas fa-crown me-1 text-<?php 
                             echo $_SESSION['subscription_plan'] == 'premium' ? 'warning' : 
                                  ($_SESSION['subscription_plan'] == 'business' ? 'danger' : 'secondary'); 
-                        ?>"></i>
+                        ?>"></i> 
                         <?php echo ucfirst($_SESSION['subscription_plan']); ?> Plan User
-                    </p>
+                    </p> -->
                 </div>
                 <div class="d-flex gap-3">
-                    <?php if ($_SESSION['subscription_plan'] === 'free'): ?>
-                        <a href="upgrade/upgrade.php" class="btn btn-warning">
+                    <?php 
+                    // if ($_SESSION['subscription_plan'] === 'free'):
+                     ?>
+                        <!-- <a href="upgrade/upgrade.php" class="btn btn-warning">
                             <i class="fas fa-crown me-2"></i> Upgrade Now
-                        </a>
-                    <?php endif; ?>
-                    <button class="btn btn-primary">
+                        </a> -->
+                    <?php 
+                // endif;
+                 ?>
+                     <button class="btn btn-primary">
                         <a href="orders/orders.php" class="text-white text-decoration-none">
                         <i class="fas fa-plus me-2"></i> New Order
                         </a>
@@ -178,16 +182,20 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
         </div>
         
         <!-- Subscription Plan Card -->
-        <div class="row g-4">
+        <!-- <div class="row g-4">
             <div class="col-lg-6">
                 <div class="card border-0 shadow-sm">
                     <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">Your Plan</h5>
-                        <?php if ($_SESSION['subscription_plan'] === 'free'): ?>
+                        <?php 
+                        // if ($_SESSION['subscription_plan'] === 'free'):
+                         ?>
                             <a href="upgrade/upgrade.php" class="btn btn-sm btn-warning">
                                 <i class="fas fa-crown me-1"></i> Upgrade
                             </a>
-                        <?php endif; ?>
+                        <?php
+                    //  endif;
+                      ?>
                     </div>
                     <div class="card-body">
                         <div class="text-center mb-4">
@@ -210,27 +218,27 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed user dashboa
     Valid until: <?php echo date('d M Y', strtotime($subscription['subscription_expiry'])); ?>
 <?php else: ?>
     Lifetime access
-<?php endif; ?>
-                            </p>
+<?php endif; ?> -->
+                            <!-- </p>
                         </div>
-                        
+                         
                         <div class="row text-center">
                             <div class="col-4">
-                                <h5 class="mb-0"><?php echo $_SESSION['subscription_plan'] === 'free' ? '5' : '∞'; ?></h5>
+                                 <h5 class="mb-0"><?php echo $_SESSION['subscription_plan'] === 'free' ? '5' : '∞'; ?></h5>
                                 <small class="text-muted">Products</small>
                             </div>
                             <div class="col-4">
-                                <h5 class="mb-0"><?php echo $_SESSION['subscription_plan'] === 'free' ? 'Basic' : 'Premium'; ?></h5>
+                                 <h5 class="mb-0"><?php echo $_SESSION['subscription_plan'] === 'free' ? 'Basic' : 'Premium'; ?></h5> 
                                 <small class="text-muted">Support</small>
                             </div>
                             <div class="col-4">
-                                <h5 class="mb-0"><?php echo $_SESSION['subscription_plan'] === 'free' ? 'No' : 'Yes'; ?></h5>
+                                 <h5 class="mb-0"><?php echo $_SESSION['subscription_plan'] === 'free' ? 'No' : 'Yes'; ?></h5> 
                                 <small class="text-muted">Analytics</small>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            </div> -->
             
             <!-- Recent Orders -->
             <div class="col-lg-6">

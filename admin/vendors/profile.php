@@ -2,10 +2,14 @@
 require_once '../includes/config.php';
 require_once '../includes/auth-check.php';
 
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 // Check if user is vendor
 if ($_SESSION['user_type'] !== 'vendor') {
     $_SESSION['error'] = 'Access denied. Vendor dashboard only.';
-    redirectToDashboard();
+    redirect(SITE_URL . 'index.php');
 }
 
 $page_title = 'Vendor Profile';
@@ -16,12 +20,17 @@ try {
     $db = getDB();
     $vendor_id = $_SESSION['user_id'];
     
+    // Get vendor with category details
     $stmt = $db->prepare("
         SELECT u.*, 
+               vc.name as category_name,
+               vc.slug as category_slug,
+               vc.commission_rate,
                (SELECT COUNT(*) FROM products WHERE vendor_id = u.id) as total_products,
                (SELECT COUNT(*) FROM products WHERE vendor_id = u.id AND approved_status = 'approved') as approved_products,
-               (SELECT SUM(vendor_amount) FROM vendor_earnings WHERE vendor_id = u.id AND status = 'paid') as total_earnings
+               (SELECT COALESCE(SUM(vendor_amount), 0) FROM vendor_earnings WHERE vendor_id = u.id AND status = 'paid') as total_earnings
         FROM users u
+        LEFT JOIN vendor_categories vc ON u.vendor_category COLLATE utf8mb4_unicode_ci = vc.slug COLLATE utf8mb4_unicode_ci
         WHERE u.id = ?
     ");
     $stmt->execute([$vendor_id]);
@@ -37,235 +46,353 @@ try {
     $stmt->execute([$vendor_id]);
     $documents = $stmt->fetchAll();
     
-    // Get vendor bank accounts
-    $stmt = $db->prepare("SELECT * FROM vendor_bank_accounts WHERE vendor_id = ? ORDER BY is_default DESC, created_at DESC");
-    $stmt->execute([$vendor_id]);
-    $bank_accounts = $stmt->fetchAll();
+    // Get vendor categories
+    $stmt = $db->query("SELECT * FROM vendor_categories WHERE is_active = 1 ORDER BY name");
+    $vendor_categories = $stmt->fetchAll();
     
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Error loading profile: ' . $e->getMessage();
-    // $vendor = [];
-    // $documents = [];
-    // $bank_accounts = [];
+    error_log("Profile error: " . $e->getMessage());
+    $vendor = [];
+    $documents = [];
+    $vendor_categories = [];
 }
 
 $errors = [];
-$success = '';
 
-// Handle profile update
+// Handle form submissions based on action
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['update_profile'])) {
-        // Basic info update
-        $full_name = sanitize($_POST['full_name']);
-        $phone = sanitize($_POST['phone']);
-        $vendor_category = sanitize($_POST['vendor_category']);
-        $vendor_bio = sanitize($_POST['vendor_bio']);
-        $address = sanitize($_POST['address']);
-        $city = sanitize($_POST['city']);
-        $country = sanitize($_POST['country']);
-        $postal_code = sanitize($_POST['postal_code']);
-        
-        // Validation
-        if (empty($full_name)) {
-            $errors[] = 'Full name is required';
-        }
-        
-        if (empty($vendor_category)) {
-            $errors[] = 'Vendor category is required';
-        }
-        
-        if (empty($errors)) {
-            try {
-                $stmt = $db->prepare("
-                    UPDATE users SET 
-                        full_name = ?, 
-                        phone = ?,
-                        vendor_category = ?,
-                        vendor_bio = ?,
-                        address = ?,
-                        city = ?,
-                        country = ?,
-                        postal_code = ?,
-                        updated_at = NOW()
-                    WHERE id = ?
-                ");
-                
-                $stmt->execute([
-                    $full_name,
-                    $phone,
-                    $vendor_category,
-                    $vendor_bio,
-                    $address,
-                    $city,
-                    $country,
-                    $postal_code,
-                    $vendor_id
-                ]);
-                
-                // Update session
-                $_SESSION['full_name'] = $full_name;
-                
-                // Log activity
-                logUserActivity($vendor_id, 'profile_update', 'Updated vendor profile');
-                
-                $_SESSION['success'] = 'Profile updated successfully!';
-                
-                // Refresh page
-                redirect('profile.php');
-                
-            } catch(PDOException $e) {
-                $errors[] = 'Error updating profile: ' . $e->getMessage();
-            }
-        }
+    $action = $_POST['action'] ?? '';
+    
+    error_log("POST action: " . $action);
+    error_log("POST data: " . print_r($_POST, true));
+    error_log("FILES data: " . print_r($_FILES, true));
+    
+    switch($action) {
+        case 'update_profile':
+            updateVendorProfile($vendor_id);
+            break;
+            
+        case 'update_social':
+            updateVendorSocial($vendor_id);
+            break;
+            
+        case 'update_avatar':
+            uploadVendorAvatar($vendor_id);
+            break;
+            
+        case 'upload_document':
+            uploadVendorDocument($vendor_id);
+            break;
+            
+        default:
+            $_SESSION['error'] = 'Invalid action';
+            redirect('profile.php');
+    }
+}
+
+/**
+ * Update vendor profile
+ */
+function updateVendorProfile($vendor_id) {
+    global $db;
+    
+    // Get form data
+    $full_name = sanitize($_POST['full_name'] ?? '');
+    $phone = sanitize($_POST['phone'] ?? '');
+    $vendor_category = sanitize($_POST['vendor_category'] ?? '');
+    $vendor_bio = sanitize($_POST['vendor_bio'] ?? '');
+    $address = sanitize($_POST['address'] ?? '');
+    $city = sanitize($_POST['city'] ?? '');
+    $country = sanitize($_POST['country'] ?? '');
+    $postal_code = sanitize($_POST['postal_code'] ?? '');
+    
+    error_log("Updating vendor profile: $full_name, $phone, $vendor_category");
+    
+    // Validation
+    $errors = [];
+    
+    if (empty($full_name)) {
+        $errors[] = 'Full name is required';
     }
     
-    // Handle social media update
-    if (isset($_POST['update_social'])) {
-        $social_facebook = sanitize($_POST['social_facebook']);
-        $social_twitter = sanitize($_POST['social_twitter']);
-        $social_instagram = sanitize($_POST['social_instagram']);
-        $social_linkedin = sanitize($_POST['social_linkedin']);
-        
+    if (empty($vendor_category)) {
+        $errors[] = 'Vendor category is required';
+    }
+    
+    if (empty($errors)) {
         try {
+            // Check if vendor_category exists
+            $stmt = $db->prepare("SELECT id FROM vendor_categories WHERE slug = ? AND is_active = 1");
+            $stmt->execute([$vendor_category]);
+            $category_exists = $stmt->fetch();
+            
+            if (!$category_exists) {
+                $_SESSION['error'] = 'Invalid vendor category selected';
+                redirect('profile.php');
+            }
+            
+            // Perform update
             $stmt = $db->prepare("
                 UPDATE users SET 
-                    social_facebook = ?,
-                    social_twitter = ?,
-                    social_instagram = ?,
-                    social_linkedin = ?,
+                    full_name = ?, 
+                    phone = ?,
+                    vendor_category = ?,
+                    vendor_bio = ?,
+                    address = ?,
+                    city = ?,
+                    country = ?,
+                    postal_code = ?,
                     updated_at = NOW()
                 WHERE id = ?
             ");
             
-            $stmt->execute([
-                $social_facebook,
-                $social_twitter,
-                $social_instagram,
-                $social_linkedin,
+            $result = $stmt->execute([
+                $full_name,
+                $phone,
+                $vendor_category,
+                $vendor_bio,
+                $address,
+                $city,
+                $country,
+                $postal_code,
                 $vendor_id
             ]);
             
-            $_SESSION['success'] = 'Social media updated successfully!';
+            error_log("Update result: " . ($result ? 'success' : 'failed'));
+            error_log("Rows affected: " . $stmt->rowCount());
             
-            // Log activity
-            logUserActivity($vendor_id, 'social_update', 'Updated social media links');
-            
-            redirect('profile.php');
+            if ($result) {
+                // Update session
+                $_SESSION['full_name'] = $full_name;
+                
+                // Log activity
+                if (function_exists('logUserActivity')) {
+                    logUserActivity($vendor_id, 'profile_update', 'Updated vendor profile');
+                }
+                
+                $_SESSION['success'] = 'Profile updated successfully!';
+            } else {
+                $_SESSION['error'] = 'Failed to update profile';
+            }
             
         } catch(PDOException $e) {
-            $errors[] = 'Error updating social media: ' . $e->getMessage();
+            $_SESSION['error'] = 'Error updating profile: ' . $e->getMessage();
+            error_log("Profile update error: " . $e->getMessage());
         }
+    } else {
+        $_SESSION['form_errors'] = $errors;
     }
     
-    // Handle profile picture upload
-    if (isset($_POST['update_avatar']) && isset($_FILES['profile_pic'])) {
-        if ($_FILES['profile_pic']['error'] == 0) {
-            $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            $max_size = 2 * 1024 * 1024; // 2MB
-            
-            if (!in_array($_FILES['profile_pic']['type'], $allowed_types)) {
-                $errors[] = 'Only JPG, PNG, GIF and WebP images are allowed';
-            } elseif ($_FILES['profile_pic']['size'] > $max_size) {
-                $errors[] = 'Image size must be less than 2MB';
-            } else {
-                // Generate unique filename
-                $file_ext = pathinfo($_FILES['profile_pic']['name'], PATHINFO_EXTENSION);
-                $profile_pic = 'vendor_' . $vendor_id . '_' . time() . '.' . $file_ext;
-                $upload_path = SITE_URL . 'assets/images/profiles/' . $profile_pic;
-                
-                if (move_uploaded_file($_FILES['profile_pic']['tmp_name'], $upload_path)) {
-                    // Delete old profile picture if not default
-                    if ($vendor['profile_pic'] && $vendor['profile_pic'] != 'default.png') {
-                        $old_file = SITE_URL .  'assets/images/profiles/' . $vendor['profile_pic'];
-                        if (file_exists($old_file)) {
-                            unlink($old_file);
-                        }
-                    }
-                    
-                    // Update database
-                    $stmt = $db->prepare("UPDATE users SET profile_pic = ? WHERE id = ?");
-                    $stmt->execute([$profile_pic, $vendor_id]);
-                    
-                    // Update session
-                    $_SESSION['profile_pic'] = $profile_pic;
-                    
-                    $_SESSION['success'] = 'Profile picture updated successfully!';
-                    
-                    // Log activity
-                    logUserActivity($vendor_id, 'avatar_update', 'Updated profile picture');
-                    
-                    redirect('profile.php');
-                } else {
-                    $errors[] = 'Failed to upload image';
-                }
-            }
-        }
-    }
+    redirect('profile.php');
 }
 
-// Handle document upload
-if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
-    $document_type = sanitize($_POST['document_type']);
-    $document_number = sanitize($_POST['document_number']);
+/**
+ * Update vendor social media
+ */
+function updateVendorSocial($vendor_id) {
+    global $db;
+    
+    $social_facebook = sanitize($_POST['social_facebook'] ?? '');
+    $social_twitter = sanitize($_POST['social_twitter'] ?? '');
+    $social_instagram = sanitize($_POST['social_instagram'] ?? '');
+    $social_linkedin = sanitize($_POST['social_linkedin'] ?? '');
+    
+    try {
+        $stmt = $db->prepare("
+            UPDATE users SET 
+                social_facebook = ?,
+                social_twitter = ?,
+                social_instagram = ?,
+                social_linkedin = ?,
+                updated_at = NOW()
+            WHERE id = ?
+        ");
+        
+        $result = $stmt->execute([
+            $social_facebook,
+            $social_twitter,
+            $social_instagram,
+            $social_linkedin,
+            $vendor_id
+        ]);
+        
+        if ($result) {
+            if (function_exists('logUserActivity')) {
+                logUserActivity($vendor_id, 'social_update', 'Updated social media links');
+            }
+            $_SESSION['success'] = 'Social media updated successfully!';
+        } else {
+            $_SESSION['error'] = 'Failed to update social media';
+        }
+        
+    } catch(PDOException $e) {
+        $_SESSION['error'] = 'Error updating social media: ' . $e->getMessage();
+        error_log("Social update error: " . $e->getMessage());
+    }
+    
+    redirect('profile.php');
+}
+
+/**
+ * Upload vendor avatar
+ */
+function uploadVendorAvatar($vendor_id) {
+    global $db, $vendor;
+    
+    if (isset($_FILES['profile_pic']) && $_FILES['profile_pic']['error'] === UPLOAD_ERR_OK) {
+        $file = $_FILES['profile_pic'];
+        
+        // Validate file type
+        $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        $file_type = $file['type'];
+        
+        if (!in_array($file_type, $allowed_types)) {
+            $_SESSION['error'] = 'Only JPG, PNG, GIF and WebP images are allowed';
+            redirect('profile.php');
+        }
+        
+        // Validate file size
+        $max_size = 2 * 1024 * 1024; // 2MB
+        if ($file['size'] > $max_size) {
+            $_SESSION['error'] = 'Image size must be less than 2MB';
+            redirect('profile.php');
+        }
+        
+        // Define upload directory
+        $upload_dir = $_SERVER['DOCUMENT_ROOT'] . SITE_URL . 'assets/images/profiles/';
+        
+        // Create directory if it doesn't exist
+        if (!file_exists($upload_dir)) {
+            mkdir($upload_dir, 0777, true);
+        }
+        
+        // Generate unique filename
+        $file_ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $profile_pic = 'vendor_' . $vendor_id . '_' . time() . '.' . $file_ext;
+        $upload_path = $upload_dir . $profile_pic;
+        
+        if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+            // Delete old profile picture if not default
+            if (!empty($vendor['profile_pic']) && $vendor['profile_pic'] != 'default.png') {
+                $old_file = $upload_dir . $vendor['profile_pic'];
+                if (file_exists($old_file)) {
+                    unlink($old_file);
+                }
+            }
+            
+            // Update database
+            $stmt = $db->prepare("UPDATE users SET profile_pic = ?, updated_at = NOW() WHERE id = ?");
+            $result = $stmt->execute([$profile_pic, $vendor_id]);
+            
+            if ($result) {
+                // Update session
+                $_SESSION['profile_pic'] = $profile_pic;
+                
+                if (function_exists('logUserActivity')) {
+                    logUserActivity($vendor_id, 'avatar_update', 'Updated profile picture');
+                }
+                
+                $_SESSION['success'] = 'Profile picture updated successfully!';
+            } else {
+                $_SESSION['error'] = 'Failed to update database';
+            }
+        } else {
+            $_SESSION['error'] = 'Failed to upload image. Check directory permissions.';
+            error_log("Upload failed. Path: " . $upload_path);
+        }
+    } else {
+        $error_code = $_FILES['profile_pic']['error'] ?? 'Unknown';
+        $_SESSION['error'] = 'Error uploading file. Error code: ' . $error_code;
+    }
+    
+    redirect('profile.php');
+}
+
+/**
+ * Upload vendor document
+ */
+function uploadVendorDocument($vendor_id) {
+    global $db;
+    
+    $document_type = sanitize($_POST['document_type'] ?? '');
+    $document_number = sanitize($_POST['document_number'] ?? '');
     $expiry_date = !empty($_POST['expiry_date']) ? $_POST['expiry_date'] : null;
     
     if (empty($document_type)) {
-        $errors[] = 'Document type is required';
+        $_SESSION['error'] = 'Document type is required';
+        redirect('profile.php');
     }
     
-    if ($_FILES['document_file']['error'] != 0) {
-        $errors[] = 'Please select a document file';
+    if (!isset($_FILES['document_file']) || $_FILES['document_file']['error'] !== UPLOAD_ERR_OK) {
+        $_SESSION['error'] = 'Please select a document file';
+        redirect('profile.php');
     }
     
-    if (empty($errors)) {
-        $allowed_types = ['image/jpeg', 'image/png', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-        $max_size = 5 * 1024 * 1024; // 5MB
-        
-        if (!in_array($_FILES['document_file']['type'], $allowed_types)) {
-            $errors[] = 'Only JPG, PNG, PDF, DOC and DOCX files are allowed';
-        } elseif ($_FILES['document_file']['size'] > $max_size) {
-            $errors[] = 'File size must be less than 5MB';
-        } else {
-            // Generate unique filename
-            $file_ext = pathinfo($_FILES['document_file']['name'], PATHINFO_EXTENSION);
-            $document_file = 'doc_' . $vendor_id . '_' . time() . '.' . $file_ext;
-            $upload_path = SITE_URL . 'uploads/documents/' . $document_file;
+    $file = $_FILES['document_file'];
+    
+    // Validate file type
+    $allowed_types = ['image/jpeg', 'image/png', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    
+    if (!in_array($file['type'], $allowed_types)) {
+        $_SESSION['error'] = 'Only JPG, PNG, PDF, DOC and DOCX files are allowed';
+        redirect('profile.php');
+    }
+    
+    // Validate file size
+    $max_size = 5 * 1024 * 1024; // 5MB
+    if ($file['size'] > $max_size) {
+        $_SESSION['error'] = 'File size must be less than 5MB';
+        redirect('profile.php');
+    }
+    
+    // Define upload directory
+    $upload_dir = $_SERVER['DOCUMENT_ROOT'] . SITE_URL . 'uploads/documents/';
+    
+    // Create directory if not exists
+    if (!file_exists($upload_dir)) {
+        mkdir($upload_dir, 0777, true);
+    }
+    
+    // Generate unique filename
+    $file_ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $document_file = 'doc_' . $vendor_id . '_' . time() . '.' . $file_ext;
+    $upload_path = $upload_dir . $document_file;
+    
+    if (move_uploaded_file($file['tmp_name'], $upload_path)) {
+        try {
+            $stmt = $db->prepare("
+                INSERT INTO vendor_documents (vendor_id, document_type, document_number, document_file, expiry_date, created_at) 
+                VALUES (?, ?, ?, ?, ?, NOW())
+            ");
             
-            // Create directory if not exists
-            if (!is_dir(SITE_URL . 'uploads/documents/')) {
-                mkdir(SITE_URL . 'uploads/documents/', 0777, true);
-            }
+            $result = $stmt->execute([
+                $vendor_id,
+                $document_type,
+                $document_number,
+                $document_file,
+                $expiry_date
+            ]);
             
-            if (move_uploaded_file($_FILES['document_file']['tmp_name'], $upload_path)) {
-                try {
-                    $stmt = $db->prepare("
-                        INSERT INTO vendor_documents (vendor_id, document_type, document_number, document_file, expiry_date) 
-                        VALUES (?, ?, ?, ?, ?)
-                    ");
-                    
-                    $stmt->execute([
-                        $vendor_id,
-                        $document_type,
-                        $document_number,
-                        $document_file,
-                        $expiry_date
-                    ]);
-                    
-                    $_SESSION['success'] = 'Document uploaded successfully! It will be verified by admin.';
-                    
-                    // Log activity
+            if ($result) {
+                if (function_exists('logUserActivity')) {
                     logUserActivity($vendor_id, 'document_upload', 'Uploaded ' . $document_type . ' document');
-                    
-                    redirect('profile.php');
-                    
-                } catch(PDOException $e) {
-                    $errors[] = 'Error uploading document: ' . $e->getMessage();
                 }
+                $_SESSION['success'] = 'Document uploaded successfully! It will be verified by admin.';
             } else {
-                $errors[] = 'Failed to upload document';
+                $_SESSION['error'] = 'Failed to save document information';
             }
+            
+        } catch(PDOException $e) {
+            $_SESSION['error'] = 'Error uploading document: ' . $e->getMessage();
+            error_log("Document upload error: " . $e->getMessage());
         }
+    } else {
+        $_SESSION['error'] = 'Failed to upload document';
+        error_log("Document upload failed. Path: " . $upload_path);
     }
+    
+    redirect('profile.php');
 }
 ?>
 
@@ -281,22 +408,48 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                     <p class="text-muted mb-0">Manage your vendor profile and settings</p>
                 </div>
                 <div class="d-flex gap-3">
-                    <a href="../vendor/dashboard.php" class="btn btn-outline-secondary">
+                    <a href="dashboard.php" class="btn btn-outline-secondary">
                         <i class="fas fa-arrow-left me-2"></i> Back to Dashboard
                     </a>
                 </div>
             </div>
         </div>
         
-        <!-- Error/Success Messages -->
-        <?php if (!empty($errors)): ?>
-            <div class="alert alert-danger">
-                <ul class="mb-0">
-                    <?php foreach($errors as $error): ?>
+        <!-- Display session messages -->
+        <?php if (isset($_SESSION['success'])): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="fas fa-check-circle me-2"></i>
+                <?php 
+                echo $_SESSION['success'];
+                unset($_SESSION['success']);
+                ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_SESSION['error'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <?php 
+                echo $_SESSION['error'];
+                unset($_SESSION['error']);
+                ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        
+        <?php if (isset($_SESSION['form_errors'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <strong>Please fix the following errors:</strong>
+                <ul class="mb-0 mt-2">
+                    <?php foreach($_SESSION['form_errors'] as $error): ?>
                         <li><?php echo $error; ?></li>
                     <?php endforeach; ?>
                 </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
+            <?php unset($_SESSION['form_errors']); ?>
         <?php endif; ?>
         
         <!-- Profile Overview -->
@@ -307,7 +460,11 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                     <div class="card-body text-center">
                         <!-- Profile Picture -->
                         <div class="position-relative d-inline-block mb-4">
-                            <img src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
+                            <?php 
+                            $profile_pic = !empty($vendor['profile_pic']) ? $vendor['profile_pic'] : 'default.png';
+                            $profile_pic_url = SITE_URL . 'assets/images/profiles/' . $profile_pic;
+                            ?>
+                            <img src="<?php echo $profile_pic_url; ?>" 
                                  alt="Profile" class="rounded-circle border border-4 border-white shadow" 
                                  width="150" height="150" style="object-fit: cover;"
                                  onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
@@ -317,22 +474,34 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                             </button>
                         </div>
                         
-                        <h4 class="fw-bold mb-1"><?php echo $vendor['full_name']; ?></h4>
+                        <h4 class="fw-bold mb-1"><?php echo htmlspecialchars($vendor['full_name'] ?? ''); ?></h4>
                         <p class="text-muted mb-3">
                             <i class="fas fa-store me-1 text-success"></i> 
-                            <?php echo ucfirst($vendor['vendor_category'] ?? 'Not set'); ?> Vendor
+                            <?php 
+                            $category_display = !empty($vendor['category_name']) ? $vendor['category_name'] : 
+                                               (!empty($vendor['vendor_category']) ? $vendor['vendor_category'] : 'Not set');
+                            echo htmlspecialchars($category_display); 
+                            ?> Vendor
                         </p>
                         
                         <!-- Vendor Status -->
                         <div class="mb-4">
-                            <span class="badge bg-<?php 
-                                echo $vendor['vendor_status'] == 'approved' ? 'success' : 
-                                     ($vendor['vendor_status'] == 'pending' ? 'warning' : 'danger'); 
-                            ?> px-3 py-2">
-                                <i class="fas fa-<?php 
-                                    echo $vendor['vendor_status'] == 'approved' ? 'check-circle' : 
-                                         ($vendor['vendor_status'] == 'pending' ? 'clock' : 'times-circle'); 
-                                ?> me-2"></i>
+                            <?php 
+                            $status_color = 'secondary';
+                            $status_icon = 'circle';
+                            if ($vendor['vendor_status'] == 'approved') {
+                                $status_color = 'success';
+                                $status_icon = 'check-circle';
+                            } elseif ($vendor['vendor_status'] == 'pending') {
+                                $status_color = 'warning';
+                                $status_icon = 'clock';
+                            } elseif ($vendor['vendor_status'] == 'rejected') {
+                                $status_color = 'danger';
+                                $status_icon = 'times-circle';
+                            }
+                            ?>
+                            <span class="badge bg-<?php echo $status_color; ?> px-3 py-2">
+                                <i class="fas fa-<?php echo $status_icon; ?> me-2"></i>
                                 <?php echo ucfirst($vendor['vendor_status'] ?? 'pending'); ?>
                             </span>
                         </div>
@@ -340,11 +509,11 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                         <!-- Stats -->
                         <div class="row text-center">
                             <div class="col-4">
-                                <h5 class="fw-bold mb-1"><?php echo $vendor['total_products'] ?? 0; ?></h5>
+                                <h5 class="fw-bold mb-1"><?php echo number_format($vendor['total_products'] ?? 0); ?></h5>
                                 <small class="text-muted">Products</small>
                             </div>
                             <div class="col-4">
-                                <h5 class="fw-bold mb-1"><?php echo $vendor['approved_products'] ?? 0; ?></h5>
+                                <h5 class="fw-bold mb-1"><?php echo number_format($vendor['approved_products'] ?? 0); ?></h5>
                                 <small class="text-muted">Approved</small>
                             </div>
                             <div class="col-4">
@@ -362,15 +531,15 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                         <ul class="list-unstyled mb-0">
                             <li class="mb-2">
                                 <i class="fas fa-envelope me-2 text-muted"></i>
-                                <small><?php echo $vendor['email']; ?></small>
+                                <small><?php echo htmlspecialchars($vendor['email'] ?? ''); ?></small>
                             </li>
                             <li class="mb-2">
                                 <i class="fas fa-phone me-2 text-muted"></i>
-                                <small><?php echo $vendor['phone'] ?? 'Not set'; ?></small>
+                                <small><?php echo htmlspecialchars($vendor['phone'] ?? 'Not set'); ?></small>
                             </li>
                             <li>
                                 <i class="fas fa-map-marker-alt me-2 text-muted"></i>
-                                <small><?php echo $vendor['city'] ?? 'Location not set'; ?></small>
+                                <small><?php echo htmlspecialchars($vendor['city'] ?? 'Location not set'); ?></small>
                             </li>
                         </ul>
                     </div>
@@ -385,9 +554,9 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                         
                         <?php 
                         $verifications = [
-                            'email' => ['icon' => 'envelope', 'status' => $vendor['email_verified'], 'label' => 'Email'],
-                            'phone' => ['icon' => 'phone', 'status' => $vendor['phone_verified'], 'label' => 'Phone'],
-                            'vendor' => ['icon' => 'store', 'status' => $vendor['vendor_verified'], 'label' => 'Vendor'],
+                            'email' => ['icon' => 'envelope', 'status' => $vendor['email_verified'] ?? 0, 'label' => 'Email'],
+                            'phone' => ['icon' => 'phone', 'status' => $vendor['phone_verified'] ?? 0, 'label' => 'Phone'],
+                            'vendor' => ['icon' => 'store', 'status' => $vendor['vendor_verified'] ?? 0, 'label' => 'Vendor'],
                         ];
                         ?>
                         
@@ -428,7 +597,9 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                         </h5>
                     </div>
                     <div class="card-body">
-                        <form method="POST">
+                        <form method="POST" action="">
+                            <input type="hidden" name="action" value="update_profile">
+                            
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label fw-bold">Full Name *</label>
@@ -444,14 +615,17 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                                     <label class="form-label fw-bold">Vendor Category *</label>
                                     <select class="form-select" name="vendor_category" required>
                                         <option value="">Select Category</option>
-                                        <option value="Electronics" <?php echo ($vendor['vendor_category'] ?? '') == 'Electronics' ? 'selected' : ''; ?>>Electronics</option>
-                                        <option value="Fashion" <?php echo ($vendor['vendor_category'] ?? '') == 'Fashion' ? 'selected' : ''; ?>>Fashion & Clothing</option>
-                                        <option value="Home & Living" <?php echo ($vendor['vendor_category'] ?? '') == 'Home & Living' ? 'selected' : ''; ?>>Home & Living</option>
-                                        <option value="Books" <?php echo ($vendor['vendor_category'] ?? '') == 'Books' ? 'selected' : ''; ?>>Books & Stationery</option>
-                                        <option value="Sports" <?php echo ($vendor['vendor_category'] ?? '') == 'Sports' ? 'selected' : ''; ?>>Sports & Fitness</option>
-                                        <option value="Beauty" <?php echo ($vendor['vendor_category'] ?? '') == 'Beauty' ? 'selected' : ''; ?>>Beauty & Cosmetics</option>
-                                        <option value="Food" <?php echo ($vendor['vendor_category'] ?? '') == 'Food' ? 'selected' : ''; ?>>Food & Beverages</option>
-                                        <option value="Other" <?php echo ($vendor['vendor_category'] ?? '') == 'Other' ? 'selected' : ''; ?>>Other</option>
+                                        <?php if (!empty($vendor_categories)): ?>
+                                            <?php foreach($vendor_categories as $cat): ?>
+                                                <option value="<?php echo htmlspecialchars($cat['slug']); ?>"
+                                                    <?php echo ($vendor['vendor_category'] ?? '') == $cat['slug'] ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($cat['name']); ?>
+                                                    <?php if (!empty($cat['commission_rate'])): ?>
+                                                        (Commission: <?php echo $cat['commission_rate']; ?>%)
+                                                    <?php endif; ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
                                     </select>
                                 </div>
                                 <div class="col-md-12">
@@ -481,7 +655,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                                            value="<?php echo htmlspecialchars($vendor['postal_code'] ?? ''); ?>">
                                 </div>
                                 <div class="col-12 mt-3">
-                                    <button type="submit" name="update_profile" class="btn btn-primary px-4">
+                                    <button type="submit" class="btn btn-primary px-4">
                                         <i class="fas fa-save me-2"></i> Save Changes
                                     </button>
                                 </div>
@@ -499,6 +673,8 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                     </div>
                     <div class="card-body">
                         <form method="POST" action="">
+                            <input type="hidden" name="action" value="update_social">
+                            
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label">
@@ -533,7 +709,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                                            value="<?php echo htmlspecialchars($vendor['social_linkedin'] ?? ''); ?>">
                                 </div>
                                 <div class="col-12 mt-3">
-                                    <button type="submit" name="update_social" class="btn btn-primary px-4">
+                                    <button type="submit" class="btn btn-primary px-4">
                                         <i class="fas fa-save me-2"></i> Save Social Links
                                     </button>
                                 </div>
@@ -576,7 +752,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                                         <?php foreach($documents as $doc): ?>
                                         <tr>
                                             <td><?php echo ucfirst(str_replace('_', ' ', $doc['document_type'])); ?></td>
-                                            <td><?php echo $doc['document_number'] ?? 'N/A'; ?></td>
+                                            <td><?php echo htmlspecialchars($doc['document_number'] ?? 'N/A'); ?></td>
                                             <td><?php echo date('M d, Y', strtotime($doc['created_at'])); ?></td>
                                             <td>
                                                 <?php if ($doc['verified']): ?>
@@ -590,7 +766,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <?php if ($doc['expiry_date']): ?>
+                                                <?php if (!empty($doc['expiry_date'])): ?>
                                                     <?php echo date('M d, Y', strtotime($doc['expiry_date'])); ?>
                                                     <?php if (strtotime($doc['expiry_date']) < time()): ?>
                                                         <span class="badge bg-danger ms-1">Expired</span>
@@ -630,13 +806,19 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <form method="POST" action="" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="update_avatar">
+                
                 <div class="modal-header">
                     <h5 class="modal-title">Update Profile Picture</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="text-center mb-4">
-                        <img id="avatarPreview" src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $vendor['profile_pic'] ?? 'default.png'; ?>" 
+                        <?php 
+                        $preview_pic = !empty($vendor['profile_pic']) ? $vendor['profile_pic'] : 'default.png';
+                        $preview_url = SITE_URL . 'assets/images/profiles/' . $preview_pic;
+                        ?>
+                        <img id="avatarPreview" src="<?php echo $preview_url; ?>" 
                              alt="Preview" class="rounded-circle border" width="150" height="150" style="object-fit: cover;"
                              onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
                     </div>
@@ -649,7 +831,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" name="update_avatar" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary">
                         <i class="fas fa-upload me-2"></i> Upload Picture
                     </button>
                 </div>
@@ -663,6 +845,8 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="POST" action="" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="upload_document">
+                
                 <div class="modal-header">
                     <h5 class="modal-title">Upload Document</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -695,7 +879,7 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" name="upload_document" class="btn btn-primary">
+                    <button type="submit" class="btn btn-primary">
                         <i class="fas fa-upload me-2"></i> Upload Document
                     </button>
                 </div>
@@ -728,6 +912,16 @@ if (isset($_POST['upload_document']) && isset($_FILES['document_file'])) {
     background: #f8f9fa;
     font-weight: 600;
 }
+
+.main-content {
+    padding: 20px;
+    background: #f8f9fa;
+    min-height: 100vh;
+}
+
+.position-absolute {
+    transform: translate(50%, 50%);
+}
 </style>
 
 <script>
@@ -746,8 +940,10 @@ function previewAvatar(input) {
 setTimeout(function() {
     const alerts = document.querySelectorAll('.alert');
     alerts.forEach(alert => {
-        const bsAlert = new bootstrap.Alert(alert);
-        bsAlert.close();
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
     });
 }, 5000);
 
@@ -759,7 +955,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Form validation
+// Form validation with loading state
 document.querySelectorAll('form').forEach(form => {
     form.addEventListener('submit', function(e) {
         const submitBtn = this.querySelector('button[type="submit"]');
@@ -767,11 +963,6 @@ document.querySelectorAll('form').forEach(form => {
             const originalHTML = submitBtn.innerHTML;
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Processing...';
             submitBtn.disabled = true;
-            
-            setTimeout(() => {
-                submitBtn.innerHTML = originalHTML;
-                submitBtn.disabled = false;
-            }, 3000);
         }
     });
 });

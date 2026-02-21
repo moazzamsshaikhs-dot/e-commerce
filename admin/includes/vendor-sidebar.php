@@ -216,7 +216,7 @@ $is_approved = ($vendor_status === 'approved');
         
         <!-- Vendor Tools -->
         <div class="px-3 mt-4">
-            <h6 class="text-uppercase text-white-50 mb-3">Vendor Tools</h6>
+            <h6 class="text-uppercase text-black-50 mb-3">Vendor Tools</h6>
             <ul class="nav flex-column">
                 <?php if ($is_approved): ?>
                 <li class="nav-item mb-2">
@@ -246,7 +246,7 @@ $is_approved = ($vendor_status === 'approved');
                 
                 <?php if (!$is_approved): ?>
                 <li class="nav-item mb-2">
-                    <a class="nav-link text-warning" href="<?php echo SITE_URL; ?>vendors/verify.php">
+                    <a class="nav-link text-warning" href="<?php echo SITE_URL; ?>admin/vendors/verify.php">
                         <i class="fas fa-user-check me-3"></i> Complete Verification
                     </a>
                 </li>

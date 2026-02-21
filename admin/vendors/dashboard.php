@@ -262,9 +262,15 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed vendor dashb
                             </div>
                         </div>
                         <div class="mt-4">
+                            <?php if (isset($vendor_status) && $vendor_status === 'approved'): ?> 
                             <a href="products/products.php" class="text-decoration-none small d-flex align-items-center">
                                 <i class="fas fa-eye me-2"></i> Manage Products
                             </a>
+                            <?php else: ?>
+                            <a href="verify.php" class="text-decoration-none small d-flex align-items-center">
+                                <i class="fas fa-user-edit me-2"></i> Complete Profile
+                            </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -287,9 +293,15 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed vendor dashb
                             </div>
                         </div>
                         <div class="mt-4">
+                            <?php if (isset($vendor_status) && $vendor_status === 'approved'): ?>
                             <a href="orders/orders.php" class="text-decoration-none small d-flex align-items-center">
                                 <i class="fas fa-list-alt me-2"></i> View Orders
                             </a>
+                            <?php else: ?>
+                            <a href="verify.php" class="text-decoration-none small d-flex align-items-center">
+                                <i class="fas fa-user-edit me-2"></i> Complete Profile
+                            </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -313,9 +325,15 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed vendor dashb
                             </div>
                         </div>
                         <div class="mt-4">
+                            <?php if (isset($vendor_status) && $vendor_status === 'approved'): ?>
                             <a href="earnings/earnings.php" class="text-decoration-none small d-flex align-items-center">
                                 <i class="fas fa-chart-line me-2"></i> View Earnings
                             </a>
+                            <?php else: ?>
+                            <a href="verify.php" class="text-decoration-none small d-flex align-items-center">
+                                <i class="fas fa-user-edit me-2"></i> Complete Profile
+                            </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -339,9 +357,15 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed vendor dashb
                             </div>
                         </div>
                         <div class="mt-4">
+                            <?php if (isset($vendor_status) && $vendor_status === 'approved'): ?>
                             <a href="products/pending.php" class="text-decoration-none small d-flex align-items-center">
                                 <i class="fas fa-clock me-2"></i> View Pending
                             </a>
+                            <?php else: ?>
+                            <a href="verify.php" class="text-decoration-none small d-flex align-items-center">
+                                <i class="fas fa-user-edit me-2"></i> Complete Profile
+                            </a>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -600,7 +624,7 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed vendor dashb
                             <a href="profile.php" class="btn btn-primary px-4">
                                 <i class="fas fa-user-edit me-2"></i> Complete Profile
                             </a>
-                            <a href="<?php echo SITE_URL; ?>user/dashboard.php" class="btn btn-outline-secondary px-4">
+                            <a href="<?php echo SITE_URL; ?>admin/vendors/dashboard.php" class="btn btn-outline-secondary px-4">
                                 <i class="fas fa-shopping-cart me-2"></i> Continue Shopping
                             </a>
                             <a href="<?php echo SITE_URL; ?>contact.php" class="btn btn-outline-info px-4">
