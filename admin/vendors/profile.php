@@ -588,11 +588,11 @@ function uploadVendorDocument($vendor_id) {
                             ?>
                             <img src="<?php echo $profile_pic_url; ?>" 
                                  alt="Profile" class="rounded-circle border border-4 border-white shadow" 
-                                 width="150" height="150" style="object-fit: cover;"
+                                 width="170" height="170" style="object-fit: cover;"
                                  onerror="this.onerror=null; this.src='<?php echo $default_url; ?>';">
-                            <button class="btn btn-primary btn-sm position-absolute bottom-0 end-0 rounded-circle" 
+                            <button class="btn btn-primary btn-sm position-absolute bottom-0 end-0 rounded" 
                                     data-bs-toggle="modal" data-bs-target="#avatarModal" style="width: 40px; height: 40px;">
-                                <i class="fas fa-camera"></i>
+                                <i class="fas fa-camera position-absolute" style="font-size: 18px; top:50%; left:50%; transform: translate(-50%, -50%);"></i>
                             </button>
                         </div>
                         
