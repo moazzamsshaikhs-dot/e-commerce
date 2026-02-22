@@ -646,6 +646,68 @@ function sendLowStockAlert($admin_email, $product_name, $current_stock) {
         return false;
     }
 }
+function sendNewOrderNotification($admin_email, $order_id, $customer_name, $total_amount) {
+    try {
+        // Prepare email
+        $subject = "New Order Placed - " . SITE_NAME;
+        $message = "Hello Admin,\n\n";
+        $message .= "A new order has been placed with the following details:\n";
+        $message .= "Order ID: #$order_id\n";
+        $message .= "Customer Name: $customer_name\n";
+        $message .= "Total Amount: $" . number_format($total_amount, 2) . "\n\n";
+        $message .= "Please review and process the order as soon as possible.\n" . SITE_NAME . " Team";
+        
+        // Log the notification
+        error_log("New order notification: Order #$order_id placed by '$customer_name' with total amount $" . number_format($total_amount, 2));
+        
+        // In production, send actual email
+        mail($admin_email, $subject, $message);
+        
+        return true;
+    } catch(Exception $e) {
+        error_log("New order notification failed: " . $e->getMessage());
+        return false;
+    }
+}
+function sendOrderCancellationNotification($admin_email, $order_id, $customer_name, $cancellation_reason) {
+    try {
+        // Prepare email
+        $subject = "Order Cancellation - " . SITE_NAME;
+        $message = "Hello Admin,\n\n";
+        $message .= "The following order has been cancelled:\n";
+        $message .= "Order ID: #$order_id\n";
+        $message .= "Customer Name: $customer_name\n";
+        if (!empty($cancellation_reason)) {
+            $message .= "Cancellation Reason: $cancellation_reason\n";
+        }
+        $message .= "\nPlease review the cancellation and take necessary actions.\n" . SITE_NAME . " Team";
+        
+        // Log the notification
+        error_log("Order cancellation notification: Order #$order_id cancelled by '$customer_name'. Reason: $cancellation_reason");
+        
+        // In production, send actual email
+        mail($admin_email, $subject, $message);
+        
+        return true;
+    } catch(Exception $e) {
+        error_log("Order cancellation notification failed: " . $e->getMessage());
+        return false;
+    }
+}
+function sendEmail($to, $subject, $message) {
+    // In production, use PHPMailer or similar library for better reliability
+    $headers = "From: " . NO_REPLY_EMAIL . "\r\n" .
+               "Reply-To: " . SUPPORT_EMAIL . "\r\n" .
+               "X-Mailer: PHP/" . phpversion();
+    
+    // For demo, we'll just log the email instead of sending
+    error_log("Email to $to: Subject: $subject - Message: $message");
+    
+    // Uncomment the line below to actually send the email in production
+     return mail($to, $subject, $message, $headers);
+    
+    return true; // For demo purposes
+}
 
 function sendWithdrawalRequestNotification($admin_email, $vendor_name, $withdrawal_amount, $withdrawal_method, $account_details, $notes) {
     try {
@@ -667,7 +729,7 @@ function sendWithdrawalRequestNotification($admin_email, $vendor_name, $withdraw
         error_log("Withdrawal request from '$vendor_name': Amount $" . number_format($withdrawal_amount, 2));
         
         // In production, send actual email
-        mail($admin_email, $subject, $message);
+        sendEmail($admin_email, $subject, $message);
         
         return true;
     } catch(Exception $e) {
