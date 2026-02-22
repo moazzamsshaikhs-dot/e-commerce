@@ -44,19 +44,19 @@ $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 try {
     $db = getDB();
     
-    // Build query
-    $query = "SELECT ve.*, o.order_number, p.name as product_name, u.username as customer_name
-              FROM vendor_earnings ve
-              JOIN orders o ON ve.order_id = o.id
-              JOIN products p ON ve.product_id = p.id
-              JOIN users u ON o.user_id = u.id
-              WHERE ve.vendor_id = ?";
+    // Build query with BINARY collation (works with any character set)
+   $query = "SELECT ve.*, o.order_number, p.name as product_name, u.username as customer_name
+          FROM vendor_earnings ve
+          JOIN orders o ON ve.order_id = o.id
+          JOIN products p ON ve.product_id = p.id
+          JOIN users u ON o.user_id = u.id
+          WHERE ve.vendor_id = ?";
     
     $params = [$vendor_id];
     $count_params = [$vendor_id];
     
     if (!empty($status)) {
-        $query .= " AND ve.status = ?";
+        $query .= " AND ve.status COLLATE latin1_bin = ?";
         $params[] = $status;
         $count_params[] = $status;
     }
@@ -74,7 +74,7 @@ try {
     }
     
     if (!empty($search)) {
-        $query .= " AND (o.order_number LIKE ? OR p.name LIKE ? OR u.username LIKE ?)";
+        $query .= " AND (o.order_number COLLATE latin1_bin LIKE ? OR p.name COLLATE latin1_bin LIKE ? OR u.username COLLATE latin1_bin LIKE ?)";
         $search_term = "%$search%";
         $params[] = $search_term;
         $params[] = $search_term;
@@ -86,17 +86,17 @@ try {
     
     $query .= " ORDER BY ve.created_at DESC";
     
-    // Get total count
+    // Get total count with BINARY collation
     $count_query = "SELECT COUNT(*) FROM vendor_earnings ve
-                    JOIN orders o ON ve.order_id = o.id
-                    JOIN products p ON ve.product_id = p.id
-                    JOIN users u ON o.user_id = u.id
-                    WHERE ve.vendor_id = ?";
+                    JOIN orders o ON ve.order_id COLLATE latin1_bin = o.id COLLATE latin1_bin
+                    JOIN products p ON ve.product_id COLLATE latin1_bin = p.id COLLATE latin1_bin
+                    JOIN users u ON o.user_id COLLATE latin1_bin = u.id COLLATE latin1_bin
+                    WHERE ve.vendor_id COLLATE latin1_bin = ?";
     
-    if (!empty($status)) $count_query .= " AND ve.status = ?";
+    if (!empty($status)) $count_query .= " AND ve.status COLLATE latin1_bin = ?";
     if (!empty($date_from)) $count_query .= " AND DATE(ve.created_at) >= ?";
     if (!empty($date_to)) $count_query .= " AND DATE(ve.created_at) <= ?";
-    if (!empty($search)) $count_query .= " AND (o.order_number LIKE ? OR p.name LIKE ? OR u.username LIKE ?)";
+    if (!empty($search)) $count_query .= " AND (o.order_number COLLATE latin1_bin LIKE ? OR p.name COLLATE latin1_bin LIKE ? OR u.username COLLATE latin1_bin LIKE ?)";
     
     $stmt = $db->prepare($count_query);
     $stmt->execute($count_params);

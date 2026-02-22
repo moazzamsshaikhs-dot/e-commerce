@@ -699,12 +699,12 @@ function sendWithdrawalStatusNotification($vendor_email, $vendor_name, $withdraw
         return false;
     }
 }
-function maskTaxID($taxId) {
-    if (empty($taxId)) return '';
-    $taxId = preg_replace('/[^0-9]/', '', $taxId);
-    if (strlen($taxId) <= 4) return str_repeat('•', strlen($taxId));
-    return str_repeat('•', strlen($taxId) - 4) . substr($taxId, -4);
-}
+// function maskTaxID($taxId) {
+//     if (empty($taxId)) return '';
+//     $taxId = preg_replace('/[^0-9]/', '', $taxId);
+//     if (strlen($taxId) <= 4) return str_repeat('•', strlen($taxId));
+//     return str_repeat('•', strlen($taxId) - 4) . substr($taxId, -4);
+// }
 function maskEmail($email) {
     if (empty($email)) return '';
     $parts = explode('@', $email);

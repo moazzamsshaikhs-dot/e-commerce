@@ -604,6 +604,55 @@ function resizeImage($path, $max_width, $max_height) {
                                         <strong class="d-block"><?php echo $vendor['total_products'] ?? 0; ?></strong>
                                     </div>
                                 </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-3 text-center">
+                                        <small class="text-muted d-block">Bank</small>
+                                        <p>Select your bank and withdrawal request</p>
+                                        <a href="bank.php" class="text-decoration-none p-2 btn btn-warning text-white">View Bank Details</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-3 text-center">
+                                        <small class="text-muted d-block">integration</small>
+                                        <p>Select your integration</p>
+                                        <a href="integrations.php" class="text-decoration-none p-2 btn btn-warning text-white">View Integration Details</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-3 text-center">
+                                        <small class="text-muted d-block">notification</small>
+                                        <p>Select your notification system</p>
+                                        <a href="notifications.php" class="text-decoration-none p-2 btn btn-warning text-white">View Notification Details</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-3 text-center">
+                                        <small class="text-muted d-block">Security</small>
+                                        <p>Select your security settings</p>
+                                        <a href="security.php" class="text-decoration-none p-2 btn btn-warning text-white">View Security Details</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-3 text-center">
+                                        <small class="text-muted d-block">Shipping</small>
+                                        <p>Select your shipping settings</p>
+                                        <a href="shipping.php" class="text-decoration-none p-2 btn btn-warning text-white">View Shipping Details</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-3 text-center">
+                                        <small class="text-muted d-block">Store</small>
+                                        <p>Select your store settings</p>
+                                        <a href="store.php" class="text-decoration-none p-2 btn btn-warning text-white">View Store Details</a>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-3 text-center">
+                                        <small class="text-muted d-block">profile</small>
+                                        <p>Select your profile settings</p>
+                                        <a href="profile.php" class="text-decoration-none p-2 btn btn-warning text-white">View Profile Details</a>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
