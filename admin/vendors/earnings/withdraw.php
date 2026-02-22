@@ -466,7 +466,7 @@ require_once '../../includes/header.php';
                                 <i class="fas fa-clock me-2"></i>
                                 Need $<?php echo number_format($min_withdrawal - $pending_earnings, 2); ?> more
                             </div>
-                            <a href="<?php echo SITE_URL; ?>admin/vendor/dashboard.php" class="btn btn-outline-primary w-100">
+                            <a href="<?php echo SITE_URL; ?>admin/vendors/dashboard.php" class="btn btn-outline-primary w-100">
                                 <i class="fas fa-chart-line me-2"></i> Boost Sales
                             </a>
                         <?php endif; ?>
@@ -630,8 +630,8 @@ require_once '../../includes/header.php';
                         <?php endif; ?>
 
                         <div class="text-center mt-3">
-                            <a href="history.php" class="btn btn-outline-primary btn-sm">
-                                View Complete History <i class="fas fa-arrow-right ms-1"></i>
+                            <a href="../settings/bank.php" class="btn btn-outline-primary btn-sm">
+                                View Complete History and request<i class="fas fa-arrow-right ms-1"></i>
                             </a>
                         </div>
                     </div>
