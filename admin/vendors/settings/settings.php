@@ -15,17 +15,22 @@ require_once '../../includes/header.php';
 try {
     $db = getDB();
     $vendor_id = $_SESSION['user_id'];
-    
+
     $stmt = $db->prepare("
         SELECT 
-            u.*,
+            u.id, u.username, u.email, u.full_name, u.phone,
+            u.vendor_status, u.vendor_verified, u.vendor_since,
+            u.vendor_rating, u.total_products, u.total_sales,
+            u.country, u.city, u.address,
             vs.store_name, vs.store_description, vs.store_logo, vs.store_banner,
             vs.store_address, vs.store_phone, vs.store_email, vs.store_website,
             vs.store_social_facebook, vs.store_social_instagram, vs.store_social_twitter,
-            vs.store_social_linkedin, vs.store_policy, vs.return_policy,
-            vs.shipping_policy, vs.payment_methods, vs.store_currency,
-            vs.store_timezone, vs.store_language, vs.business_hours,
-            vs.min_order_amount, vs.free_shipping_threshold,
+            vs.store_social_linkedin, vs.store_social_youtube, vs.store_social_pinterest,
+            vs.store_policy, vs.return_policy, vs.shipping_policy, 
+            vs.payment_methods, vs.store_currency, vs.store_timezone, vs.store_language,
+            vs.business_hours, vs.min_order_amount, vs.free_shipping_threshold,
+            vs.low_stock_notify, vs.auto_hide_out_of_stock, vs.allow_backorders,
+            vs.api_key, vs.webhook_url,
             DATE_FORMAT(u.vendor_since, '%d %b %Y') as vendor_since_formatted
         FROM users u
         LEFT JOIN vendor_settings vs ON u.id = vs.vendor_id
@@ -33,12 +38,19 @@ try {
     ");
     $stmt->execute([$vendor_id]);
     $vendor = $stmt->fetch();
-    
+
     if (!$vendor) {
         $_SESSION['error'] = 'Vendor not found.';
         redirect(SITE_URL . 'admin/vendors/dashboard.php');
     }
-    
+
+    // Calculate total products if not set
+    if (!isset($vendor['total_products']) || $vendor['total_products'] === null) {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM products WHERE vendor_id = ?");
+        $stmt->execute([$vendor_id]);
+        $vendor['total_products'] = $stmt->fetchColumn();
+    }
+
     // Get vendor categories
     $stmt = $db->prepare("
         SELECT vc.* 
@@ -47,447 +59,1091 @@ try {
     ");
     $stmt->execute();
     $categories = $stmt->fetchAll();
-    
-} catch(PDOException $e) {
+
+    // Decode JSON fields
+    $business_hours = !empty($vendor['business_hours']) ? json_decode($vendor['business_hours'], true) : [];
+    $payment_methods = !empty($vendor['payment_methods']) ? json_decode($vendor['payment_methods'], true) : [];
+} catch (PDOException $e) {
     $_SESSION['error'] = 'Database error: ' . $e->getMessage();
     $vendor = [];
     $categories = [];
+    $business_hours = [];
+    $payment_methods = [];
 }
 
-// Handle form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    
-    try {
-        if ($action === 'update_general') {
-            // Update general settings
-            $store_name = trim($_POST['store_name'] ?? '');
-            $store_description = trim($_POST['store_description'] ?? '');
-            $store_category = $_POST['store_category'] ?? '';
-            $store_phone = trim($_POST['store_phone'] ?? '');
-            $store_email = trim($_POST['store_email'] ?? '');
-            $store_website = trim($_POST['store_website'] ?? '');
-            $store_currency = $_POST['store_currency'] ?? 'USD';
-            $store_timezone = $_POST['store_timezone'] ?? 'UTC';
-            $store_language = $_POST['store_language'] ?? 'en';
-            
-            // Validate inputs
-            if (empty($store_name)) {
-                throw new Exception('Store name is required.');
-            }
-            
-            if (!filter_var($store_email, FILTER_VALIDATE_EMAIL) && !empty($store_email)) {
-                throw new Exception('Invalid email format.');
-            }
-            
-            // Check if vendor_settings record exists
-            $stmt = $db->prepare("SELECT vendor_id FROM vendor_settings WHERE vendor_id = ?");
-            $stmt->execute([$vendor_id]);
-            
-            if ($stmt->fetch()) {
-                // Update existing
-                $sql = "UPDATE vendor_settings SET 
-                        store_name = ?, store_description = ?, vendor_category = ?,
-                        store_phone = ?, store_email = ?, store_website = ?,
-                        store_currency = ?, store_timezone = ?, store_language = ?,
-                        updated_at = NOW()
-                        WHERE vendor_id = ?";
-            } else {
-                // Insert new
-                $sql = "INSERT INTO vendor_settings 
-                        (vendor_id, store_name, store_description, vendor_category,
-                         store_phone, store_email, store_website, store_currency,
-                         store_timezone, store_language, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
-            }
-            
-            $stmt = $db->prepare($sql);
-            $stmt->execute([
-                $store_name, $store_description, $store_category,
-                $store_phone, $store_email, $store_website,
-                $store_currency, $store_timezone, $store_language,
-                $vendor_id
-            ]);
-            
-            // Also update user table if email changed
-            if ($store_email && $store_email !== $vendor['email']) {
-                $stmt = $db->prepare("UPDATE users SET email = ? WHERE id = ?");
-                $stmt->execute([$store_email, $vendor_id]);
-                $_SESSION['email'] = $store_email;
-            }
-            
-            $_SESSION['success'] = 'General settings updated successfully!';
-            redirect('settings.php');
-            
-        } elseif ($action === 'upload_logo') {
-            // Handle logo upload
-            if (isset($_FILES['store_logo']) && $_FILES['store_logo']['error'] === UPLOAD_ERR_OK) {
-                $logo = uploadVendorImage($_FILES['store_logo'], 'logo');
-                
-                $stmt = $db->prepare("
-                    UPDATE vendor_settings 
-                    SET store_logo = ?, updated_at = NOW()
-                    WHERE vendor_id = ?
-                ");
-                $stmt->execute([$logo, $vendor_id]);
-                
-                $_SESSION['success'] = 'Store logo uploaded successfully!';
-                redirect('settings.php');
-            }
-            
-        } elseif ($action === 'upload_banner') {
-            // Handle banner upload
-            if (isset($_FILES['store_banner']) && $_FILES['store_banner']['error'] === UPLOAD_ERR_OK) {
-                $banner = uploadVendorImage($_FILES['store_banner'], 'banner');
-                
-                $stmt = $db->prepare("
-                    UPDATE vendor_settings 
-                    SET store_banner = ?, updated_at = NOW()
-                    WHERE vendor_id = ?
-                ");
-                $stmt->execute([$banner, $vendor_id]);
-                
-                $_SESSION['success'] = 'Store banner uploaded successfully!';
-                redirect('settings.php');
-            }
-            
-        } elseif ($action === 'update_policies') {
-            // Update store policies
-            $store_policy = trim($_POST['store_policy'] ?? '');
-            $return_policy = trim($_POST['return_policy'] ?? '');
-            $shipping_policy = trim($_POST['shipping_policy'] ?? '');
-            $payment_methods = json_encode($_POST['payment_methods'] ?? []);
-            
-            $stmt = $db->prepare("
-                UPDATE vendor_settings 
-                SET store_policy = ?, return_policy = ?, 
-                    shipping_policy = ?, payment_methods = ?,
-                    updated_at = NOW()
-                WHERE vendor_id = ?
-            ");
-            $stmt->execute([
-                $store_policy, $return_policy,
-                $shipping_policy, $payment_methods,
-                $vendor_id
-            ]);
-            
-            $_SESSION['success'] = 'Store policies updated successfully!';
-            redirect('settings.php');
-            
-        } elseif ($action === 'update_social') {
-            // Update social media links
-            $social_facebook = trim($_POST['social_facebook'] ?? '');
-            $social_instagram = trim($_POST['social_instagram'] ?? '');
-            $social_twitter = trim($_POST['social_twitter'] ?? '');
-            $social_linkedin = trim($_POST['social_linkedin'] ?? '');
-            
-            // Validate URLs
-            $urls = [
-                'facebook' => $social_facebook,
-                'instagram' => $social_instagram,
-                'twitter' => $social_twitter,
-                'linkedin' => $social_linkedin
-            ];
-            
-            foreach ($urls as $platform => $url) {
-                if (!empty($url) && !filter_var($url, FILTER_VALIDATE_URL)) {
-                    throw new Exception("Invalid $platform URL format.");
-                }
-            }
-            
-            $stmt = $db->prepare("
-                UPDATE vendor_settings 
-                SET store_social_facebook = ?, store_social_instagram = ?,
-                    store_social_twitter = ?, store_social_linkedin = ?,
-                    updated_at = NOW()
-                WHERE vendor_id = ?
-            ");
-            $stmt->execute([
-                $social_facebook, $social_instagram,
-                $social_twitter, $social_linkedin,
-                $vendor_id
-            ]);
-            
-            $_SESSION['success'] = 'Social media links updated!';
-            redirect('settings.php');
-        }
-        
-    } catch(Exception $e) {
-        $_SESSION['error'] = $e->getMessage();
-    }
-}
-
-// Helper function for image upload
-function uploadVendorImage($file, $type = 'logo') {
-    $allowed_ext = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-    $max_size = 5 * 1024 * 1024; // 5MB
-    
-    $file_name = $file['name'];
-    $file_tmp = $file['tmp_name'];
-    $file_size = $file['size'];
-    $file_error = $file['error'];
-    
-    // Check for errors
-    if ($file_error !== UPLOAD_ERR_OK) {
-        throw new Exception('File upload error: ' . $file_error);
-    }
-    
-    // Check file size
-    if ($file_size > $max_size) {
-        throw new Exception('File size too large. Maximum size is 5MB.');
-    }
-    
-    // Get file extension
-    $file_ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-    
-    // Check extension
-    if (!in_array($file_ext, $allowed_ext)) {
-        throw new Exception('Invalid file type. Allowed: JPG, PNG, GIF, WebP');
-    }
-    
-    // Generate unique filename
-    $new_filename = 'vendor_' . $_SESSION['user_id'] . '_' . $type . '_' . time() . '.' . $file_ext;
-    $upload_path = SITE_URL . 'uploads/vendors/' . $new_filename;
-    
-    // Create directory if not exists
-    $upload_dir = dirname($upload_path);
-    if (!file_exists($upload_dir)) {
-        mkdir($upload_dir, 0755, true);
-    }
-    
-    // Move uploaded file
-     if (!move_uploaded_file($file_tmp, $upload_path)) {
-         throw new Exception('Failed to upload file.');
-    }
-    
-    // Resize image if needed
-    if ($type === 'logo') {
-        resizeImage($upload_path, 300, 300);
-    } elseif ($type === 'banner') {
-        resizeImage($upload_path, 1200, 400);
-    }
-    
-    return $new_filename;
-}
-
-function resizeImage($path, $max_width, $max_height) {
-    $info = getimagesize($path);
-    $type = $info[2];
-    
-    switch ($type) {
-        case IMAGETYPE_JPEG:
-            $image = imagecreatefromjpeg($path);
-            break;
-        case IMAGETYPE_PNG:
-            $image = imagecreatefrompng($path);
-            break;
-        case IMAGETYPE_GIF:
-            $image = imagecreatefromgif($path);
-            break;
-        case IMAGETYPE_WEBP:
-            $image = imagecreatefromwebp($path);
-            break;
-        default:
-            return false;
-    }
-    
-    $width = imagesx($image);
-    $height = imagesy($image);
-    
-    // Calculate new dimensions
-    $ratio = min($max_width / $width, $max_height / $height);
-    $new_width = floor($width * $ratio);
-    $new_height = floor($height * $ratio);
-    
-    // Create new image
-    $new_image = imagecreatetruecolor($new_width, $new_height);
-    
-    // Preserve transparency for PNG and GIF
-    if ($type == IMAGETYPE_PNG || $type == IMAGETYPE_GIF) {
-        imagecolortransparent($new_image, imagecolorallocatealpha($new_image, 0, 0, 0, 127));
-        imagealphablending($new_image, false);
-        imagesavealpha($new_image, true);
-    }
-    
-    // Resize
-    imagecopyresampled($new_image, $image, 0, 0, 0, 0, 
-                       $new_width, $new_height, $width, $height);
-    
-    // Save resized image
-    switch ($type) {
-        case IMAGETYPE_JPEG:
-            imagejpeg($new_image, $path, 90);
-            break;
-        case IMAGETYPE_PNG:
-            imagepng($new_image, $path, 9);
-            break;
-        case IMAGETYPE_GIF:
-            imagegif($new_image, $path);
-            break;
-        case IMAGETYPE_WEBP:
-            imagewebp($new_image, $path, 90);
-            break;
-    }
-    
-    // Free memory
-    imagedestroy($image);
-    imagedestroy($new_image);
-    
-    return true;
-}
+// After fetching vendor, calculate total products
+$stmt = $db->prepare("SELECT COUNT(*) FROM products WHERE vendor_id = ?");
+$stmt->execute([$vendor_id]);
+$vendor['total_products'] = $stmt->fetchColumn();
 ?>
+
+<!-- Custom CSS for Enhanced UI -->
+<style>
+    :root {
+        --primary-color: #4361ee;
+        --success-color: #06d6a0;
+        --warning-color: #ffb703;
+        --danger-color: #ef476f;
+        --dark-color: #2b2d42;
+        --light-color: #f8f9fa;
+    }
+
+    /* Dashboard Container */
+    .dashboard-container {
+        display: flex;
+        /* min-height: 100vh; */
+        /* background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); */
+    }
+
+    .main-content {
+        flex: 1;
+        padding: 30px;
+        background: #f8f9fa;
+        margin: 20px;
+        border-radius: 20px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Header Section */
+    .settings-header {
+        background: white;
+        border-radius: 15px;
+        padding: 30px;
+        margin-bottom: 30px;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .settings-header::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 300px;
+        height: 100%;
+        background: linear-gradient(135deg, transparent 0%, rgba(67, 97, 238, 0.05) 100%);
+        border-radius: 50% 0 0 50%;
+    }
+
+    .settings-header h1 {
+        font-size: 2.2rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--dark-color) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 10px;
+    }
+
+    /* Stats Cards */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 15px;
+        padding: 25px;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stat-card::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 80px;
+        height: 80px;
+        background: linear-gradient(135deg, transparent 0%, rgba(67, 97, 238, 0.1) 100%);
+        border-radius: 50%;
+        transform: translate(30px, -30px);
+    }
+
+    .stat-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 15px 40px rgba(67, 97, 238, 0.15);
+    }
+
+    .stat-card .stat-icon {
+        width: 60px;
+        height: 60px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        margin-bottom: 20px;
+    }
+
+    .stat-card .stat-label {
+        font-size: 14px;
+        color: #6c757d;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 5px;
+    }
+
+    .stat-card .stat-value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--dark-color);
+    }
+
+    .stat-card .stat-trend {
+        font-size: 13px;
+        margin-top: 10px;
+        color: #28a745;
+    }
+
+    /* Tabs Navigation */
+    .settings-tabs {
+        background: white;
+        border-radius: 12px;
+        padding: 10px;
+        margin-bottom: 30px;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+    }
+
+    .settings-tabs .nav-item {
+        margin: 0 5px;
+    }
+
+    .settings-tabs .nav-link {
+        border: none;
+        padding: 15px 25px;
+        color: #fff;
+        font-weight: 600;
+        border-radius: 10px;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+
+    .settings-tabs .nav-link i {
+        margin-right: 10px;
+        font-size: 1.2rem;
+    }
+
+    .settings-tabs .nav-link:hover {
+        color: white;
+        background: rgba(67, 97, 238, 0.05);
+        transform: translateY(-2px);
+    }
+
+    .settings-tabs .nav-link.active {
+        background: linear-gradient(135deg, var(--primary-color) 0%, #764ba2 100%);
+        color: var(--light-color);
+        box-shadow: 0 10px 20px rgba(67, 97, 238, 0.3);
+    }
+
+    .settings-tabs .nav-link.active::after {
+        content: '';
+        position: absolute;
+        bottom: -5px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0;
+        height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-top: 8px solid var(--primary-color);
+    }
+
+    /* Cards */
+    .settings-card {
+        background: white;
+        border-radius: 20px;
+        border: none;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+        margin-bottom: 30px;
+    }
+
+    .settings-card .card-header {
+        background: linear-gradient(135deg, #f8f9fa 0%, white 100%);
+        border-bottom: 2px solid rgba(67, 97, 238, 0.1);
+        padding: 25px 30px;
+    }
+
+    .settings-card .card-header h5 {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--dark-color);
+        margin: 0;
+    }
+
+    .settings-card .card-header h5 i {
+        color: var(--primary-color);
+        margin-right: 12px;
+        font-size: 1.5rem;
+    }
+
+    .settings-card .card-body {
+        padding: 30px;
+    }
+
+    /* Form Elements */
+    .form-group {
+        margin-bottom: 25px;
+    }
+
+    .form-label {
+        font-weight: 600;
+        color: var(--dark-color);
+        margin-bottom: 10px;
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .form-label i {
+        color: var(--primary-color);
+        margin-right: 8px;
+        width: 20px;
+    }
+
+    .form-control,
+    .form-select {
+        border: 2px solid #e9ecef;
+        border-radius: 12px;
+        padding: 12px 18px;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        background: white;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 4px rgba(67, 97, 238, 0.1);
+        outline: none;
+    }
+
+    .form-control.is-invalid {
+        border-color: var(--danger-color);
+        background-image: none;
+    }
+
+    .form-text {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+    }
+
+    .form-text i {
+        margin-right: 5px;
+        font-size: 1rem;
+    }
+
+    /* Input Groups */
+    .input-group {
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .input-group-text {
+        background: linear-gradient(135deg, var(--primary-color) 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        font-weight: 600;
+    }
+
+    .input-group .form-control {
+        border-left: none;
+    }
+
+    /* Buttons */
+    .btn-save {
+        background: linear-gradient(135deg, var(--primary-color) 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 14px 35px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 1.1rem;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .btn-save:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px rgba(67, 97, 238, 0.4);
+        color: white;
+    }
+
+    .btn-save i {
+        margin-right: 10px;
+        transition: transform 0.3s ease;
+    }
+
+    .btn-save:hover i {
+        transform: scale(1.2);
+    }
+
+    .btn-outline-primary-custom {
+        background: transparent;
+        border: 2px solid var(--primary-color);
+        color: var(--primary-color);
+        padding: 12px 25px;
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .btn-outline-primary-custom:hover {
+        background: linear-gradient(135deg, var(--primary-color) 0%, #764ba2 100%);
+        color: white;
+        border-color: transparent;
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(67, 97, 238, 0.2);
+    }
+
+    /* Business Hours Table */
+    .business-hours-table {
+        background: white;
+        border-radius: 15px;
+        overflow: hidden;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+    }
+
+    .business-hours-table th {
+        background: linear-gradient(135deg, var(--primary-color) 0%, #764ba2 100%);
+        color: white;
+        font-weight: 600;
+        padding: 15px;
+        border: none;
+    }
+
+    .business-hours-table td {
+        padding: 15px;
+        vertical-align: middle;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .business-hours-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .business-hours-table .form-control,
+    .business-hours-table .form-select {
+        border-radius: 8px;
+        padding: 8px 12px;
+    }
+
+    /* Switch Toggle */
+    .form-switch {
+        padding-left: 3rem;
+    }
+
+    .form-switch .form-check-input {
+        width: 3rem;
+        height: 1.5rem;
+        margin-left: -3rem;
+        border-radius: 3rem;
+        cursor: pointer;
+    }
+
+    .form-switch .form-check-input:checked {
+        background-color: var(--success-color);
+        border-color: var(--success-color);
+    }
+
+    /* Media Upload */
+    .media-preview {
+        background: linear-gradient(135deg, #f8f9fa 0%, white 100%);
+        border-radius: 15px;
+        padding: 25px;
+        text-align: center;
+        border: 2px dashed #dee2e6;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .media-preview:hover {
+        border-color: var(--primary-color);
+        background: rgba(67, 97, 238, 0.02);
+    }
+
+    .media-preview img {
+        max-width: 100%;
+        max-height: 200px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    }
+
+    .media-upload-btn {
+        position: relative;
+        overflow: hidden;
+        margin-top: 15px;
+    }
+
+    .media-upload-btn input[type="file"] {
+        position: absolute;
+        top: 0;
+        right: 0;
+        min-width: 100%;
+        min-height: 100%;
+        font-size: 100px;
+        text-align: right;
+        filter: alpha(opacity=0);
+        opacity: 0;
+        outline: none;
+        background: white;
+        cursor: pointer;
+        display: block;
+    }
+
+    /* Social Media Preview */
+    .social-preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-top: 20px;
+    }
+
+    .social-preview-item {
+        display: inline-flex;
+        align-items: center;
+        padding: 12px 25px;
+        background: linear-gradient(135deg, #f8f9fa 0%, white 100%);
+        border: 2px solid #e9ecef;
+        border-radius: 50px;
+        text-decoration: none;
+        color: var(--dark-color);
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+    }
+
+    .social-preview-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 25px rgba(67, 97, 238, 0.15);
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+    }
+
+    .social-preview-item i {
+        font-size: 1.5rem;
+        margin-right: 10px;
+    }
+
+    .social-preview-item.facebook i {
+        color: #1877f2;
+    }
+
+    .social-preview-item.instagram i {
+        color: #e4405f;
+    }
+
+    .social-preview-item.twitter i {
+        color: #1da1f2;
+    }
+
+    .social-preview-item.linkedin i {
+        color: #0077b5;
+    }
+
+    .social-preview-item.youtube i {
+        color: #ff0000;
+    }
+
+    .social-preview-item.pinterest i {
+        color: #bd081c;
+    }
+
+    /* Danger Zone */
+    .danger-zone {
+        background: linear-gradient(135deg, #fff5f5 0%, white 100%);
+        border: 2px solid var(--danger-color);
+        border-radius: 20px;
+        padding: 30px;
+        margin-top: 30px;
+    }
+
+    .danger-zone h6 {
+        color: var(--danger-color);
+        font-weight: 700;
+        font-size: 1.2rem;
+        margin-bottom: 20px;
+    }
+
+    .danger-zone h6 i {
+        margin-right: 10px;
+    }
+
+    .danger-zone .btn-outline-danger {
+        border: 2px solid var(--danger-color);
+        color: var(--danger-color);
+        padding: 12px 25px;
+        border-radius: 12px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .danger-zone .btn-outline-danger:hover {
+        background: var(--danger-color);
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(239, 71, 111, 0.3);
+    }
+
+    /* Animations */
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .tab-pane {
+        animation: slideIn 0.5s ease;
+    }
+    /* Quick access card styling */
+.text-white-50 {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.opacity-75 {
+    opacity: 0.75;
+}
+
+/* Bank tab styling */
+#bank .text-center {
+    animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+    /* Responsive Design */
+    @media (max-width: 992px) {
+        .main-content {
+            margin: 10px;
+            padding: 20px;
+        }
+
+        .settings-header h1 {
+            font-size: 1.8rem;
+        }
+
+        .settings-tabs .nav-link {
+            padding: 12px 15px;
+            font-size: 0.9rem;
+        }
+
+        .settings-tabs .nav-link i {
+            margin-right: 5px;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .settings-tabs .nav-item {
+            width: 100%;
+            margin: 5px 0;
+        }
+
+        .settings-tabs .nav-link {
+            width: 100%;
+            text-align: left;
+        }
+
+        .settings-tabs .nav-link.active::after {
+            display: none;
+        }
+
+        .business-hours-table {
+            font-size: 0.9rem;
+        }
+
+        .business-hours-table td {
+            padding: 10px;
+        }
+    }
+
+    /* Loading Spinner */
+    .spinner-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.9);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        backdrop-filter: blur(5px);
+    }
+
+    .spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid var(--primary-color);
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    /* Toast Notifications */
+    .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+    }
+
+    .toast-custom {
+        background: white;
+        border-radius: 12px;
+        padding: 15px 25px;
+        margin-bottom: 10px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        display: flex;
+        align-items: center;
+        animation: slideInRight 0.3s ease;
+        border-left: 4px solid var(--primary-color);
+    }
+
+    .toast-custom.success {
+        border-left-color: var(--success-color);
+    }
+
+    .toast-custom.error {
+        border-left-color: var(--danger-color);
+    }
+
+    .toast-custom.warning {
+        border-left-color: var(--warning-color);
+    }
+
+    .toast-custom i {
+        font-size: 1.5rem;
+        margin-right: 15px;
+    }
+
+    .toast-custom.success i {
+        color: var(--success-color);
+    }
+
+    .toast-custom.error i {
+        color: var(--danger-color);
+    }
+
+    .toast-custom.warning i {
+        color: var(--warning-color);
+    }
+
+    .toast-custom .toast-content {
+        flex: 1;
+    }
+
+    .toast-custom .toast-title {
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+
+    .toast-custom .toast-message {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+
+    .toast-custom .toast-close {
+        cursor: pointer;
+        color: #6c757d;
+        transition: color 0.3s ease;
+    }
+
+    .toast-custom .toast-close:hover {
+        color: var(--danger-color);
+    }
+
+    @keyframes slideInRight {
+        from {
+            opacity: 0;
+            transform: translateX(100%);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+</style>
+
 <div class="dashboard-container">
     <?php include_once '../../includes/vendor-sidebar.php'; ?>
-    
+
     <main class="main-content">
-        <!-- Header -->
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h1 class="h3 mb-1 fw-bold">Vendor Settings</h1>
-                <p class="text-muted mb-0">Manage your store settings and preferences</p>
-            </div>
-            <div class="btn-group">
-                <a href="../dashboard.php" class="btn btn-outline-primary">
-                    <i class="fas fa-arrow-left me-2"></i> Back to Dashboard
-                </a>
-                <button type="button" class="btn btn-primary" onclick="saveAllSettings()">
-                    <i class="fas fa-save me-2"></i> Save All Changes
-                </button>
+        <!-- Loading Spinner -->
+        <div class="spinner-overlay" id="spinner">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- Header Section -->
+        <div class="settings-header">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1><i class="fas fa-cog me-3"></i>Store Settings</h1>
+                    <p class="text-muted mb-0">Customize and manage your store preferences</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn-save" onclick="saveAllSettings()">
+                        <i class="fas fa-save"></i> Save All Changes
+                    </button>
+                </div>
             </div>
         </div>
-        
-        <!-- Settings Navigation -->
-        <div class="card border-0 shadow-sm mb-4">
-            <div class="card-body p-0">
-                <ul class="nav nav-tabs settings-tabs" id="settingsTab" role="tablist">
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="general-tab" data-bs-toggle="tab" 
-                                data-bs-target="#general" type="button">
-                            <i class="fas fa-store me-2"></i> General
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="store-tab" data-bs-toggle="tab" 
-                                data-bs-target="#store" type="button">
-                            <i class="fas fa-building me-2"></i> Store
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="policies-tab" data-bs-toggle="tab" 
-                                data-bs-target="#policies" type="button">
-                            <i class="fas fa-file-contract me-2"></i> Policies
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="media-tab" data-bs-toggle="tab" 
-                                data-bs-target="#media" type="button">
-                            <i class="fas fa-images me-2"></i> Media
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="social-tab" data-bs-toggle="tab" 
-                                data-bs-target="#social" type="button">
-                            <i class="fas fa-share-alt me-2"></i> Social
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="advanced-tab" data-bs-toggle="tab" 
-                                data-bs-target="#advanced" type="button">
-                            <i class="fas fa-cogs me-2"></i> Advanced
-                        </button>
-                    </li>
-                </ul>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <!-- Store Status Card -->
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, rgba(67, 97, 238, 0.1) 0%, rgba(67, 97, 238, 0.2) 100%); color: var(--primary-color);">
+                    <i class="fas fa-store"></i>
+                </div>
+                <div class="stat-label">Store Status</div>
+                <div class="stat-value">
+                    <?php
+                    // Safe way to get vendor status with default
+                    $vendor_status = $vendor['vendor_status'] ?? 'pending';
+
+                    // Set color and icon based on status
+                    $status_color = 'secondary';
+                    $status_icon = 'circle';
+
+                    if ($vendor_status === 'approved') {
+                        $status_color = 'success';
+                        $status_icon = 'check-circle';
+                    } elseif ($vendor_status === 'pending') {
+                        $status_color = 'warning';
+                        $status_icon = 'clock';
+                    } elseif ($vendor_status === 'rejected') {
+                        $status_color = 'danger';
+                        $status_icon = 'times-circle';
+                    } elseif ($vendor_status === 'suspended') {
+                        $status_color = 'dark';
+                        $status_icon = 'ban';
+                    }
+                    ?>
+                    <span class="badge bg-<?php echo $status_color; ?> px-3 py-2">
+                        <i class="fas fa-<?php echo $status_icon; ?> me-2"></i>
+                        <?php echo ucfirst($vendor_status); ?>
+                    </span>
+                </div>
+                <div class="stat-trend">
+                    <i class="fas fa-calendar me-1"></i> Since <?php echo $vendor['vendor_since_formatted'] ?? 'N/A'; ?>
+                </div>
+            </div>
+
+            <!-- Store Rating Card -->
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, rgba(6, 214, 160, 0.1) 0%, rgba(6, 214, 160, 0.2) 100%); color: var(--success-color);">
+                    <i class="fas fa-star"></i>
+                </div>
+                <div class="stat-label">Store Rating</div>
+                <div class="stat-value">
+                    <?php
+                    $rating = floatval($vendor['vendor_rating'] ?? 0);
+                    echo number_format($rating, 1);
+                    ?>
+                </div>
+                <div class="stat-trend">
+                    <?php
+                    $full_stars = floor($rating);
+                    $half_star = ($rating - $full_stars) >= 0.5;
+
+                    for ($i = 1; $i <= 5; $i++):
+                        if ($i <= $full_stars) {
+                            $starClass = 'fas fa-star';
+                        } elseif ($i == $full_stars + 1 && $half_star) {
+                            $starClass = 'fas fa-star-half-alt';
+                        } else {
+                            $starClass = 'far fa-star';
+                        }
+                    ?>
+                        <i class="<?php echo $starClass; ?>" style="color: #ffc107;"></i>
+                    <?php endfor; ?>
+                </div>
+            </div>
+
+            <!-- Total Products Card -->
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, rgba(255, 183, 3, 0.1) 0%, rgba(255, 183, 3, 0.2) 100%); color: var(--warning-color);">
+                    <i class="fas fa-box"></i>
+                </div>
+                <div class="stat-label">Total Products</div>
+                <div class="stat-value">
+                    <?php
+                    // If total_products not in vendor array, calculate it
+                    if (!isset($vendor['total_products']) && isset($db) && isset($vendor_id)) {
+                        try {
+                            $stmt = $db->prepare("SELECT COUNT(*) FROM products WHERE vendor_id = ?");
+                            $stmt->execute([$vendor_id]);
+                            $vendor['total_products'] = $stmt->fetchColumn();
+                        } catch (Exception $e) {
+                            $vendor['total_products'] = 0;
+                        }
+                    }
+                    echo $vendor['total_products'] ?? 0;
+                    ?>
+                </div>
+                <div class="stat-trend">
+                    <i class="fas fa-arrow-up text-success"></i> Active products
+                </div>
+            </div>
+
+            <!-- Total Sales Card -->
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, rgba(239, 71, 111, 0.1) 0%, rgba(239, 71, 111, 0.2) 100%); color: var(--danger-color);">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <div class="stat-label">Total Sales</div>
+                <div class="stat-value">
+                    $<?php echo number_format(floatval($vendor['total_sales'] ?? 0), 2); ?>
+                </div>
+                <div class="stat-trend">
+                    <i class="fas fa-calendar me-1"></i> Lifetime earnings
+                </div>
             </div>
         </div>
+
         
-        <!-- Settings Content -->
+<!-- Quick Access Card -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #4361ee 0%, #764ba2 100%);">
+            <div class="card-body p-4">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <div class="d-flex align-items-center">
+                            <div class="me-4">
+                                <i class="fas fa-university fa-3x text-white opacity-75"></i>
+                            </div>
+                            <div>
+                                <h5 class="text-white mb-1">Payment Methods & Withdrawals</h5>
+                                <p class="text-white-50 mb-0">
+                                    Configure your bank accounts, Easypaisa, JazzCash, PayPal, and cards
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 text-md-end">
+                        <a href="bank.php" class="btn btn-light btn-lg px-4">
+                            <i class="fas fa-university me-2"></i> Bank Settings
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tab Content (with Bank tab) -->
+<div class="tab-content" id="settingsTabContent">
+    <!-- ... existing tabs (general, store, policies, media, social, advanced) ... -->
+    
+    <!-- Bank Tab -->
+    <div class="tab-pane fade" id="bank" role="tabpanel">
+        <div class="settings-card">
+            <div class="card-header">
+                <h5><i class="fas fa-university"></i> Bank & Payment Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center py-5">
+                    <i class="fas fa-university fa-4x text-primary mb-3"></i>
+                    <h4 class="mb-3">Manage Your Payment Methods</h4>
+                    <p class="text-muted mb-4">
+                        Configure bank accounts, Easypaisa, JazzCash, PayPal, Stripe, and credit cards
+                    </p>
+                    <a href="bank.php" class="btn btn-primary btn-lg px-5">
+                        <i class="fas fa-arrow-right me-2"></i> Open Bank Settings
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+        <!-- Tabs Navigation -->
+        <div class="settings-tabs">
+            <ul class="nav nav-pills" id="settingsTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="general-tab" data-bs-toggle="pill"
+                        data-bs-target="#general" type="button">
+                        <i class="fas fa-store"></i> General
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="store-tab" data-bs-toggle="pill"
+                        data-bs-target="#store" type="button">
+                        <i class="fas fa-building"></i> Store
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="policies-tab" data-bs-toggle="pill"
+                        data-bs-target="#policies" type="button">
+                        <i class="fas fa-file-contract"></i> Policies
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="media-tab" data-bs-toggle="pill"
+                        data-bs-target="#media" type="button">
+                        <i class="fas fa-images"></i> Media
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="social-tab" data-bs-toggle="pill"
+                        data-bs-target="#social" type="button">
+                        <i class="fas fa-share-alt"></i> Social
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="advanced-tab" data-bs-toggle="pill"
+                        data-bs-target="#advanced" type="button">
+                        <i class="fas fa-cogs"></i> Advanced
+                    </button>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Tab Content -->
         <div class="tab-content" id="settingsTabContent">
             <!-- General Settings Tab -->
             <div class="tab-pane fade show active" id="general" role="tabpanel">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-store me-2"></i> General Store Settings
-                        </h5>
+                <div class="settings-card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-store"></i> General Store Settings</h5>
                     </div>
                     <div class="card-body">
-                        <form method="POST" id="generalForm">
-                            <input type="hidden" name="action" value="update_general">
-                            
+                        <form method="POST" id="generalForm" action="action/settings/update-general.php">
                             <div class="row g-4">
-                                <!-- Store Name -->
                                 <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Store Name *</label>
-                                        <input type="text" name="store_name" class="form-control" 
-                                               value="<?php echo htmlspecialchars($vendor['store_name'] ?? ''); ?>"
-                                               required>
-                                        <small class="text-muted">This will be displayed to customers</small>
-                                    </div>
-                                </div>
-                                
-                                <!-- Store Category -->
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Store Category *</label>
-                                        <select name="store_category" class="form-select" required>
-                                            <option value="">Select Category</option>
-                                            <?php foreach($categories as $cat): ?>
-                                            <option value="<?php echo $cat['slug']; ?>" 
-                                                <?php echo ($vendor['vendor_category'] ?? '') === $cat['slug'] ? 'selected' : ''; ?>>
-                                                <?php echo htmlspecialchars($cat['name']); ?>
-                                            </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                        <small class="text-muted">Main category for your store</small>
-                                    </div>
-                                </div>
-                                
-                                <!-- Store Description -->
-                                <div class="col-12">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Store Description</label>
-                                        <textarea name="store_description" class="form-control" rows="4"
-                                                  placeholder="Tell customers about your store..."><?php echo htmlspecialchars($vendor['store_description'] ?? ''); ?></textarea>
-                                        <small class="text-muted">Brief description shown on your store page</small>
-                                    </div>
-                                </div>
-                                
-                                <!-- Contact Info -->
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Store Phone</label>
-                                        <input type="tel" name="store_phone" class="form-control" 
-                                               value="<?php echo htmlspecialchars($vendor['store_phone'] ?? ''); ?>">
-                                    </div>
-                                </div>
-                                
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Store Email *</label>
-                                        <input type="email" name="store_email" class="form-control" 
-                                               value="<?php echo htmlspecialchars($vendor['store_email'] ?? $vendor['email']); ?>"
-                                               required>
-                                    </div>
-                                </div>
-                                
-                                <!-- Website -->
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Website URL</label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">https://</span>
-                                            <input type="url" name="store_website" class="form-control" 
-                                                   value="<?php echo htmlspecialchars($vendor['store_website'] ?? ''); ?>"
-                                                   placeholder="yourstore.com">
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-store"></i> Store Name *
+                                        </label>
+                                        <input type="text" name="store_name" class="form-control"
+                                            value="<?php echo htmlspecialchars($vendor['store_name'] ?? ''); ?>"
+                                            placeholder="Enter your store name" required>
+                                        <div class="form-text">
+                                            <i class="fas fa-info-circle"></i> This will be displayed to customers
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <!-- Currency -->
+
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-tag"></i> Store Category *
+                                        </label>
+                                        <select name="store_category" class="form-select" required>
+                                            <option value="">Select Category</option>
+                                            <?php foreach ($categories as $cat): ?>
+                                                <option value="<?php echo $cat['slug']; ?>"
+                                                    <?php echo ($vendor['vendor_category'] ?? '') === $cat['slug'] ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($cat['name']); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <div class="form-text">
+                                            <i class="fas fa-info-circle"></i> Main category for your store
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-12">
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-align-left"></i> Store Description
+                                        </label>
+                                        <textarea name="store_description" class="form-control" rows="4"
+                                            placeholder="Tell customers about your store..."><?php echo htmlspecialchars($vendor['store_description'] ?? ''); ?></textarea>
+                                        <div class="form-text">
+                                            <i class="fas fa-info-circle"></i> Brief description shown on your store page
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-phone"></i> Store Phone
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text"><i class="fas fa-phone"></i></span>
+                                            <input type="tel" name="store_phone" class="form-control"
+                                                value="<?php echo htmlspecialchars($vendor['store_phone'] ?? ''); ?>"
+                                                placeholder="+1 234 567 890">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-envelope"></i> Store Email *
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+                                            <input type="email" name="store_email" class="form-control"
+                                                value="<?php echo htmlspecialchars($vendor['store_email'] ?? $vendor['email']); ?>"
+                                                placeholder="store@example.com" required>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-globe"></i> Website URL
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">https://</span>
+                                            <input type="url" name="store_website" class="form-control"
+                                                value="<?php echo htmlspecialchars($vendor['store_website'] ?? ''); ?>"
+                                                placeholder="yourstore.com">
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="col-md-3">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Currency</label>
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-money-bill"></i> Currency
+                                        </label>
                                         <select name="store_currency" class="form-select">
                                             <?php
                                             $currencies = [
@@ -495,24 +1151,26 @@ function resizeImage($path, $max_width, $max_height) {
                                                 'EUR' => 'Euro (€)',
                                                 'GBP' => 'British Pound (£)',
                                                 'INR' => 'Indian Rupee (₹)',
+                                                'PKR' => 'Pakistani Rupee (₨)',
                                                 'CAD' => 'Canadian Dollar (C$)',
                                                 'AUD' => 'Australian Dollar (A$)',
                                                 'JPY' => 'Japanese Yen (¥)'
                                             ];
-                                            foreach($currencies as $code => $name): ?>
-                                            <option value="<?php echo $code; ?>"
-                                                <?php echo ($vendor['store_currency'] ?? 'USD') === $code ? 'selected' : ''; ?>>
-                                                <?php echo $name; ?>
-                                            </option>
+                                            foreach ($currencies as $code => $name): ?>
+                                                <option value="<?php echo $code; ?>"
+                                                    <?php echo ($vendor['store_currency'] ?? 'USD') === $code ? 'selected' : ''; ?>>
+                                                    <?php echo $name; ?>
+                                                </option>
                                             <?php endforeach; ?>
                                         </select>
                                     </div>
                                 </div>
-                                
-                                <!-- Timezone -->
+
                                 <div class="col-md-3">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Timezone</label>
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-clock"></i> Timezone
+                                        </label>
                                         <select name="store_timezone" class="form-select">
                                             <?php
                                             $timezones = [
@@ -524,171 +1182,63 @@ function resizeImage($path, $max_width, $max_height) {
                                                 'Europe/London' => 'London',
                                                 'Europe/Paris' => 'Paris',
                                                 'Asia/Kolkata' => 'India (Kolkata)',
+                                                'Asia/Karachi' => 'Pakistan (Karachi)',
                                                 'Asia/Tokyo' => 'Tokyo',
                                                 'Australia/Sydney' => 'Sydney'
                                             ];
-                                            foreach($timezones as $tz => $label): ?>
-                                            <option value="<?php echo $tz; ?>"
-                                                <?php echo ($vendor['store_timezone'] ?? 'UTC') === $tz ? 'selected' : ''; ?>>
-                                                <?php echo $label; ?>
-                                            </option>
+                                            foreach ($timezones as $tz => $label): ?>
+                                                <option value="<?php echo $tz; ?>"
+                                                    <?php echo ($vendor['store_timezone'] ?? 'UTC') === $tz ? 'selected' : ''; ?>>
+                                                    <?php echo $label; ?>
+                                                </option>
                                             <?php endforeach; ?>
                                         </select>
                                     </div>
                                 </div>
-                                
-                                <!-- Language -->
+
                                 <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-bold">Store Language</label>
+                                    <div class="form-group">
+                                        <label class="form-label">
+                                            <i class="fas fa-language"></i> Store Language
+                                        </label>
                                         <select name="store_language" class="form-select">
                                             <option value="en" <?php echo ($vendor['store_language'] ?? 'en') === 'en' ? 'selected' : ''; ?>>English</option>
                                             <option value="hi" <?php echo ($vendor['store_language'] ?? 'en') === 'hi' ? 'selected' : ''; ?>>Hindi</option>
                                             <option value="es" <?php echo ($vendor['store_language'] ?? 'en') === 'es' ? 'selected' : ''; ?>>Spanish</option>
                                             <option value="fr" <?php echo ($vendor['store_language'] ?? 'en') === 'fr' ? 'selected' : ''; ?>>French</option>
+                                            <option value="ur" <?php echo ($vendor['store_language'] ?? 'en') === 'ur' ? 'selected' : ''; ?>>Urdu</option>
                                         </select>
                                     </div>
                                 </div>
-                                
-                                <!-- Submit Button -->
-                                <div class="col-12">
-                                    <div class="d-flex justify-content-end">
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="fas fa-save me-2"></i> Save General Settings
-                                        </button>
-                                    </div>
-                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-end mt-4">
+                                <button type="submit" class="btn-save">
+                                    <i class="fas fa-save"></i> Save General Settings
+                                </button>
                             </div>
                         </form>
-                        
-                        <!-- Store Statistics -->
-                        <div class="mt-5 pt-4 border-top">
-                            <h6 class="fw-bold mb-3">Store Statistics</h6>
-                            <div class="row g-3">
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Vendor Since</small>
-                                        <strong class="d-block"><?php echo $vendor['vendor_since_formatted'] ?? 'N/A'; ?></strong>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Account Status</small>
-                                        <span class="badge bg-<?php 
-                                            echo $vendor['vendor_status'] === 'approved' ? 'success' : 
-                                                 ($vendor['vendor_status'] === 'pending' ? 'warning' : 'danger'); 
-                                        ?>">
-                                            <?php echo ucfirst($vendor['vendor_status']); ?>
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Store Rating</small>
-                                        <div class="text-warning">
-                                            <?php 
-                                            $rating = $vendor['vendor_rating'] ?? 0;
-                                            for($i = 1; $i <= 5; $i++): 
-                                                $starClass = $i <= floor($rating) ? 'fas fa-star' : 
-                                                            ($i <= ceil($rating) ? 'fas fa-star-half-alt' : 'far fa-star');
-                                            ?>
-                                                <i class="<?php echo $starClass; ?>"></i>
-                                            <?php endfor; ?>
-                                            <span class="text-dark ms-1"><?php echo number_format($rating, 1); ?></span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Total Products</small>
-                                        <strong class="d-block"><?php echo $vendor['total_products'] ?? 0; ?></strong>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Bank</small>
-                                        <p>Select your bank and withdrawal request</p>
-                                        <a href="bank.php" class="text-decoration-none p-2 btn btn-warning text-white">View Bank Details</a>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">integration</small>
-                                        <p>Select your integration</p>
-                                        <a href="integrations.php" class="text-decoration-none p-2 btn btn-warning text-white">View Integration Details</a>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">notification</small>
-                                        <p>Select your notification system</p>
-                                        <a href="notifications.php" class="text-decoration-none p-2 btn btn-warning text-white">View Notification Details</a>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Security</small>
-                                        <p>Select your security settings</p>
-                                        <a href="security.php" class="text-decoration-none p-2 btn btn-warning text-white">View Security Details</a>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Shipping</small>
-                                        <p>Select your shipping settings</p>
-                                        <a href="shipping.php" class="text-decoration-none p-2 btn btn-warning text-white">View Shipping Details</a>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">Store</small>
-                                        <p>Select your store settings</p>
-                                        <a href="store.php" class="text-decoration-none p-2 btn btn-warning text-white">View Store Details</a>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="border rounded p-3 text-center">
-                                        <small class="text-muted d-block">profile</small>
-                                        <p>Select your profile settings</p>
-                                        <a href="profile.php" class="text-decoration-none p-2 btn btn-warning text-white">View Profile Details</a>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Store Settings Tab -->
             <div class="tab-pane fade" id="store" role="tabpanel">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-building me-2"></i> Store Details
-                        </h5>
+                <div class="settings-card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-building"></i> Store Details</h5>
                     </div>
                     <div class="card-body">
-                        <form method="POST" id="storeForm">
-                            <input type="hidden" name="action" value="update_store">
-                            
+                        <form method="POST" id="storeForm" action="action/settings/update-store.php">
                             <div class="row g-4">
                                 <!-- Business Hours -->
                                 <div class="col-12">
-                                    <h6 class="fw-bold mb-3">Business Hours</h6>
-                                    <?php
-                                    $business_hours = $vendor['business_hours'] ? json_decode($vendor['business_hours'], true) : 
-                                        [
-                                            'monday' => ['open' => '09:00', 'close' => '18:00'],
-                                            'tuesday' => ['open' => '09:00', 'close' => '18:00'],
-                                            'wednesday' => ['open' => '09:00', 'close' => '18:00'],
-                                            'thursday' => ['open' => '09:00', 'close' => '18:00'],
-                                            'friday' => ['open' => '09:00', 'close' => '18:00'],
-                                            'saturday' => ['open' => '10:00', 'close' => '16:00'],
-                                            'sunday' => ['open' => '', 'close' => '']
-                                        ];
-                                    ?>
+                                    <h6 class="fw-bold mb-4" style="color: var(--primary-color);">
+                                        <i class="fas fa-clock me-2"></i> Business Hours
+                                    </h6>
+
                                     <div class="table-responsive">
-                                        <table class="table">
+                                        <table class="table business-hours-table">
                                             <thead>
                                                 <tr>
                                                     <th>Day</th>
@@ -698,7 +1248,7 @@ function resizeImage($path, $max_width, $max_height) {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <?php 
+                                                <?php
                                                 $days = [
                                                     'monday' => 'Monday',
                                                     'tuesday' => 'Tuesday',
@@ -708,317 +1258,320 @@ function resizeImage($path, $max_width, $max_height) {
                                                     'saturday' => 'Saturday',
                                                     'sunday' => 'Sunday'
                                                 ];
-                                                foreach($days as $key => $day): 
+                                                foreach ($days as $key => $day):
                                                     $hours = $business_hours[$key] ?? ['open' => '', 'close' => ''];
                                                 ?>
-                                                <tr>
-                                                    <td><strong><?php echo $day; ?></strong></td>
-                                                    <td>
-                                                        <input type="time" name="business_hours[<?php echo $key; ?>][open]" 
-                                                               class="form-control" value="<?php echo $hours['open']; ?>">
-                                                    </td>
-                                                    <td>
-                                                        <input type="time" name="business_hours[<?php echo $key; ?>][close]" 
-                                                               class="form-control" value="<?php echo $hours['close']; ?>">
-                                                    </td>
-                                                    <td>
-                                                        <div class="form-check form-switch">
-                                                            <input class="form-check-input" type="checkbox" 
-                                                                   name="business_hours[<?php echo $key; ?>][enabled]"
-                                                                   <?php echo !empty($hours['open']) ? 'checked' : ''; ?>>
-                                                            <label class="form-check-label">Open</label>
-                                                        </div>
-                                                    </td>
-                                                </tr>
+                                                    <tr>
+                                                        <td><strong><?php echo $day; ?></strong></td>
+                                                        <td>
+                                                            <input type="time" name="business_hours[<?php echo $key; ?>][open]"
+                                                                class="form-control" value="<?php echo $hours['open']; ?>">
+                                                        </td>
+                                                        <td>
+                                                            <input type="time" name="business_hours[<?php echo $key; ?>][close]"
+                                                                class="form-control" value="<?php echo $hours['close']; ?>">
+                                                        </td>
+                                                        <td>
+                                                            <div class="form-check form-switch">
+                                                                <input class="form-check-input" type="checkbox"
+                                                                    name="business_hours[<?php echo $key; ?>][enabled]"
+                                                                    <?php echo !empty($hours['open']) ? 'checked' : ''; ?>>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
                                                 <?php endforeach; ?>
                                             </tbody>
                                         </table>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Store Address -->
-                                <div class="col-12">
-                                    <h6 class="fw-bold mb-3 mt-4">Store Address</h6>
-                                    <div class="mb-3">
-                                        <label class="form-label">Full Address</label>
-                                        <textarea name="store_address" class="form-control" rows="3"><?php echo htmlspecialchars($vendor['store_address'] ?? ''); ?></textarea>
+                                <div class="col-12 mt-4">
+                                    <h6 class="fw-bold mb-4" style="color: var(--primary-color);">
+                                        <i class="fas fa-map-marker-alt me-2"></i> Store Address
+                                    </h6>
+                                    <div class="form-group">
+                                        <textarea name="store_address" class="form-control" rows="3"
+                                            placeholder="Enter your complete store address"><?php echo htmlspecialchars($vendor['store_address'] ?? ''); ?></textarea>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Order Settings -->
                                 <div class="col-md-6">
-                                    <h6 class="fw-bold mb-3 mt-4">Order Settings</h6>
-                                    <div class="mb-3">
+                                    <h6 class="fw-bold mb-4" style="color: var(--primary-color);">
+                                        <i class="fas fa-shopping-cart me-2"></i> Order Settings
+                                    </h6>
+                                    <div class="form-group">
                                         <label class="form-label">Minimum Order Amount</label>
                                         <div class="input-group">
                                             <span class="input-group-text">$</span>
-                                            <input type="number" name="min_order_amount" class="form-control" 
-                                                   step="0.01" min="0"
-                                                   value="<?php echo $vendor['min_order_amount'] ?? '0.00'; ?>">
+                                            <input type="number" name="min_order_amount" class="form-control"
+                                                step="0.01" min="0" value="<?php echo $vendor['min_order_amount'] ?? '0.00'; ?>">
                                         </div>
-                                        <small class="text-muted">Minimum amount for order placement</small>
                                     </div>
                                 </div>
-                                
+
                                 <div class="col-md-6">
-                                    <h6 class="fw-bold mb-3 mt-4">Free Shipping</h6>
-                                    <div class="mb-3">
+                                    <h6 class="fw-bold mb-4" style="color: var(--primary-color);">
+                                        <i class="fas fa-truck me-2"></i> Free Shipping
+                                    </h6>
+                                    <div class="form-group">
                                         <label class="form-label">Free Shipping Threshold</label>
                                         <div class="input-group">
                                             <span class="input-group-text">$</span>
-                                            <input type="number" name="free_shipping_threshold" class="form-control" 
-                                                   step="0.01" min="0"
-                                                   value="<?php echo $vendor['free_shipping_threshold'] ?? '0.00'; ?>">
+                                            <input type="number" name="free_shipping_threshold" class="form-control"
+                                                step="0.01" min="0" value="<?php echo $vendor['free_shipping_threshold'] ?? '0.00'; ?>">
                                         </div>
-                                        <small class="text-muted">Order amount for free shipping</small>
+                                        <div class="form-text">
+                                            <i class="fas fa-info-circle"></i> Orders above this amount get free shipping
+                                        </div>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Inventory Settings -->
                                 <div class="col-12">
-                                    <h6 class="fw-bold mb-3 mt-4">Inventory Settings</h6>
+                                    <h6 class="fw-bold mb-4" style="color: var(--primary-color);">
+                                        <i class="fas fa-boxes me-2"></i> Inventory Settings
+                                    </h6>
                                     <div class="row g-3">
                                         <div class="col-md-4">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" name="low_stock_notify" 
-                                                       id="lowStockNotify" checked>
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" name="low_stock_notify"
+                                                    id="lowStockNotify" <?php echo ($vendor['low_stock_notify'] ?? 1) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label" for="lowStockNotify">
+                                                    <i class="fas fa-bell text-warning me-2"></i>
                                                     Low Stock Notifications
                                                 </label>
                                             </div>
                                         </div>
                                         <div class="col-md-4">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" name="auto_hide_out_of_stock" 
-                                                       id="autoHideOutOfStock" checked>
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" name="auto_hide_out_of_stock"
+                                                    id="autoHideOutOfStock" <?php echo ($vendor['auto_hide_out_of_stock'] ?? 1) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label" for="autoHideOutOfStock">
+                                                    <i class="fas fa-eye-slash text-info me-2"></i>
                                                     Auto-hide Out of Stock Products
                                                 </label>
                                             </div>
                                         </div>
                                         <div class="col-md-4">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" name="allow_backorders" 
-                                                       id="allowBackorders">
+                                            <div class="form-check form-switch">
+                                                <input class="form-check-input" type="checkbox" name="allow_backorders"
+                                                    id="allowBackorders" <?php echo ($vendor['allow_backorders'] ?? 0) ? 'checked' : ''; ?>>
                                                 <label class="form-check-label" for="allowBackorders">
+                                                    <i class="fas fa-clock text-success me-2"></i>
                                                     Allow Backorders
                                                 </label>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <!-- Submit Button -->
-                                <div class="col-12">
-                                    <div class="d-flex justify-content-end mt-4">
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="fas fa-save me-2"></i> Save Store Settings
-                                        </button>
-                                    </div>
-                                </div>
                             </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Policies Tab -->
-            <div class="tab-pane fade" id="policies" role="tabpanel">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-file-contract me-2"></i> Store Policies
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <form method="POST" id="policiesForm">
-                            <input type="hidden" name="action" value="update_policies">
-                            
-                            <!-- Store Policy -->
-                            <div class="mb-4">
-                                <label class="form-label fw-bold">Store Policy / Terms of Service</label>
-                                <textarea name="store_policy" class="form-control" rows="6"
-                                          placeholder="Describe your store policies, terms of service, and general guidelines..."><?php echo htmlspecialchars($vendor['store_policy'] ?? ''); ?></textarea>
-                                <small class="text-muted">This will be displayed on your store page</small>
-                            </div>
-                            
-                            <!-- Return Policy -->
-                            <div class="mb-4">
-                                <label class="form-label fw-bold">Return & Refund Policy</label>
-                                <textarea name="return_policy" class="form-control" rows="6"
-                                          placeholder="Describe your return and refund policy..."><?php echo htmlspecialchars($vendor['return_policy'] ?? ''); ?></textarea>
-                                <small class="text-muted">Important for customer trust</small>
-                            </div>
-                            
-                            <!-- Shipping Policy -->
-                            <div class="mb-4">
-                                <label class="form-label fw-bold">Shipping Policy</label>
-                                <textarea name="shipping_policy" class="form-control" rows="6"
-                                          placeholder="Describe your shipping methods, costs, and delivery times..."><?php echo htmlspecialchars($vendor['shipping_policy'] ?? ''); ?></textarea>
-                            </div>
-                            
-                            <!-- Payment Methods -->
-                            <div class="mb-4">
-                                <label class="form-label fw-bold">Accepted Payment Methods</label>
-                                <div class="row g-3">
-                                    <?php
-                                    $payment_methods = $vendor['payment_methods'] ? json_decode($vendor['payment_methods'], true) : [];
-                                    $all_methods = [
-                                        'cod' => 'Cash on Delivery',
-                                        'credit_card' => 'Credit/Debit Card',
-                                        'paypal' => 'PayPal',
-                                        'bank_transfer' => 'Bank Transfer',
-                                        'upi' => 'UPI (India)',
-                                        'stripe' => 'Stripe',
-                                        'razorpay' => 'Razorpay'
-                                    ];
-                                    ?>
-                                    <?php foreach($all_methods as $key => $method): ?>
-                                    <div class="col-md-4">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" 
-                                                   name="payment_methods[]" value="<?php echo $key; ?>"
-                                                   id="payment_<?php echo $key; ?>"
-                                                   <?php echo in_array($key, $payment_methods) ? 'checked' : ''; ?>>
-                                            <label class="form-check-label" for="payment_<?php echo $key; ?>">
-                                                <i class="fas fa-credit-card me-2"></i><?php echo $method; ?>
-                                            </label>
-                                        </div>
-                                    </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                            
-                            <!-- Submit Button -->
-                            <div class="d-flex justify-content-end">
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="fas fa-save me-2"></i> Save Policies
+
+                            <div class="d-flex justify-content-end mt-4">
+                                <button type="submit" class="btn-save">
+                                    <i class="fas fa-save"></i> Save Store Settings
                                 </button>
                             </div>
                         </form>
                     </div>
                 </div>
             </div>
-            
-            <!-- Media Tab -->
-            <div class="tab-pane fade" id="media" role="tabpanel">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-images me-2"></i> Store Media
-                        </h5>
+
+            <!-- Policies Tab -->
+            <div class="tab-pane fade" id="policies" role="tabpanel">
+                <div class="settings-card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-file-contract"></i> Store Policies</h5>
                     </div>
                     <div class="card-body">
-                        <!-- Store Logo -->
-                        <div class="mb-5">
-                            <h6 class="fw-bold mb-3">Store Logo</h6>
-                            <div class="row align-items-center">
-                                <div class="col-md-4">
-                                    <div class="store-logo-preview mb-3">
-                                        <?php if (!empty($vendor['store_logo'])): ?>
-                                        <img src="<?php echo SITE_URL; ?>uploads/vendors/<?php echo $vendor['store_logo']; ?>" 
-                                             alt="Store Logo" class="img-thumbnail" style="max-height: 200px;">
-                                        <?php else: ?>
-                                        <div class="border rounded d-flex align-items-center justify-content-center" 
-                                             style="height: 200px; background: #f8f9fa;">
-                                            <div class="text-center">
-                                                <i class="fas fa-store fa-4x text-muted mb-3"></i>
-                                                <p class="text-muted">No Logo Uploaded</p>
+                        <form method="POST" id="policiesForm" action="action/settings/update-policies.php">
+                            <!-- Store Policy -->
+                            <div class="form-group mb-4">
+                                <label class="form-label">
+                                    <i class="fas fa-store"></i> Store Policy / Terms of Service
+                                </label>
+                                <textarea name="store_policy" class="form-control" rows="6"
+                                    placeholder="Describe your store policies, terms of service, and general guidelines..."><?php echo htmlspecialchars($vendor['store_policy'] ?? ''); ?></textarea>
+                                <div class="form-text">
+                                    <i class="fas fa-info-circle"></i> This will be displayed on your store page
+                                </div>
+                            </div>
+
+                            <!-- Return Policy -->
+                            <div class="form-group mb-4">
+                                <label class="form-label">
+                                    <i class="fas fa-undo-alt"></i> Return & Refund Policy
+                                </label>
+                                <textarea name="return_policy" class="form-control" rows="6"
+                                    placeholder="Describe your return and refund policy..."><?php echo htmlspecialchars($vendor['return_policy'] ?? ''); ?></textarea>
+                                <div class="form-text">
+                                    <i class="fas fa-info-circle"></i> Important for customer trust
+                                </div>
+                            </div>
+
+                            <!-- Shipping Policy -->
+                            <div class="form-group mb-4">
+                                <label class="form-label">
+                                    <i class="fas fa-truck"></i> Shipping Policy
+                                </label>
+                                <textarea name="shipping_policy" class="form-control" rows="6"
+                                    placeholder="Describe your shipping methods, costs, and delivery times..."><?php echo htmlspecialchars($vendor['shipping_policy'] ?? ''); ?></textarea>
+                            </div>
+
+                            <!-- Payment Methods -->
+                            <div class="form-group mb-4">
+                                <label class="form-label">
+                                    <i class="fas fa-credit-card"></i> Accepted Payment Methods
+                                </label>
+                                <div class="row g-3">
+                                    <?php
+                                    $all_methods = [
+                                        'cod' => ['name' => 'Cash on Delivery', 'icon' => 'money-bill-wave'],
+                                        'credit_card' => ['name' => 'Credit/Debit Card', 'icon' => 'credit-card'],
+                                        'paypal' => ['name' => 'PayPal', 'icon' => 'paypal'],
+                                        'bank_transfer' => ['name' => 'Bank Transfer', 'icon' => 'university'],
+                                        'stripe' => ['name' => 'Stripe', 'icon' => 'stripe'],
+                                        'easypaisa' => ['name' => 'Easypaisa', 'icon' => 'mobile-alt'],
+                                        'jazzcash' => ['name' => 'JazzCash', 'icon' => 'mobile-alt']
+                                    ];
+                                    ?>
+                                    <?php foreach ($all_methods as $key => $method): ?>
+                                        <div class="col-md-4">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox"
+                                                    name="payment_methods[]" value="<?php echo $key; ?>"
+                                                    id="payment_<?php echo $key; ?>"
+                                                    <?php echo in_array($key, $payment_methods) ? 'checked' : ''; ?>>
+                                                <label class="form-check-label" for="payment_<?php echo $key; ?>">
+                                                    <i class="fas fa-<?php echo $method['icon']; ?> me-2"></i>
+                                                    <?php echo $method['name']; ?>
+                                                </label>
                                             </div>
                                         </div>
-                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-end">
+                                <button type="submit" class="btn-save">
+                                    <i class="fas fa-save"></i> Save Policies
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Media Tab -->
+            <div class="tab-pane fade" id="media" role="tabpanel">
+                <div class="settings-card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-images"></i> Store Media</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <!-- Store Logo -->
+                            <div class="col-lg-6 mb-4">
+                                <div class="card h-100 border-0 shadow-sm">
+                                    <div class="card-body">
+                                        <h6 class="fw-bold mb-4">
+                                            <i class="fas fa-image text-primary me-2"></i> Store Logo
+                                        </h6>
+
+                                        <div class="media-preview mb-3">
+                                            <?php if (!empty($vendor['store_logo'])): ?>
+                                                <img src="<?php echo SITE_URL; ?>uploads/vendors/<?php echo $vendor['store_logo']; ?>"
+                                                    alt="Store Logo" id="logoPreview">
+                                            <?php else: ?>
+                                                <div class="py-5">
+                                                    <i class="fas fa-store fa-4x text-muted mb-3"></i>
+                                                    <p class="text-muted">No Logo Uploaded</p>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+
+                                        <form method="POST" enctype="multipart/form-data" id="logoForm" action="action/settings/upload-logo.php">
+                                            <div class="media-upload-btn">
+                                                <button type="button" class="btn-outline-primary-custom w-100" onclick="document.getElementById('logoInput').click()">
+                                                    <i class="fas fa-upload me-2"></i> Choose Logo
+                                                </button>
+                                                <input type="file" name="store_logo" id="logoInput"
+                                                    accept="image/*" style="display: none;">
+                                            </div>
+                                            <small class="text-muted d-block mt-2">
+                                                <i class="fas fa-info-circle"></i> Recommended: 300x300px, PNG or JPG, max 5MB
+                                            </small>
+
+                                            <div class="d-flex gap-2 mt-3">
+                                                <button type="submit" class="btn-save flex-grow-1">
+                                                    <i class="fas fa-upload"></i> Upload Logo
+                                                </button>
+
+                                                <?php if (!empty($vendor['store_logo'])): ?>
+                                                    <button type="button" class="btn-outline-primary-custom"
+                                                        onclick="deleteLogo()">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                <?php endif; ?>
+                                            </div>
+                                        </form>
                                     </div>
                                 </div>
-                                <div class="col-md-8">
-                                    <form method="POST" enctype="multipart/form-data" id="logoForm">
-                                        <input type="hidden" name="action" value="upload_logo">
-                                        
-                                        <div class="mb-3">
-                                            <label class="form-label">Upload Logo</label>
-                                            <input type="file" name="store_logo" class="form-control" 
-                                                   accept="image/*" id="logoInput">
-                                            <small class="text-muted">
-                                                Recommended: 300x300px, PNG or JPG, max 5MB
-                                            </small>
+                            </div>
+
+                            <!-- Store Banner -->
+                            <div class="col-lg-6 mb-4">
+                                <div class="card h-100 border-0 shadow-sm">
+                                    <div class="card-body">
+                                        <h6 class="fw-bold mb-4">
+                                            <i class="fas fa-image text-success me-2"></i> Store Banner
+                                        </h6>
+
+                                        <div class="media-preview mb-3">
+                                            <?php if (!empty($vendor['store_banner'])): ?>
+                                                <img src="<?php echo SITE_URL; ?>uploads/vendors/<?php echo $vendor['store_banner']; ?>"
+                                                    alt="Store Banner" id="bannerPreview">
+                                            <?php else: ?>
+                                                <div class="py-5">
+                                                    <i class="fas fa-image fa-4x text-muted mb-3"></i>
+                                                    <p class="text-muted">No Banner Uploaded</p>
+                                                </div>
+                                            <?php endif; ?>
                                         </div>
-                                        
-                                        <div class="mb-3">
-                                            <div class="progress d-none" id="logoProgress">
-                                                <div class="progress-bar" role="progressbar"></div>
+
+                                        <form method="POST" enctype="multipart/form-data" id="bannerForm" action="action/settings/upload-banner.php">
+                                            <div class="media-upload-btn">
+                                                <button type="button" class="btn-outline-primary-custom w-100" onclick="document.getElementById('bannerInput').click()">
+                                                    <i class="fas fa-upload me-2"></i> Choose Banner
+                                                </button>
+                                                <input type="file" name="store_banner" id="bannerInput"
+                                                    accept="image/*" style="display: none;">
                                             </div>
-                                        </div>
-                                        
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="fas fa-upload me-2"></i> Upload Logo
-                                        </button>
-                                        
-                                        <?php if (!empty($vendor['store_logo'])): ?>
-                                        <button type="button" class="btn btn-outline-danger ms-2" 
-                                                onclick="deleteLogo()">
-                                            <i class="fas fa-trash me-2"></i> Remove Logo
-                                        </button>
-                                        <?php endif; ?>
-                                    </form>
+                                            <small class="text-muted d-block mt-2">
+                                                <i class="fas fa-info-circle"></i> Recommended: 1200x400px, PNG or JPG, max 5MB
+                                            </small>
+
+                                            <div class="d-flex gap-2 mt-3">
+                                                <button type="submit" class="btn-save flex-grow-1">
+                                                    <i class="fas fa-upload"></i> Upload Banner
+                                                </button>
+
+                                                <?php if (!empty($vendor['store_banner'])): ?>
+                                                    <button type="button" class="btn-outline-primary-custom"
+                                                        onclick="deleteBanner()">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                <?php endif; ?>
+                                            </div>
+                                        </form>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Store Banner -->
-                        <div class="mb-5">
-                            <h6 class="fw-bold mb-3">Store Banner</h6>
-                            <div class="row align-items-center">
-                                <div class="col-md-8">
-                                    <div class="store-banner-preview mb-3">
-                                        <?php if (!empty($vendor['store_banner'])): ?>
-                                        <img src="<?php echo SITE_URL; ?>uploads/vendors/<?php echo $vendor['store_banner']; ?>" 
-                                             alt="Store Banner" class="img-fluid rounded" style="max-height: 300px;">
-                                        <?php else: ?>
-                                        <div class="border rounded d-flex align-items-center justify-content-center" 
-                                             style="height: 200px; background: #f8f9fa;">
-                                            <div class="text-center">
-                                                <i class="fas fa-image fa-4x text-muted mb-3"></i>
-                                                <p class="text-muted">No Banner Uploaded</p>
-                                            </div>
-                                        </div>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <form method="POST" enctype="multipart/form-data" id="bannerForm">
-                                        <input type="hidden" name="action" value="upload_banner">
-                                        
-                                        <div class="mb-3">
-                                            <label class="form-label">Upload Banner</label>
-                                            <input type="file" name="store_banner" class="form-control" 
-                                                   accept="image/*" id="bannerInput">
-                                            <small class="text-muted">
-                                                Recommended: 1200x400px, PNG or JPG, max 5MB
-                                            </small>
-                                        </div>
-                                        
-                                        <div class="mb-3">
-                                            <div class="progress d-none" id="bannerProgress">
-                                                <div class="progress-bar" role="progressbar"></div>
-                                            </div>
-                                        </div>
-                                        
-                                        <button type="submit" class="btn btn-primary w-100">
-                                            <i class="fas fa-upload me-2"></i> Upload Banner
-                                        </button>
-                                        
-                                        <?php if (!empty($vendor['store_banner'])): ?>
-                                        <button type="button" class="btn btn-outline-danger w-100 mt-2" 
-                                                onclick="deleteBanner()">
-                                            <i class="fas fa-trash me-2"></i> Remove Banner
-                                        </button>
-                                        <?php endif; ?>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                        
+
                         <!-- Media Guidelines -->
-                        <div class="alert alert-info">
+                        <div class="alert alert-info mt-3" style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border: none; border-radius: 15px;">
                             <h6 class="fw-bold"><i class="fas fa-info-circle me-2"></i> Media Guidelines</h6>
                             <ul class="mb-0">
                                 <li>Logo should be square (1:1 ratio) for best display</li>
@@ -1031,252 +1584,249 @@ function resizeImage($path, $max_width, $max_height) {
                     </div>
                 </div>
             </div>
-            
+
             <!-- Social Media Tab -->
             <div class="tab-pane fade" id="social" role="tabpanel">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-share-alt me-2"></i> Social Media Links
-                        </h5>
+                <div class="settings-card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-share-alt"></i> Social Media Links</h5>
                     </div>
                     <div class="card-body">
-                        <form method="POST" id="socialForm">
-                            <input type="hidden" name="action" value="update_social">
-                            
+                        <form method="POST" id="socialForm" action="action/settings/update-social.php">
                             <div class="row g-4">
                                 <!-- Facebook -->
                                 <div class="col-md-6">
-                                    <div class="mb-3">
+                                    <div class="form-group">
                                         <label class="form-label">
                                             <i class="fab fa-facebook text-primary me-2"></i> Facebook Page
                                         </label>
                                         <div class="input-group">
                                             <span class="input-group-text">facebook.com/</span>
-                                            <input type="text" name="social_facebook" class="form-control" 
-                                                   placeholder="yourpagename"
-                                                   value="<?php echo htmlspecialchars($vendor['store_social_facebook'] ?? ''); ?>">
+                                            <input type="text" name="social_facebook" class="form-control"
+                                                placeholder="yourpagename"
+                                                value="<?php echo htmlspecialchars($vendor['store_social_facebook'] ?? ''); ?>">
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Instagram -->
                                 <div class="col-md-6">
-                                    <div class="mb-3">
+                                    <div class="form-group">
                                         <label class="form-label">
                                             <i class="fab fa-instagram text-danger me-2"></i> Instagram
                                         </label>
                                         <div class="input-group">
                                             <span class="input-group-text">instagram.com/</span>
-                                            <input type="text" name="social_instagram" class="form-control" 
-                                                   placeholder="yourusername"
-                                                   value="<?php echo htmlspecialchars($vendor['store_social_instagram'] ?? ''); ?>">
+                                            <input type="text" name="social_instagram" class="form-control"
+                                                placeholder="yourusername"
+                                                value="<?php echo htmlspecialchars($vendor['store_social_instagram'] ?? ''); ?>">
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Twitter -->
                                 <div class="col-md-6">
-                                    <div class="mb-3">
+                                    <div class="form-group">
                                         <label class="form-label">
                                             <i class="fab fa-twitter text-info me-2"></i> Twitter
                                         </label>
                                         <div class="input-group">
                                             <span class="input-group-text">twitter.com/</span>
-                                            <input type="text" name="social_twitter" class="form-control" 
-                                                   placeholder="yourusername"
-                                                   value="<?php echo htmlspecialchars($vendor['store_social_twitter'] ?? ''); ?>">
+                                            <input type="text" name="social_twitter" class="form-control"
+                                                placeholder="yourusername"
+                                                value="<?php echo htmlspecialchars($vendor['store_social_twitter'] ?? ''); ?>">
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <!-- LinkedIn -->
                                 <div class="col-md-6">
-                                    <div class="mb-3">
+                                    <div class="form-group">
                                         <label class="form-label">
                                             <i class="fab fa-linkedin text-primary me-2"></i> LinkedIn
                                         </label>
                                         <div class="input-group">
                                             <span class="input-group-text">linkedin.com/company/</span>
-                                            <input type="text" name="social_linkedin" class="form-control" 
-                                                   placeholder="yourcompany"
-                                                   value="<?php echo htmlspecialchars($vendor['store_social_linkedin'] ?? ''); ?>">
+                                            <input type="text" name="social_linkedin" class="form-control"
+                                                placeholder="yourcompany"
+                                                value="<?php echo htmlspecialchars($vendor['store_social_linkedin'] ?? ''); ?>">
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <!-- YouTube -->
                                 <div class="col-md-6">
-                                    <div class="mb-3">
+                                    <div class="form-group">
                                         <label class="form-label">
                                             <i class="fab fa-youtube text-danger me-2"></i> YouTube
                                         </label>
                                         <div class="input-group">
                                             <span class="input-group-text">youtube.com/</span>
-                                            <input type="text" name="social_youtube" class="form-control" 
-                                                   placeholder="channel/UCXXXXXX"
-                                                   value="<?php echo htmlspecialchars($vendor['store_social_youtube'] ?? ''); ?>">
+                                            <input type="text" name="social_youtube" class="form-control"
+                                                placeholder="channel/UCXXXXXX"
+                                                value="<?php echo htmlspecialchars($vendor['store_social_youtube'] ?? ''); ?>">
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Pinterest -->
                                 <div class="col-md-6">
-                                    <div class="mb-3">
+                                    <div class="form-group">
                                         <label class="form-label">
                                             <i class="fab fa-pinterest text-danger me-2"></i> Pinterest
                                         </label>
                                         <div class="input-group">
                                             <span class="input-group-text">pinterest.com/</span>
-                                            <input type="text" name="social_pinterest" class="form-control" 
-                                                   placeholder="yourusername"
-                                                   value="<?php echo htmlspecialchars($vendor['store_social_pinterest'] ?? ''); ?>">
+                                            <input type="text" name="social_pinterest" class="form-control"
+                                                placeholder="yourusername"
+                                                value="<?php echo htmlspecialchars($vendor['store_social_pinterest'] ?? ''); ?>">
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <!-- Social Media Preview -->
-                                <div class="col-12 mt-4">
-                                    <h6 class="fw-bold mb-3">Preview</h6>
-                                    <div class="border rounded p-4 bg-light">
-                                        <div class="d-flex flex-wrap gap-3" id="socialPreview">
-                                            <!-- Preview will be generated by JavaScript -->
-                                        </div>
-                                    </div>
+                            </div>
+
+                            <!-- Social Media Preview -->
+                            <div class="mt-4">
+                                <h6 class="fw-bold mb-3">Preview</h6>
+                                <div class="social-preview" id="socialPreview">
+                                    <!-- Preview will be generated by JavaScript -->
                                 </div>
-                                
-                                <!-- Submit Button -->
-                                <div class="col-12">
-                                    <div class="d-flex justify-content-end mt-4">
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="fas fa-save me-2"></i> Save Social Links
-                                        </button>
-                                    </div>
-                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-end mt-4">
+                                <button type="submit" class="btn-save">
+                                    <i class="fas fa-save"></i> Save Social Links
+                                </button>
                             </div>
                         </form>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Advanced Settings Tab -->
             <div class="tab-pane fade" id="advanced" role="tabpanel">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white">
-                        <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-cogs me-2"></i> Advanced Settings
-                        </h5>
+                <div class="settings-card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-cogs"></i> Advanced Settings</h5>
                     </div>
                     <div class="card-body">
                         <!-- Danger Zone -->
-                        <div class="border border-danger rounded p-4 mb-4">
-                            <h6 class="text-danger fw-bold mb-3">
-                                <i class="fas fa-exclamation-triangle me-2"></i> Danger Zone
-                            </h6>
-                            
+                        <div class="danger-zone">
+                            <h6><i class="fas fa-exclamation-triangle"></i> Danger Zone</h6>
+
                             <div class="row g-3">
                                 <!-- Deactivate Store -->
                                 <div class="col-md-6">
-                                    <div class="border rounded p-3">
+                                    <div class="border rounded p-4" style="background: white;">
                                         <h6 class="fw-bold">Deactivate Store</h6>
                                         <p class="text-muted small mb-3">
                                             Temporarily hide your store from customers. Products will not be visible.
                                         </p>
-                                        <button type="button" class="btn btn-outline-warning" 
-                                                data-bs-toggle="modal" data-bs-target="#deactivateModal">
+                                        <button type="button" class="btn-outline-primary-custom w-100"
+                                            data-bs-toggle="modal" data-bs-target="#deactivateModal">
                                             <i class="fas fa-eye-slash me-2"></i> Deactivate Store
                                         </button>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Delete Store -->
                                 <div class="col-md-6">
-                                    <div class="border rounded p-3">
+                                    <div class="border rounded p-4" style="background: white;">
                                         <h6 class="fw-bold">Delete Store</h6>
                                         <p class="text-muted small mb-3">
                                             Permanently delete your vendor account and all data. This action cannot be undone.
                                         </p>
-                                        <button type="button" class="btn btn-outline-danger" 
-                                                data-bs-toggle="modal" data-bs-target="#deleteModal">
+                                        <button type="button" class="btn btn-outline-danger w-100"
+                                            data-bs-toggle="modal" data-bs-target="#deleteModal">
                                             <i class="fas fa-trash me-2"></i> Delete Store
                                         </button>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <!-- API Settings -->
-                        <div class="border rounded p-4 mb-4">
-                            <h6 class="fw-bold mb-3">
-                                <i class="fas fa-code me-2"></i> API & Integration
+                        <div class="border rounded p-4 mt-4" style="background: white;">
+                            <h6 class="fw-bold mb-4">
+                                <i class="fas fa-code text-primary me-2"></i> API & Integration
                             </h6>
-                            
+
                             <!-- API Key -->
                             <div class="mb-3">
                                 <label class="form-label fw-bold">API Key</label>
                                 <div class="input-group">
-                                    <input type="text" class="form-control" 
-                                           value="sk_live_<?php echo substr(md5($_SESSION['user_id']), 0, 16); ?>..." 
-                                           readonly id="apiKey">
-                                    <button class="btn btn-outline-secondary" type="button" onclick="copyApiKey()">
+                                    <input type="text" class="form-control"
+                                        value="<?php echo $vendor['api_key'] ?? 'sk_live_' . substr(md5($vendor_id), 0, 16) . '...'; ?>"
+                                        readonly id="apiKey">
+                                    <button class="btn btn-outline-primary" type="button" onclick="copyApiKey(this)">
                                         <i class="fas fa-copy"></i>
                                     </button>
                                     <button class="btn btn-outline-danger" type="button" onclick="regenerateApiKey()">
                                         <i class="fas fa-sync-alt"></i>
                                     </button>
                                 </div>
-                                <small class="text-muted">Use this key for API integration</small>
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle"></i> Use this key for API integration
+                                </small>
                             </div>
-                            
+
                             <!-- Webhooks -->
                             <div class="mb-3">
                                 <label class="form-label fw-bold">Webhook URL</label>
                                 <div class="input-group">
-                                    <input type="url" class="form-control" 
-                                           placeholder="https://yourdomain.com/webhook"
-                                           value="<?php echo htmlspecialchars($vendor['webhook_url'] ?? ''); ?>">
-                                    <button class="btn btn-outline-primary" type="button">Save</button>
+                                    <input type="url" class="form-control"
+                                        placeholder="https://yourdomain.com/webhook"
+                                        value="<?php echo htmlspecialchars($vendor['webhook_url'] ?? ''); ?>"
+                                        id="webhookUrl">
+                                    <button class="btn btn-primary" type="button" onclick="saveWebhook()">
+                                        <i class="fas fa-save"></i> Save
+                                    </button>
                                 </div>
-                                <small class="text-muted">Receive real-time notifications</small>
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle"></i> Receive real-time notifications
+                                </small>
                             </div>
                         </div>
-                        
+
                         <!-- Export Data -->
-                        <div class="border rounded p-4">
-                            <h6 class="fw-bold mb-3">
-                                <i class="fas fa-download me-2"></i> Data Export
+                        <div class="border rounded p-4 mt-4" style="background: white;">
+                            <h6 class="fw-bold mb-4">
+                                <i class="fas fa-download text-success me-2"></i> Data Export
                             </h6>
-                            
+
                             <div class="row g-3">
                                 <div class="col-md-4">
-                                    <div class="text-center p-3 border rounded">
-                                        <i class="fas fa-boxes fa-2x text-primary mb-3"></i>
-                                        <h6>Products Data</h6>
-                                        <button class="btn btn-sm btn-outline-primary mt-2" 
-                                                onclick="exportData('products')">
-                                            <i class="fas fa-download me-1"></i> Export CSV
+                                    <div class="text-center p-4 border rounded" style="background: linear-gradient(135deg, #f8f9fa 0%, white 100%);">
+                                        <i class="fas fa-boxes fa-3x text-primary mb-3"></i>
+                                        <h6 class="fw-bold">Products Data</h6>
+                                        <p class="small text-muted mb-3">Export all your products</p>
+                                        <button class="btn-outline-primary-custom w-100"
+                                            onclick="exportData('products')">
+                                            <i class="fas fa-download me-2"></i> Export CSV
                                         </button>
                                     </div>
                                 </div>
-                                
+
                                 <div class="col-md-4">
-                                    <div class="text-center p-3 border rounded">
-                                        <i class="fas fa-shopping-cart fa-2x text-success mb-3"></i>
-                                        <h6>Orders Data</h6>
-                                        <button class="btn btn-sm btn-outline-success mt-2" 
-                                                onclick="exportData('orders')">
-                                            <i class="fas fa-download me-1"></i> Export CSV
+                                    <div class="text-center p-4 border rounded" style="background: linear-gradient(135deg, #f8f9fa 0%, white 100%);">
+                                        <i class="fas fa-shopping-cart fa-3x text-success mb-3"></i>
+                                        <h6 class="fw-bold">Orders Data</h6>
+                                        <p class="small text-muted mb-3">Export your order history</p>
+                                        <button class="btn-outline-primary-custom w-100"
+                                            onclick="exportData('orders')">
+                                            <i class="fas fa-download me-2"></i> Export CSV
                                         </button>
                                     </div>
                                 </div>
-                                
+
                                 <div class="col-md-4">
-                                    <div class="text-center p-3 border rounded">
-                                        <i class="fas fa-chart-line fa-2x text-info mb-3"></i>
-                                        <h6>Analytics Data</h6>
-                                        <button class="btn btn-sm btn-outline-info mt-2" 
-                                                onclick="exportData('analytics')">
-                                            <i class="fas fa-download me-1"></i> Export CSV
+                                    <div class="text-center p-4 border rounded" style="background: linear-gradient(135deg, #f8f9fa 0%, white 100%);">
+                                        <i class="fas fa-chart-line fa-3x text-info mb-3"></i>
+                                        <h6 class="fw-bold">Analytics Data</h6>
+                                        <p class="small text-muted mb-3">Export your analytics</p>
+                                        <button class="btn-outline-primary-custom w-100"
+                                            onclick="exportData('analytics')">
+                                            <i class="fas fa-download me-2"></i> Export CSV
                                         </button>
                                     </div>
                                 </div>
@@ -1292,22 +1842,22 @@ function resizeImage($path, $max_width, $max_height) {
 <!-- Deactivate Store Modal -->
 <div class="modal fade" id="deactivateModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
+        <div class="modal-content" style="border-radius: 20px;">
+            <div class="modal-header" style="border-bottom: 2px solid var(--warning-color);">
                 <h5 class="modal-title text-warning">
                     <i class="fas fa-exclamation-triangle me-2"></i> Deactivate Store
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body p-4">
                 <p>Are you sure you want to deactivate your store?</p>
                 <ul class="text-muted small">
-                    <li>Your products will be hidden from customers</li>
-                    <li>You will not receive new orders</li>
-                    <li>Existing orders will continue to process</li>
-                    <li>You can reactivate anytime</li>
+                    <li><i class="fas fa-times-circle text-danger me-2"></i>Your products will be hidden from customers</li>
+                    <li><i class="fas fa-times-circle text-danger me-2"></i>You will not receive new orders</li>
+                    <li><i class="fas fa-check-circle text-success me-2"></i>Existing orders will continue to process</li>
+                    <li><i class="fas fa-check-circle text-success me-2"></i>You can reactivate anytime</li>
                 </ul>
-                <div class="form-check mb-3">
+                <div class="form-check mt-3">
                     <input class="form-check-input" type="checkbox" id="confirmDeactivate">
                     <label class="form-check-label" for="confirmDeactivate">
                         I understand and want to deactivate my store
@@ -1327,26 +1877,26 @@ function resizeImage($path, $max_width, $max_height) {
 <!-- Delete Store Modal -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
+        <div class="modal-content" style="border-radius: 20px;">
+            <div class="modal-header" style="border-bottom: 2px solid var(--danger-color);">
                 <h5 class="modal-title text-danger">
                     <i class="fas fa-trash me-2"></i> Delete Store
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body p-4">
                 <p class="text-danger fw-bold">Warning: This action cannot be undone!</p>
                 <p>All your store data will be permanently deleted:</p>
                 <ul class="text-muted small">
-                    <li>All products and inventory</li>
-                    <li>Order history and earnings</li>
-                    <li>Customer reviews and ratings</li>
-                    <li>Store settings and configurations</li>
+                    <li><i class="fas fa-times-circle text-danger me-2"></i>All products and inventory</li>
+                    <li><i class="fas fa-times-circle text-danger me-2"></i>Order history and earnings</li>
+                    <li><i class="fas fa-times-circle text-danger me-2"></i>Customer reviews and ratings</li>
+                    <li><i class="fas fa-times-circle text-danger me-2"></i>Store settings and configurations</li>
                 </ul>
-                <div class="mb-3">
-                    <label class="form-label">Type "DELETE" to confirm</label>
-                    <input type="text" class="form-control" id="deleteConfirm" 
-                           placeholder="Type DELETE here">
+                <div class="mb-3 mt-4">
+                    <label class="form-label">Type <strong>"DELETE"</strong> to confirm</label>
+                    <input type="text" class="form-control" id="deleteConfirm"
+                        placeholder="Type DELETE here">
                 </div>
             </div>
             <div class="modal-footer">
@@ -1359,332 +1909,456 @@ function resizeImage($path, $max_width, $max_height) {
     </div>
 </div>
 
-<!-- Settings CSS -->
-<style>
-.settings-tabs .nav-link {
-    border: none;
-    padding: 1rem 1.5rem;
-    color: #6c757d;
-    font-weight: 500;
-    border-bottom: 2px solid transparent;
-}
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
 
-.settings-tabs .nav-link:hover {
-    color: #495057;
-    border-bottom-color: #dee2e6;
-}
-
-.settings-tabs .nav-link.active {
-    color: #0d6efd;
-    border-bottom-color: #0d6efd;
-    background: transparent;
-}
-
-.store-logo-preview img,
-.store-banner-preview img {
-    object-fit: contain;
-    width: 100%;
-}
-
-/* Form styling */
-.form-label.fw-bold {
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #495057;
-}
-
-/* Progress bar */
-.progress {
-    height: 8px;
-    border-radius: 4px;
-}
-
-.progress-bar {
-    border-radius: 4px;
-    background-color: #0d6efd;
-    transition: width 0.3s ease;
-}
-
-/* Social preview */
-.social-preview-item {
-    display: inline-flex;
-    align-items: center;
-    padding: 8px 16px;
-    background: white;
-    border: 1px solid #dee2e6;
-    border-radius: 50px;
-    text-decoration: none;
-    color: #495057;
-    transition: all 0.3s ease;
-}
-
-.social-preview-item:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    color: #0d6efd;
-}
-
-.social-preview-item i {
-    font-size: 1.2rem;
-    margin-right: 8px;
-}
-
-/* Danger zone */
-.border-danger {
-    border-width: 2px !important;
-}
-</style>
-
-<!-- Settings JavaScript -->
+<!-- Enhanced JavaScript -->
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize tabs
-    const triggerTabList = [].slice.call(document.querySelectorAll('#settingsTab button'));
-    triggerTabList.forEach(function (triggerEl) {
-        const tabTrigger = new bootstrap.Tab(triggerEl);
-        
-        triggerEl.addEventListener('click', function (event) {
-            event.preventDefault();
-            tabTrigger.show();
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize tabs with smooth transition
+        const triggerTabList = [].slice.call(document.querySelectorAll('#settingsTab button'));
+        triggerTabList.forEach(function(triggerEl) {
+            const tabTrigger = new bootstrap.Tab(triggerEl);
+
+            triggerEl.addEventListener('click', function(event) {
+                event.preventDefault();
+                tabTrigger.show();
+            });
         });
-    });
-    
-    // Form submissions
-    const forms = ['generalForm', 'storeForm', 'policiesForm', 'socialForm'];
-    forms.forEach(formId => {
-        const form = document.getElementById(formId);
-        if (form) {
-            form.addEventListener('submit', function(e) {
-                e.preventDefault();
-                submitForm(this);
+
+        // Form submissions with AJAX
+        const forms = ['generalForm', 'storeForm', 'policiesForm', 'socialForm'];
+        forms.forEach(formId => {
+            const form = document.getElementById(formId);
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    submitForm(this);
+                });
+            }
+        });
+
+        // Image preview for logo
+        const logoInput = document.getElementById('logoInput');
+        if (logoInput) {
+            logoInput.addEventListener('change', function() {
+                previewImage(this, '#logoPreview');
+            });
+        }
+
+        // Image preview for banner
+        const bannerInput = document.getElementById('bannerInput');
+        if (bannerInput) {
+            bannerInput.addEventListener('change', function() {
+                previewImage(this, '#bannerPreview');
+            });
+        }
+
+        // Social media preview
+        updateSocialPreview();
+
+        // Deactivate store confirmation
+        const confirmDeactivate = document.getElementById('confirmDeactivate');
+        const deactivateBtn = document.getElementById('deactivateBtn');
+        if (confirmDeactivate && deactivateBtn) {
+            confirmDeactivate.addEventListener('change', function() {
+                deactivateBtn.disabled = !this.checked;
+            });
+        }
+
+        // Delete store confirmation
+        const deleteConfirm = document.getElementById('deleteConfirm');
+        const deleteBtn = document.getElementById('deleteBtn');
+        if (deleteConfirm && deleteBtn) {
+            deleteConfirm.addEventListener('input', function() {
+                deleteBtn.disabled = this.value !== 'DELETE';
+            });
+        }
+
+        // Deactivate store action
+        if (deactivateBtn) {
+            deactivateBtn.addEventListener('click', function() {
+                deactivateStore();
+            });
+        }
+
+        // Delete store action
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', function() {
+                deleteStore();
             });
         }
     });
-    
-    // Image preview for logo
-    const logoInput = document.getElementById('logoInput');
-    if (logoInput) {
-        logoInput.addEventListener('change', function() {
-            previewImage(this, '.store-logo-preview');
-        });
-    }
-    
-    // Image preview for banner
-    const bannerInput = document.getElementById('bannerInput');
-    if (bannerInput) {
-        bannerInput.addEventListener('change', function() {
-            previewImage(this, '.store-banner-preview');
-        });
-    }
-    
-    // Social media preview
-    updateSocialPreview();
-    
-    // Deactivate store confirmation
-    const confirmDeactivate = document.getElementById('confirmDeactivate');
-    const deactivateBtn = document.getElementById('deactivateBtn');
-    if (confirmDeactivate && deactivateBtn) {
-        confirmDeactivate.addEventListener('change', function() {
-            deactivateBtn.disabled = !this.checked;
-        });
-    }
-    
-    // Delete store confirmation
-    const deleteConfirm = document.getElementById('deleteConfirm');
-    const deleteBtn = document.getElementById('deleteBtn');
-    if (deleteConfirm && deleteBtn) {
-        deleteConfirm.addEventListener('input', function() {
-            deleteBtn.disabled = this.value !== 'DELETE';
-        });
-    }
-    
-    // Deactivate store action
-    if (deactivateBtn) {
-        deactivateBtn.addEventListener('click', function() {
-            deactivateStore();
-        });
-    }
-    
-    // Delete store action
-    if (deleteBtn) {
-        deleteBtn.addEventListener('click', function() {
-            deleteStore();
-        });
-    }
-});
 
-function submitForm(form) {
-    const formData = new FormData(form);
-    
-    fetch(window.location.href, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.text())
-    .then(data => {
-        // Reload page to show success message
-        window.location.reload();
-    })
-    .catch(error => {
-        alert('Error: ' + error);
-    });
-}
+    function showSpinner() {
+        document.getElementById('spinner').style.display = 'flex';
+    }
 
-function previewImage(input, previewSelector) {
-    const file = input.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const preview = document.querySelector(previewSelector);
-            if (preview) {
-                preview.innerHTML = `<img src="${e.target.result}" class="img-thumbnail" style="max-height: 200px;">`;
+    function hideSpinner() {
+        document.getElementById('spinner').style.display = 'none';
+    }
+
+    function showToast(type, message, title = null) {
+        const toastContainer = document.getElementById('toastContainer');
+        const toastId = 'toast-' + Date.now();
+
+        const icons = {
+            success: 'check-circle',
+            error: 'exclamation-circle',
+            warning: 'exclamation-triangle',
+            info: 'info-circle'
+        };
+
+        const titles = {
+            success: 'Success!',
+            error: 'Error!',
+            warning: 'Warning!',
+            info: 'Info'
+        };
+
+        const toast = document.createElement('div');
+        toast.id = toastId;
+        toast.className = `toast-custom ${type}`;
+        toast.innerHTML = `
+        <i class="fas fa-${icons[type]}"></i>
+        <div class="toast-content">
+            <div class="toast-title">${title || titles[type]}</div>
+            <div class="toast-message">${message}</div>
+        </div>
+        <div class="toast-close" onclick="this.parentElement.remove()">
+            <i class="fas fa-times"></i>
+        </div>
+    `;
+
+        toastContainer.appendChild(toast);
+
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            const toastEl = document.getElementById(toastId);
+            if (toastEl) {
+                toastEl.style.animation = 'slideOutRight 0.3s ease';
+                setTimeout(() => toastEl.remove(), 300);
             }
-        }
-        reader.readAsDataURL(file);
+        }, 5000);
     }
-}
 
-function updateSocialPreview() {
-    const preview = document.getElementById('socialPreview');
-    if (!preview) return;
-    
-    const socialFields = [
-        { id: 'social_facebook', icon: 'fab fa-facebook', color: 'text-primary', label: 'Facebook' },
-        { id: 'social_instagram', icon: 'fab fa-instagram', color: 'text-danger', label: 'Instagram' },
-        { id: 'social_twitter', icon: 'fab fa-twitter', color: 'text-info', label: 'Twitter' },
-        { id: 'social_linkedin', icon: 'fab fa-linkedin', color: 'text-primary', label: 'LinkedIn' },
-        { id: 'social_youtube', icon: 'fab fa-youtube', color: 'text-danger', label: 'YouTube' },
-        { id: 'social_pinterest', icon: 'fab fa-pinterest', color: 'text-danger', label: 'Pinterest' }
-    ];
-    
-    let html = '';
-    socialFields.forEach(social => {
-        const input = document.querySelector(`[name="${social.id}"]`);
-        if (input && input.value) {
-            html += `
-                <a href="https://${input.value}" target="_blank" class="social-preview-item">
-                    <i class="${social.icon} ${social.color}"></i>
-                    ${social.label}
+    function submitForm(form) {
+        showSpinner();
+
+        const formData = new FormData(form);
+
+        // Log form data for debugging
+        console.log('Submitting form to:', form.action);
+        for (let pair of formData.entries()) {
+            console.log(pair[0] + ': ' + pair[1]);
+        }
+
+        fetch(form.action, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+
+                // First get the text to see raw response
+                return response.text().then(text => {
+                    console.log('Raw response:', text);
+
+                    // Try to parse as JSON
+                    try {
+                        const data = JSON.parse(text);
+                        return data;
+                    } catch (e) {
+                        console.error('Failed to parse JSON:', e);
+                        throw new Error('Server returned invalid JSON. Check console for raw response.');
+                    }
+                });
+            })
+            .then(data => {
+                hideSpinner();
+
+                if (data.success) {
+                    showToast('success', data.message);
+                    // Update any CSRF token if returned
+                    if (data.csrf_token) {
+                        document.querySelectorAll('input[name="csrf_token"]').forEach(input => {
+                            input.value = data.csrf_token;
+                        });
+                    }
+                    // Optionally reload after success
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showToast('error', data.message || 'An error occurred');
+                }
+            })
+            .catch(error => {
+                hideSpinner();
+                console.error('Fetch error:', error);
+                showToast('error', 'Error: ' + error.message);
+
+                // Create a debug div to show the error
+                const debugDiv = document.createElement('div');
+                debugDiv.className = 'alert alert-danger mt-3';
+                debugDiv.innerHTML = '<strong>Debug Info:</strong><br>' + error.message;
+                document.querySelector('.main-content').prepend(debugDiv);
+            });
+    }
+
+    function previewImage(input, previewSelector) {
+        const file = input.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.querySelector(previewSelector);
+                if (preview) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                }
+            }
+            reader.readAsDataURL(file);
+        }
+    }
+
+    function updateSocialPreview() {
+        const preview = document.getElementById('socialPreview');
+        if (!preview) return;
+
+        const socialFields = [{
+                id: 'social_facebook',
+                icon: 'fab fa-facebook',
+                class: 'facebook',
+                label: 'Facebook'
+            },
+            {
+                id: 'social_instagram',
+                icon: 'fab fa-instagram',
+                class: 'instagram',
+                label: 'Instagram'
+            },
+            {
+                id: 'social_twitter',
+                icon: 'fab fa-twitter',
+                class: 'twitter',
+                label: 'Twitter'
+            },
+            {
+                id: 'social_linkedin',
+                icon: 'fab fa-linkedin',
+                class: 'linkedin',
+                label: 'LinkedIn'
+            },
+            {
+                id: 'social_youtube',
+                icon: 'fab fa-youtube',
+                class: 'youtube',
+                label: 'YouTube'
+            },
+            {
+                id: 'social_pinterest',
+                icon: 'fab fa-pinterest',
+                class: 'pinterest',
+                label: 'Pinterest'
+            }
+        ];
+
+        let html = '';
+        socialFields.forEach(social => {
+            const input = document.querySelector(`[name="${social.id}"]`);
+            if (input && input.value) {
+                html += `
+                <a href="https://${social.id === 'social_linkedin' ? 'linkedin.com/company/' : social.id.replace('social_', '') + '.com/'}${input.value}" 
+                   target="_blank" class="social-preview-item ${social.class}">
+                    <i class="${social.icon}"></i>
+                    <span>${social.label}</span>
                 </a>
             `;
-        }
-    });
-    
-    preview.innerHTML = html || '<p class="text-muted">No social links added yet.</p>';
-}
-
-// Update preview when social inputs change
-document.querySelectorAll('#socialForm input').forEach(input => {
-    input.addEventListener('input', updateSocialPreview);
-});
-
-function deleteLogo() {
-    if (confirm('Are you sure you want to remove the store logo?')) {
-        fetch('action/delete-logo.php', {
-            method: 'POST',
-            body: new FormData()
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                window.location.reload();
-            } else {
-                alert('Error: ' + data.message);
             }
         });
+
+        preview.innerHTML = html || '<p class="text-muted">No social links added yet. Add some above to see preview.</p>';
     }
-}
 
-function deleteBanner() {
-    if (confirm('Are you sure you want to remove the store banner?')) {
-        fetch('action/delete-banner.php', {
-            method: 'POST',
-            body: new FormData()
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                window.location.reload();
-            } else {
-                alert('Error: ' + data.message);
-            }
-        });
-    }
-}
-
-function copyApiKey() {
-    const apiKey = document.getElementById('apiKey');
-    apiKey.select();
-    apiKey.setSelectionRange(0, 99999);
-    navigator.clipboard.writeText(apiKey.value);
-    
-    // Show success message
-    const originalText = event.target.innerHTML;
-    event.target.innerHTML = '<i class="fas fa-check"></i> Copied!';
-    event.target.classList.add('btn-success');
-    
-    setTimeout(() => {
-        event.target.innerHTML = originalText;
-        event.target.classList.remove('btn-success');
-    }, 2000);
-}
-
-function regenerateApiKey() {
-    if (confirm('Are you sure you want to regenerate your API key? This will break existing integrations.')) {
-        fetch('action/regenerate-api.php', {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('API key regenerated successfully!');
-                window.location.reload();
-            } else {
-                alert('Error: ' + data.message);
-            }
-        });
-    }
-}
-
-function deactivateStore() {
-    fetch('action/deactivate-store.php', {
-        method: 'POST'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Store deactivated successfully!');
-            window.location.reload();
-        } else {
-            alert('Error: ' + data.message);
-        }
+    // Update preview when social inputs change
+    document.querySelectorAll('#socialForm input').forEach(input => {
+        input.addEventListener('input', updateSocialPreview);
     });
-}
 
-function deleteStore() {
-    fetch('action/delete-store.php', {
-        method: 'POST'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Store deleted successfully!');
-            window.location.href = '<?php echo SITE_URL; ?>';
-        } else {
-            alert('Error: ' + data.message);
+    function deleteLogo() {
+        if (confirm('Are you sure you want to remove the store logo?')) {
+            showSpinner();
+
+            fetch('action/settings/delete-logo.php', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideSpinner();
+                    if (data.success) {
+                        showToast('success', 'Logo deleted successfully!');
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        showToast('error', data.message);
+                    }
+                })
+                .catch(error => {
+                    hideSpinner();
+                    showToast('error', 'Network error: ' + error.message);
+                });
         }
-    });
-}
+    }
 
-function exportData(type) {
-    window.location.href = `action/export.php?type=${type}`;
-}
+    function deleteBanner() {
+        if (confirm('Are you sure you want to remove the store banner?')) {
+            showSpinner();
 
-function saveAllSettings() {
-    // This would save all forms at once
-    alert('Save all feature would be implemented here.');
-}
+            fetch('action/settings/delete-banner.php', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideSpinner();
+                    if (data.success) {
+                        showToast('success', 'Banner deleted successfully!');
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        showToast('error', data.message);
+                    }
+                })
+                .catch(error => {
+                    hideSpinner();
+                    showToast('error', 'Network error: ' + error.message);
+                });
+        }
+    }
+
+    function copyApiKey(button) {
+        const apiKey = document.getElementById('apiKey');
+        apiKey.select();
+        apiKey.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(apiKey.value);
+
+        // Show success feedback
+        const originalHtml = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-check"></i>';
+        button.classList.add('btn-success');
+        button.classList.remove('btn-outline-primary');
+
+        showToast('success', 'API key copied to clipboard!');
+
+        setTimeout(() => {
+            button.innerHTML = originalHtml;
+            button.classList.remove('btn-success');
+            button.classList.add('btn-outline-primary');
+        }, 2000);
+    }
+
+    function regenerateApiKey() {
+        if (confirm('Are you sure you want to regenerate your API key? This will break existing integrations.')) {
+            showSpinner();
+
+            fetch('action/settings/regenerate-api.php', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideSpinner();
+                    if (data.success) {
+                        document.getElementById('apiKey').value = data.api_key;
+                        showToast('success', 'API key regenerated successfully!');
+                    } else {
+                        showToast('error', data.message);
+                    }
+                })
+                .catch(error => {
+                    hideSpinner();
+                    showToast('error', 'Network error: ' + error.message);
+                });
+        }
+    }
+
+    function saveWebhook() {
+        const webhookUrl = document.getElementById('webhookUrl').value;
+
+        showSpinner();
+
+        fetch('action/settings/save-webhook.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'webhook_url=' + encodeURIComponent(webhookUrl)
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideSpinner();
+                if (data.success) {
+                    showToast('success', 'Webhook URL saved successfully!');
+                } else {
+                    showToast('error', data.message);
+                }
+            })
+            .catch(error => {
+                hideSpinner();
+                showToast('error', 'Network error: ' + error.message);
+            });
+    }
+
+    function deactivateStore() {
+        showSpinner();
+
+        fetch('action/settings/deactivate-store.php', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideSpinner();
+                if (data.success) {
+                    showToast('success', 'Store deactivated successfully!');
+                    setTimeout(() => {
+                        window.location.href = '<?php echo SITE_URL; ?>';
+                    }, 2000);
+                } else {
+                    showToast('error', data.message);
+                }
+            })
+            .catch(error => {
+                hideSpinner();
+                showToast('error', 'Network error: ' + error.message);
+            });
+    }
+
+    function deleteStore() {
+        showSpinner();
+
+        fetch('action/settings/delete-store.php', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideSpinner();
+                if (data.success) {
+                    showToast('success', 'Store deleted successfully!');
+                    setTimeout(() => {
+                        window.location.href = '<?php echo SITE_URL; ?>';
+                    }, 2000);
+                } else {
+                    showToast('error', data.message);
+                }
+            })
+            .catch(error => {
+                hideSpinner();
+                showToast('error', 'Network error: ' + error.message);
+            });
+    }
+
+    function exportData(type) {
+        window.location.href = `action/settings/export.php?type=${type}`;
+    }
+
+    function saveAllSettings() {
+        showToast('info', 'This feature will save all settings at once. Coming soon!');
+    }
 </script>
 
 <?php require_once '../../includes/footer.php'; ?>

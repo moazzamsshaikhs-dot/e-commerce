@@ -1,0 +1,21 @@
+# Deny access to all files by default
+<FilesMatch ".*">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Allow access only to specific PHP files
+<FilesMatch "^(update-general\.php|update-store\.php|update-policies\.php|update-social\.php|upload-logo\.php|upload-banner\.php|delete-logo\.php|delete-banner\.php|regenerate-api\.php|deactivate-store\.php|delete-store\.php|export\.php)$">
+    Order Allow,Deny
+    Allow from all
+</FilesMatch>
+
+# Prevent directory listing
+Options -Indexes
+
+# Set security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "DENY"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
