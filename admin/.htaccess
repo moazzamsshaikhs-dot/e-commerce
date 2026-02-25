@@ -21,5 +21,7 @@ ErrorDocument 500 /500.php
     Header set X-XSS-Protection "1; mode=block"
 </IfModule>
 
+SetEnv ENCRYPTION_KEY "your-secure-encryption-key-here"
+
 # Prevent directory listing
 Options -Indexes

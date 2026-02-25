@@ -225,7 +225,7 @@ require_once 'includes/header.php';
                     <i class="fas fa-lock me-1"></i> Password *
                 </label>
                 <div class="input-group">
-                    <input type="password" class="form-control" id="password" name="password" required>
+                    <input type="password" class="form-control" id="password" name="password" required minlength='6'>
                     <span class="input-group-text password-toggle">
                         <i class="fas fa-eye"></i>
                     </span>

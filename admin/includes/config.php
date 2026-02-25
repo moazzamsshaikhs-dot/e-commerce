@@ -834,4 +834,50 @@ function redirects($url) {
 }
 
 
+
+
+// define('ENCRYPTION_KEY', '5f8d9a2b3c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a');
+
+// // Other settings
+// define('TIMEZONE', 'Asia/Karachi');
+// date_default_timezone_set(TIMEZONE);
+
+// // Error reporting (disable in production)
+// error_reporting(E_ALL);
+// ini_set('display_errors', 1);
+
+// config.php
+// define('ENCRYPTION_KEY', getenv('ENCRYPTION_KEY') ?: 'fallback-key-for-dev-only');
+define('ENCRYPTION_KEY', 'your-32-character-secret-key-here-change-it');
+// Temporary file banakar run karein
+// echo bin2hex(random_bytes(32));
+// Output copy karke config.php mein paste karein
+
+function encryptData($data) {
+    $key = hash('sha256', ENCRYPTION_KEY);
+    $iv = openssl_random_pseudo_bytes(16);
+    $encrypted = openssl_encrypt($data, 'AES-256-CBC', $key, 0, $iv);
+    return base64_encode($iv . $encrypted);
+}
+function decryptData($data) {
+    $key = hash('sha256', ENCRYPTION_KEY);
+    $data = base64_decode($data);
+    $iv = substr($data, 0, 16);
+    $encrypted = substr($data, 16);
+    return openssl_decrypt($encrypted, 'AES-256-CBC', $key, 0, $iv);
+}
+function encryptCardData($card_number, $expiry_month, $expiry_year) {
+    $data = json_encode([
+        'card_number' => $card_number,
+        'expiry_month' => $expiry_month,
+        'expiry_year' => $expiry_year
+    ]);
+    return encryptData($data);
+}
+
+function SMSsend($phone, $message) {
+    // In production, integrate with an SMS gateway like Twilio
+    error_log("SMS to $phone: $message");
+    return true; // For demo purposes
+}
 ?>

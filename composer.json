@@ -1,5 +1,16 @@
 {
+    "name": "e-commerce/payment-system",
+    "description": "E-commerce Payment System",
+    "type": "project",
     "require": {
-        "dompdf/dompdf": "^3.1"
+        "stripe/stripe-php": "^13.0",
+        "paypal/rest-api-sdk-php": "^1.14",
+        "guzzlehttp/guzzle": "^7.0",
+        "monolog/monolog": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ecommerce\\": "includes/"
+        }
     }
 }
