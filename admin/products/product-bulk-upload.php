@@ -1,4 +1,5 @@
 <?php
+// admin/product-bulk-upload.php
 require_once '../includes/config.php';
 require_once '../includes/auth-check.php';
 
@@ -22,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_file'])) {
     // Validate CSRF token
     if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
         $_SESSION['error'] = 'Invalid security token';
-        redirect('products.php');
+        redirect('product-bulk-upload.php');
     }
     
     // Process CSV upload
@@ -413,7 +414,7 @@ function downloadProductImage($url, $existing_image = '') {
     
     // Delete old image if exists
     if (!empty($existing_image) && $existing_image !== 'default.jpg') {
-        $old_image_path = $_SERVER['DOCUMENT_ROOT'] . SITE_URL . 'assets/images/products/' . $existing_image;
+        $old_image_path = $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/images/products/' . $existing_image;
         if (file_exists($old_image_path)) {
             @unlink($old_image_path);
         }
@@ -429,434 +430,683 @@ function downloadProductImage($url, $existing_image = '') {
 /**
  * Get upload error message
  */
-function getUploadError($error_code) {
-    $errors = [
-        UPLOAD_ERR_OK => 'No error',
-        UPLOAD_ERR_INI_SIZE => 'File too large (server limit)',
-        UPLOAD_ERR_FORM_SIZE => 'File too large (form limit)',
-        UPLOAD_ERR_PARTIAL => 'File partially uploaded',
-        UPLOAD_ERR_NO_FILE => 'No file uploaded',
-        UPLOAD_ERR_NO_TMP_DIR => 'Missing temp folder',
-        UPLOAD_ERR_CANT_WRITE => 'Failed to write file',
-        UPLOAD_ERR_EXTENSION => 'File upload stopped'
-    ];
-    return $errors[$error_code] ?? 'Unknown error';
-}
+// function getUploadError($error_code) {
+//     $errors = [
+//         UPLOAD_ERR_OK => 'No error',
+//         UPLOAD_ERR_INI_SIZE => 'File too large (server limit)',
+//         UPLOAD_ERR_FORM_SIZE => 'File too large (form limit)',
+//         UPLOAD_ERR_PARTIAL => 'File partially uploaded',
+//         UPLOAD_ERR_NO_FILE => 'No file uploaded',
+//         UPLOAD_ERR_NO_TMP_DIR => 'Missing temp folder',
+//         UPLOAD_ERR_CANT_WRITE => 'Failed to write file',
+//         UPLOAD_ERR_EXTENSION => 'File upload stopped'
+//     ];
+//     return $errors[$error_code] ?? 'Unknown error';
+// }
 ?>
 
-<div class="dashboard-container">
-    <?php include '../includes/sidebar.php'; ?>
+<style>
+:root {
+    --primary: #4361ee;
+    --success: #06d6a0;
+    --warning: #ffb703;
+    --danger: #ef476f;
+    --info: #4cc9f0;
+    --dark: #2b2d42;
+    --light: #f8f9fa;
+}
+
+.bulk-upload-container {
+    padding: 30px;
+    background: #f4f7fc;
+    min-height: 100vh;
+}
+
+/* Header */
+.page-header {
+    background: white;
+    border-radius: 20px;
+    padding: 25px;
+    margin-bottom: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.page-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary), var(--success), var(--warning), var(--danger));
+}
+
+/* Form Card */
+.form-card {
+    background: white;
+    border-radius: 20px;
+    padding: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    height: 100%;
+}
+
+.form-section {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid #edf2f9;
+}
+
+.form-section-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--dark);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.form-section-title i {
+    width: 35px;
+    height: 35px;
+    background: rgba(67, 97, 238, 0.1);
+    color: var(--primary);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+}
+
+.form-label {
+    font-weight: 600;
+    color: var(--dark);
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.form-control, .form-select {
+    border-radius: 12px;
+    border: 2px solid #edf2f9;
+    padding: 12px 15px;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+}
+
+/* Info Card */
+.info-card {
+    background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%);
+    border-radius: 20px;
+    padding: 25px;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.info-card::before {
+    content: '\f0eb';
+    font-family: 'Font Awesome 5 Free';
+    font-weight: 900;
+    position: absolute;
+    bottom: -20px;
+    right: -20px;
+    font-size: 120px;
+    color: rgba(67, 97, 238, 0.1);
+    transform: rotate(15deg);
+}
+
+.info-card-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--dark);
+    margin-bottom: 20px;
+    position: relative;
+    z-index: 1;
+}
+
+.info-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px 0;
+    position: relative;
+    z-index: 1;
+}
+
+.info-list li {
+    padding: 10px 0;
+    border-bottom: 1px dashed rgba(67, 97, 238, 0.2);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.info-list li:last-child {
+    border-bottom: none;
+}
+
+.info-list i {
+    width: 30px;
+    height: 30px;
+    background: white;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+/* Sample CSV */
+.sample-csv {
+    background: #f8f9fa;
+    border-radius: 15px;
+    padding: 15px;
+    margin-top: 20px;
+}
+
+.sample-csv pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 12px;
+    color: var(--dark);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* Options Card */
+.options-card {
+    background: #f8f9fa;
+    border-radius: 15px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.form-check-input:checked {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+/* Buttons */
+.btn-upload {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 14px 30px;
+    border-radius: 12px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-upload:hover {
+    background: #3651c4;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(67, 97, 238, 0.3);
+    color: white;
+}
+
+.btn-download {
+    background: var(--success);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn-download:hover {
+    background: #05b585;
+    transform: translateY(-2px);
+    color: white;
+}
+
+/* Results Card */
+.results-card {
+    background: white;
+    border-radius: 20px;
+    padding: 25px;
+    margin-top: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+}
+
+.result-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.result-item {
+    text-align: center;
+    padding: 20px;
+    border-radius: 15px;
+}
+
+.result-item.success { background: rgba(6, 214, 160, 0.1); }
+.result-item.danger { background: rgba(239, 71, 111, 0.1); }
+.result-item.info { background: rgba(76, 201, 240, 0.1); }
+.result-item.primary { background: rgba(67, 97, 238, 0.1); }
+
+.result-value {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 5px;
+}
+
+.result-label {
+    font-size: 14px;
+    color: #6c757d;
+}
+
+/* Results Table */
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.results-table th {
+    background: #f8f9fa;
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--dark);
+    border-radius: 10px 10px 0 0;
+}
+
+.results-table td {
+    padding: 12px 15px;
+    border-bottom: 1px solid #edf2f9;
+}
+
+.results-table tr:last-child td {
+    border-bottom: none;
+}
+
+.row-success { background: rgba(6, 214, 160, 0.05); }
+.row-error { background: rgba(239, 71, 111, 0.05); }
+
+/* Animations */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-slide-in {
+    animation: slideIn 0.5s ease forwards;
+}
+
+.delay-1 { animation-delay: 0.1s; }
+.delay-2 { animation-delay: 0.2s; }
+.delay-3 { animation-delay: 0.3s; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .bulk-upload-container {
+        padding: 20px;
+    }
     
-    <main class="main-content">
-        <!-- Page Header -->
-        <div class="d-flex justify-content-between align-items-center mb-4">
+    .form-card {
+        padding: 20px;
+    }
+    
+    .result-summary {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+</style>
+
+<div class="bulk-upload-container">
+    <!-- Page Header -->
+    <div class="page-header animate-slide-in">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
             <div>
-                <h1 class="h3 mb-0">Bulk Product Upload</h1>
-                <p class="text-muted mb-0">Upload multiple products using CSV file</p>
+                <h1 class="h2 fw-bold mb-1">
+                    <i class="fas fa-cloud-upload-alt me-2 text-primary"></i>
+                    Bulk Product Upload
+                </h1>
+                <p class="text-muted mb-0">
+                    <i class="fas fa-file-csv me-2"></i>
+                    Upload multiple products at once using CSV format
+                </p>
             </div>
             <div>
-                <a href="products.php" class="btn btn-outline-secondary">
-                    <i class="fas fa-arrow-left me-2"></i> Back to Products
+                <a href="products.php" class="btn btn-outline-secondary btn-lg">
+                    <i class="fas fa-arrow-left me-2"></i>
+                    Back to Products
                 </a>
             </div>
         </div>
-        
-        <!-- Success/Error Messages -->
-        <?php if (isset($_SESSION['success'])): ?>
-        <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
-            <i class="fas fa-check-circle me-2"></i>
-            <?php echo $_SESSION['success']; ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+
+    <!-- Success/Error Messages -->
+    <?php if (isset($_SESSION['success'])): ?>
+        <div class="alert alert-success alert-dismissible fade show rounded-15 mb-4 animate-slide-in delay-1" role="alert">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-check-circle fa-2x me-3"></i>
+                <div>
+                    <?php echo $_SESSION['success']; ?>
+                </div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         <?php unset($_SESSION['success']); ?>
-        <?php endif; ?>
-        
-        <?php if (isset($_SESSION['error'])): ?>
-        <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
-            <i class="fas fa-exclamation-triangle me-2"></i>
-            <?php echo $_SESSION['error']; ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    <?php endif; ?>
+    
+    <?php if (isset($_SESSION['error'])): ?>
+        <div class="alert alert-danger alert-dismissible fade show rounded-15 mb-4 animate-slide-in delay-1" role="alert">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-exclamation-circle fa-2x me-3"></i>
+                <div>
+                    <?php echo $_SESSION['error']; ?>
+                </div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
         <?php unset($_SESSION['error']); ?>
-        <?php endif; ?>
-        
-        <!-- Upload Form -->
-        <div class="row">
-            <div class="col-lg-8">
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white border-0">
-                        <h6 class="mb-0"><i class="fas fa-upload me-2"></i> Upload CSV File</h6>
-                    </div>
-                    <div class="card-body">
-                        <form method="POST" action="" enctype="multipart/form-data" id="uploadForm">
-                            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+    <?php endif; ?>
+
+    <div class="row">
+        <!-- Main Form Column -->
+        <div class="col-lg-8">
+            <div class="form-card animate-slide-in delay-2">
+                <form method="POST" enctype="multipart/form-data" id="uploadForm">
+                    <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+                    
+                    <!-- Upload Section -->
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-upload"></i>
+                            Upload CSV File
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label for="csv_file" class="form-label">
+                                <i class="fas fa-file-csv me-2 text-primary"></i>
+                                Select CSV File <span class="text-danger">*</span>
+                            </label>
                             
-                            <div class="mb-4">
-                                <label for="csv_file" class="form-label">Select CSV File *</label>
+                            <div class="upload-area" id="uploadArea">
                                 <input type="file" 
                                        class="form-control" 
                                        id="csv_file" 
                                        name="csv_file"
                                        accept=".csv"
-                                       required>
-                                <div class="form-text">
-                                    <i class="fas fa-info-circle me-1"></i>
-                                    Maximum file size: 5MB • Only CSV files allowed
-                                </div>
-                            </div>
-                            
-                            <div class="mb-4">
-                                <label class="form-label">Import Options</label>
+                                       required
+                                       style="display: none;">
                                 
-                                <div class="form-check mb-2">
-                                    <input class="form-check-input" 
-                                           type="checkbox" 
-                                           name="update_existing" 
-                                           id="updateExisting">
-                                    <label class="form-check-label" for="updateExisting">
-                                        <i class="fas fa-sync me-1"></i> Update existing products
-                                    </label>
-                                    <div class="form-text small">
-                                        If checked, products with matching names will be updated instead of skipped
-                                    </div>
+                                <div class="text-center p-5 border border-2 border-dashed rounded-15" 
+                                     style="cursor: pointer; border-color: #edf2f9; background: #f8f9fa;"
+                                     onclick="document.getElementById('csv_file').click()">
+                                    <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                                    <h5>Click to select CSV file</h5>
+                                    <p class="text-muted mb-0">or drag and drop</p>
+                                    <small class="text-muted">Maximum file size: 5MB</small>
                                 </div>
                                 
-                                <div class="form-check">
-                                    <input class="form-check-input" 
-                                           type="checkbox" 
-                                           name="skip_duplicates" 
-                                           id="skipDuplicates" checked>
-                                    <label class="form-check-label" for="skipDuplicates">
-                                        <i class="fas fa-forward me-1"></i> Skip duplicate products
-                                    </label>
-                                    <div class="form-text small">
-                                        If checked, duplicate products will be skipped without error
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="alert alert-info">
-                                <h6 class="alert-heading">
-                                    <i class="fas fa-file-csv me-2"></i> CSV Format Requirements
-                                </h6>
-                                <ul class="mb-0">
-                                    <li><strong>Required headers:</strong> name, price, stock</li>
-                                    <li><strong>Optional headers:</strong> description, old_price, category, featured, image</li>
-                                    <li><strong>Featured field:</strong> Use 1/0, yes/no, or true/false</li>
-                                    <li><strong>Image field:</strong> Can be filename or URL (optional)</li>
-                                    <li>Download <a href="#" onclick="downloadSampleCSV(); return false;" class="text-primary">sample CSV template</a></li>
-                                </ul>
-                            </div>
-                            
-                            <div class="mt-4">
-                                <button type="submit" class="btn btn-primary" id="uploadBtn">
-                                    <i class="fas fa-upload me-2"></i> Upload CSV
-                                </button>
-                                <a href="products.php" class="btn btn-outline-secondary">
-                                    <i class="fas fa-times me-2"></i> Cancel
-                                </a>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-lg-4">
-                <!-- Quick Guide -->
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white border-0">
-                        <h6 class="mb-0"><i class="fas fa-lightbulb me-2"></i> Quick Guide</h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="list-group list-group-flush">
-                            <div class="list-group-item border-0 px-0">
-                                <div class="d-flex">
-                                    <div class="flex-shrink-0">
-                                        <i class="fas fa-check text-success"></i>
-                                    </div>
-                                    <div class="flex-grow-1 ms-3">
-                                        <small>CSV must have proper headers</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="list-group-item border-0 px-0">
-                                <div class="d-flex">
-                                    <div class="flex-shrink-0">
-                                        <i class="fas fa-check text-success"></i>
-                                    </div>
-                                    <div class="flex-grow-1 ms-3">
-                                        <small>Name, price, stock are required</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="list-group-item border-0 px-0">
-                                <div class="d-flex">
-                                    <div class="flex-shrink-0">
-                                        <i class="fas fa-check text-success"></i>
-                                    </div>
-                                    <div class="flex-grow-1 ms-3">
-                                        <small>Use commas to separate values</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="list-group-item border-0 px-0">
-                                <div class="d-flex">
-                                    <div class="flex-shrink-0">
-                                        <i class="fas fa-check text-success"></i>
-                                    </div>
-                                    <div class="flex-grow-1 ms-3">
-                                        <small>Enclose text with commas in quotes</small>
+                                <div id="fileInfo" class="mt-3" style="display: none;">
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-file-csv me-2"></i>
+                                        Selected file: <strong id="fileName"></strong>
+                                        <span class="ms-2 text-muted">(<span id="fileSize"></span>)</span>
+                                        <button type="button" class="btn-close float-end" onclick="clearFile()"></button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- Sample CSV -->
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0">
-                        <h6 class="mb-0"><i class="fas fa-table me-2"></i> Sample CSV Data</h6>
-                    </div>
-                    <div class="card-body">
-                        <pre class="bg-light p-3 rounded small" style="font-size: 12px; max-height: 300px; overflow-y: auto;">
-name,description,price,old_price,category,stock,featured,image
-iPhone 14 Pro,Latest Apple iPhone with advanced camera,999.99,1099.99,Electronics,50,1,iphone14.jpg
-Wireless Headphones,Noise cancelling wireless headphones,199.99,,Electronics,100,0,headphones.jpg
-Running Shoes,Comfortable running shoes for athletes,89.99,,Sports,200,1,
-Coffee Maker,Automatic coffee maker with timer,129.99,149.99,Home & Living,75,0,coffee-maker.jpg
-Designer Watch,Luxury watch with premium finish,499.99,599.99,Fashion,30,1,watch.jpg
-Yoga Mat,Premium yoga mat for workouts,29.99,,Sports,300,0,
-Bluetooth Speaker,Portable Bluetooth speaker,79.99,99.99,Electronics,120,1,speaker.jpg
-Winter Jacket,Warm winter jacket for cold weather,149.99,179.99,Fashion,80,0,jacket.jpg
-                        </pre>
-                        <div class="text-center">
-                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="downloadSampleCSV()">
-                                <i class="fas fa-download me-1"></i> Download Template
-                            </button>
+                    
+                    <!-- Import Options -->
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-cog"></i>
+                            Import Options
+                        </div>
+                        
+                        <div class="options-card">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" 
+                                       type="checkbox" 
+                                       name="update_existing" 
+                                       id="updateExisting">
+                                <label class="form-check-label fw-bold" for="updateExisting">
+                                    <i class="fas fa-sync me-2 text-warning"></i>
+                                    Update existing products
+                                </label>
+                                <div class="form-text ps-4">
+                                    If checked, products with matching names will be updated
+                                </div>
+                            </div>
+                            
+                            <div class="form-check">
+                                <input class="form-check-input" 
+                                       type="checkbox" 
+                                       name="skip_duplicates" 
+                                       id="skipDuplicates" checked>
+                                <label class="form-check-label fw-bold" for="skipDuplicates">
+                                    <i class="fas fa-forward me-2 text-info"></i>
+                                    Skip duplicate products
+                                </label>
+                                <div class="form-text ps-4">
+                                    If checked, duplicate products will be skipped without error
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                    
+                    <!-- Form Actions -->
+                    <div class="d-flex gap-3 justify-content-end">
+                        <a href="products.php" class="btn btn-outline-secondary btn-lg">
+                            <i class="fas fa-times me-2"></i>
+                            Cancel
+                        </a>
+                        <button type="submit" class="btn-upload btn-lg" id="uploadBtn">
+                            <i class="fas fa-cloud-upload-alt me-2"></i>
+                            Upload CSV
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
         
-        <!-- Upload Results -->
-        <?php if ($upload_result !== null): ?>
-        <div class="card border-0 shadow-sm mt-4">
-            <div class="card-header bg-white border-0">
-                <h6 class="mb-0">
-                    <i class="fas fa-chart-bar me-2"></i> Upload Results
-                    <span class="badge bg-primary ms-2">
-                        <?php echo ($upload_result['total_rows'] ?? 0); ?> Total Rows
-                    </span>
-                </h6>
-            </div>
-            <div class="card-body">
-                <!-- Summary -->
-                <div class="row mb-4">
-                    <div class="col-md-3">
-                        <div class="card bg-success bg-opacity-10 border-success">
-                            <div class="card-body text-center">
-                                <h3 class="text-success mb-1"><?php echo $upload_result['success_count'] ?? 0; ?></h3>
-                                <p class="text-success mb-0 small">Successful</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card bg-danger bg-opacity-10 border-danger">
-                            <div class="card-body text-center">
-                                <h3 class="text-danger mb-1"><?php echo $upload_result['failed_count'] ?? 0; ?></h3>
-                                <p class="text-danger mb-0 small">Failed</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card bg-info bg-opacity-10 border-info">
-                            <div class="card-body text-center">
-                                <h3 class="text-info mb-1"><?php echo $upload_result['total_rows'] ?? 0; ?></h3>
-                                <p class="text-info mb-0 small">Total Rows</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3">
-                        <div class="card bg-primary bg-opacity-10 border-primary">
-                            <div class="card-body text-center">
-                                <h3 class="text-primary mb-1"><?php 
-                                    $total = $upload_result['total_rows'] ?? 0;
-                                    $success = $upload_result['success_count'] ?? 0;
-                                    echo $total > 0 ? round(($success / $total) * 100, 1) : 0;
-                                ?>%</h3>
-                                <p class="text-primary mb-0 small">Success Rate</p>
-                            </div>
-                        </div>
-                    </div>
+        <!-- Info Sidebar -->
+        <div class="col-lg-4">
+            <div class="info-card animate-slide-in delay-3">
+                <div class="info-card-title">
+                    <i class="fas fa-info-circle me-2"></i>
+                    CSV Format Guide
                 </div>
                 
-                <!-- Detailed Results -->
-                <?php if (!empty($upload_result['results'])): ?>
-                <div class="mb-3">
-                    <h6 class="border-bottom pb-2 mb-3">Detailed Results</h6>
-                    
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover">
-                            <thead>
-                                <tr>
-                                    <th width="80">Row #</th>
-                                    <th width="100">Status</th>
-                                    <th>Product Name</th>
-                                    <th>Message</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach($upload_result['results'] as $result): ?>
-                                <tr class="<?php echo $result['status'] === 'success' ? 'table-success' : 'table-danger'; ?>">
-                                    <td>#<?php echo $result['row']; ?></td>
-                                    <td>
-                                        <span class="badge bg-<?php echo $result['status'] === 'success' ? 'success' : 'danger'; ?>">
-                                            <?php echo ucfirst($result['status']); ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <strong><?php echo htmlspecialchars($result['product_name']); ?></strong>
-                                    </td>
-                                    <td class="small"><?php echo htmlspecialchars($result['message']); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <?php endif; ?>
+                <ul class="info-list">
+                    <li>
+                        <i class="fas fa-check-circle text-success"></i>
+                        <div>
+                            <strong>Required columns:</strong>
+                            <div class="small text-muted">name, price, stock</div>
+                        </div>
+                    </li>
+                    <li>
+                        <i class="fas fa-tag"></i>
+                        <div>
+                            <strong>Optional columns:</strong>
+                            <div class="small text-muted">description, old_price, category, featured, image</div>
+                        </div>
+                    </li>
+                    <li>
+                        <i class="fas fa-star"></i>
+                        <div>
+                            <strong>Featured field:</strong>
+                            <div class="small text-muted">Use 1/0, yes/no, or true/false</div>
+                        </div>
+                    </li>
+                    <li>
+                        <i class="fas fa-image"></i>
+                        <div>
+                            <strong>Image field:</strong>
+                            <div class="small text-muted">Can be filename or URL</div>
+                        </div>
+                    </li>
+                    <li>
+                        <i class="fas fa-dollar-sign"></i>
+                        <div>
+                            <strong>Price format:</strong>
+                            <div class="small text-muted">Use decimal numbers (e.g., 19.99)</div>
+                        </div>
+                    </li>
+                </ul>
                 
-                <!-- Errors -->
-                <?php if (!empty($upload_result['errors'])): ?>
-                <div class="alert alert-danger">
-                    <h6 class="alert-heading">
-                        <i class="fas fa-exclamation-triangle me-2"></i> Upload Errors
-                    </h6>
-                    <ul class="mb-0">
-                        <?php foreach($upload_result['errors'] as $error): ?>
-                        <li><?php echo htmlspecialchars($error); ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                </div>
-                <?php endif; ?>
-                
-                <!-- Actions -->
-                <div class="d-flex justify-content-between mt-4">
-                    <div>
-                        <a href="products.php" class="btn btn-outline-secondary">
-                            <i class="fas fa-boxes me-2"></i> View Products
-                        </a>
+                <div class="sample-csv">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="fw-bold mb-0">Sample CSV Data</h6>
+                        <button class="btn-download btn-sm" onclick="downloadSampleCSV()">
+                            <i class="fas fa-download me-1"></i> Download Template
+                        </button>
                     </div>
-                    <div>
-                        <?php if (isset($upload_result['success_count']) && $upload_result['success_count'] > 0): ?>
-                        <a href="products.php" class="btn btn-primary">
-                            <i class="fas fa-eye me-2"></i> View Uploaded Products
-                        </a>
-                        <?php endif; ?>
-                    </div>
+                    <pre>name,description,price,old_price,category,stock,featured,image
+iPhone 14 Pro,Latest Apple iPhone,999.99,1099.99,Electronics,50,1,iphone.jpg
+Wireless Headphones,Noise cancelling,199.99,,Electronics,100,0,headphones.jpg
+Running Shoes,Comfortable shoes,89.99,,Sports,200,1,
+Coffee Maker,Automatic coffee maker,129.99,149.99,Home,75,0,coffee.jpg</pre>
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Upload Results -->
+    <?php if ($upload_result !== null): ?>
+    <div class="results-card animate-slide-in">
+        <h5 class="mb-4">
+            <i class="fas fa-chart-bar me-2 text-primary"></i>
+            Upload Results
+        </h5>
+        
+        <!-- Summary -->
+        <div class="result-summary">
+            <div class="result-item success">
+                <div class="result-value text-success"><?php echo $upload_result['success_count'] ?? 0; ?></div>
+                <div class="result-label">Successful</div>
+            </div>
+            <div class="result-item danger">
+                <div class="result-value text-danger"><?php echo $upload_result['failed_count'] ?? 0; ?></div>
+                <div class="result-label">Failed</div>
+            </div>
+            <div class="result-item info">
+                <div class="result-value text-info"><?php echo $upload_result['total_rows'] ?? 0; ?></div>
+                <div class="result-label">Total Rows</div>
+            </div>
+            <div class="result-item primary">
+                <div class="result-value text-primary">
+                    <?php 
+                    $total = $upload_result['total_rows'] ?? 0;
+                    $success = $upload_result['success_count'] ?? 0;
+                    echo $total > 0 ? round(($success / $total) * 100, 1) : 0;
+                    ?>%
+                </div>
+                <div class="result-label">Success Rate</div>
+            </div>
+        </div>
+        
+        <!-- Detailed Results -->
+        <?php if (!empty($upload_result['results'])): ?>
+        <div class="mt-4">
+            <h6 class="fw-bold mb-3">Detailed Results</h6>
+            <div class="table-responsive">
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Row #</th>
+                            <th>Status</th>
+                            <th>Product Name</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($upload_result['results'] as $result): ?>
+                        <tr class="row-<?php echo $result['status']; ?>">
+                            <td>#<?php echo $result['row']; ?></td>
+                            <td>
+                                <span class="badge bg-<?php echo $result['status'] === 'success' ? 'success' : 'danger'; ?>">
+                                    <?php echo ucfirst($result['status']); ?>
+                                </span>
+                            </td>
+                            <td>
+                                <strong><?php echo htmlspecialchars($result['product_name']); ?></strong>
+                            </td>
+                            <td class="small"><?php echo htmlspecialchars($result['message']); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
         <?php endif; ?>
-    </main>
+        
+        <!-- Errors -->
+        <?php if (!empty($upload_result['errors'])): ?>
+        <div class="alert alert-danger mt-4">
+            <h6 class="alert-heading fw-bold">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Upload Errors
+            </h6>
+            <ul class="mb-0">
+                <?php foreach($upload_result['errors'] as $error): ?>
+                <li><?php echo htmlspecialchars($error); ?></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
+        
+        <!-- Actions -->
+        <div class="d-flex justify-content-between mt-4">
+            <a href="products.php" class="btn btn-outline-secondary">
+                <i class="fas fa-boxes me-2"></i> View Products
+            </a>
+            <?php if (isset($upload_result['success_count']) && $upload_result['success_count'] > 0): ?>
+            <a href="products.php" class="btn btn-primary">
+                <i class="fas fa-eye me-2"></i> View Uploaded Products
+            </a>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 
-<style>
-.dashboard-container {
-    display: flex;
-    min-height: 100vh;
-}
-
-.sidebar {
-    width: 250px;
-    position: fixed;
-    left: 0;
-    top: 0;
-    height: 100vh;
-    z-index: 1000;
-    overflow-y: auto;
-    background: #fff;
-    box-shadow: 0 0 15px rgba(0,0,0,0.1);
-}
-
-.main-content {
-    flex: 1;
-    margin-left: 250px;
-    padding: 20px;
-    background: #f8f9fa;
-    min-height: 100vh;
-}
-
-@media (max-width: 991.98px) {
-    .sidebar {
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
-    }
-    .sidebar.active {
-        transform: translateX(0);
-    }
-    .main-content {
-        margin-left: 0;
-        padding-top: 70px;
-    }
-}
-
-.card {
-    border-radius: 10px;
-    border: 1px solid #e9ecef;
-}
-
-.card-header {
-    background: white;
-    border-bottom: 1px solid #e9ecef;
-}
-
-.badge {
-    font-weight: 500;
-}
-
-.table-sm th,
-.table-sm td {
-    padding: 8px 12px;
-}
-
-pre {
-    margin: 0;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-}
-
-.list-group-item {
-    border-left: 0;
-    border-right: 0;
-    padding: 12px 0;
-}
-
-.list-group-item:first-child {
-    border-top: 0;
-}
-
-.list-group-item:last-child {
-    border-bottom: 0;
-}
-</style>
-
 <script>
+// File upload handling
+document.getElementById('csv_file').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        document.getElementById('fileName').textContent = file.name;
+        document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(2) + ' KB';
+        document.getElementById('fileInfo').style.display = 'block';
+    }
+});
+
+function clearFile() {
+    document.getElementById('csv_file').value = '';
+    document.getElementById('fileInfo').style.display = 'none';
+}
+
+// Download sample CSV
 function downloadSampleCSV() {
-    // Create sample CSV content
     const csvContent = `name,description,price,old_price,category,stock,featured,image
 iPhone 14 Pro,Latest Apple iPhone with advanced camera,999.99,1099.99,Electronics,50,1,iphone14.jpg
 Wireless Headphones,Noise cancelling wireless headphones,199.99,,Electronics,100,0,headphones.jpg
 Running Shoes,Comfortable running shoes for athletes,89.99,,Sports,200,1,
-Coffee Maker,Automatic coffee maker with timer,129.99,149.99,Home & Living,75,0,coffee-maker.jpg
-Designer Watch,Luxury watch with premium finish,499.99,599.99,Fashion,30,1,watch.jpg
-Yoga Mat,Premium yoga mat for workouts,29.99,,Sports,300,0,
-Bluetooth Speaker,Portable Bluetooth speaker,79.99,99.99,Electronics,120,1,speaker.jpg
-Winter Jacket,Warm winter jacket for cold weather,149.99,179.99,Fashion,80,0,jacket.jpg`;
+Coffee Maker,Automatic coffee maker with timer,129.99,149.99,Home & Living,75,0,coffee-maker.jpg`;
 
-    // Create download link
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -869,60 +1119,118 @@ Winter Jacket,Warm winter jacket for cold weather,149.99,179.99,Fashion,80,0,jac
     link.click();
     document.body.removeChild(link);
     
-    // Show success message
-    const alert = document.createElement('div');
-    alert.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 end-0 m-3';
-    alert.style.zIndex = '9999';
-    alert.innerHTML = `
-        <i class="fas fa-check-circle me-2"></i>
-        Sample CSV template downloaded successfully!
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    
-    document.body.appendChild(alert);
-    
-    // Auto remove alert after 3 seconds
-    setTimeout(() => {
-        alert.classList.remove('show');
-        setTimeout(() => alert.remove(), 300);
-    }, 3000);
+    // Show success toast
+    showNotification('success', 'Sample CSV template downloaded successfully!');
 }
 
-// Add form validation
-document.addEventListener('DOMContentLoaded', function() {
-    const uploadForm = document.getElementById('uploadForm');
-    const uploadBtn = document.getElementById('uploadBtn');
+// Show notification
+function showNotification(type, message) {
+    const toastContainer = document.getElementById('toastContainer') || createToastContainer();
+    const toastId = 'toast-' + Date.now();
     
-    if (uploadForm) {
-        uploadForm.addEventListener('submit', function(e) {
-            const fileInput = document.getElementById('csv_file');
-            
-            if (!fileInput.files.length) {
-                e.preventDefault();
-                alert('Please select a CSV file to upload');
-                return false;
-            }
-            
-            // Check file extension
-            const fileName = fileInput.files[0].name;
-            const fileExt = fileName.split('.').pop().toLowerCase();
-            
-            if (fileExt !== 'csv') {
-                e.preventDefault();
-                alert('Please select a CSV file (.csv)');
-                return false;
-            }
-            
-            // Show loading state
-            if (uploadBtn) {
-                uploadBtn.disabled = true;
-                uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Uploading...';
-            }
-            
-            return true;
-        });
+    const toast = document.createElement('div');
+    toast.id = toastId;
+    toast.className = `toast align-items-center text-white bg-${type} border-0`;
+    toast.setAttribute('role', 'alert');
+    
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} me-2"></i>
+                ${message}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+        new bootstrap.Toast(toast, { autohide: true, delay: 3000 }).show();
     }
+    
+    setTimeout(() => toast.remove(), 3500);
+}
+
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.className = 'toast-container position-fixed top-0 end-0 p-3';
+    container.style.zIndex = '9999';
+    document.body.appendChild(container);
+    return container;
+}
+
+// Form validation
+document.getElementById('uploadForm')?.addEventListener('submit', function(e) {
+    const fileInput = document.getElementById('csv_file');
+    
+    if (!fileInput.files.length) {
+        e.preventDefault();
+        alert('Please select a CSV file to upload');
+        return false;
+    }
+    
+    // Show loading state
+    const uploadBtn = document.getElementById('uploadBtn');
+    uploadBtn.disabled = true;
+    uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Uploading...';
+    
+    return true;
 });
+
+// Drag and drop
+const uploadArea = document.querySelector('.upload-area div');
+if (uploadArea) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, preventDefaults, false);
+    });
+    
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    ['dragenter', 'dragover'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, highlight, false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, unhighlight, false);
+    });
+    
+    function highlight() {
+        uploadArea.style.background = 'rgba(67, 97, 238, 0.05)';
+        uploadArea.style.borderColor = 'var(--primary)';
+    }
+    
+    function unhighlight() {
+        uploadArea.style.background = '#f8f9fa';
+        uploadArea.style.borderColor = '#edf2f9';
+    }
+    
+    uploadArea.addEventListener('drop', handleDrop, false);
+    
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        
+        if (files.length) {
+            document.getElementById('csv_file').files = files;
+            const event = new Event('change');
+            document.getElementById('csv_file').dispatchEvent(event);
+        }
+    }
+}
+
+// Auto-hide alerts
+setTimeout(function() {
+    document.querySelectorAll('.alert').forEach(alert => {
+        try {
+            bootstrap.Alert.getOrCreateInstance(alert).close();
+        } catch(e) {}
+    });
+}, 5000);
 </script>
 
 <?php require_once '../includes/footer.php'; ?>
