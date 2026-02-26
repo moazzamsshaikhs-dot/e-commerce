@@ -1,10 +1,16 @@
 <?php
+// admin/vendors/earnings/withdraw.php
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
 
 // Enable error reporting for debugging
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
+
+// Generate CSRF token if not exists
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 // Check if user is vendor
 if ($_SESSION['user_type'] !== 'vendor') {
@@ -34,644 +40,1635 @@ try {
 
 $page_title = 'Withdraw Earnings';
 
-// Get vendor earnings and bank accounts
+// Initialize variables
+$bank_accounts = [];
+$paypal_accounts = [];
+$stripe_accounts = [];
+$easypaisa_accounts = [];
+$jazzcash_accounts = [];
+$cards = [];
+$withdrawals = [];
+$notifications = [];
+$paid_earnings = 0;
+$processing_amount = 0;
+$available_balance = 0;
+
+// Get vendor earnings and payment methods
 try {
     $db = getDB();
     $vendor_id = $_SESSION['user_id'];
 
     // Get vendor details
-    $stmt = $db->prepare("SELECT full_name, email FROM users WHERE id = ?");
+    $stmt = $db->prepare("SELECT full_name, email, country FROM users WHERE id = ?");
     $stmt->execute([$vendor_id]);
-    $vendor = $stmt->fetch();
+    $vendor = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$vendor) {
+        $vendor = ['full_name' => '', 'email' => '', 'country' => ''];
+    }
 
-    // Get pending earnings
+    // Get paid earnings from vendor_earnings
     $stmt = $db->prepare("
-        SELECT COALESCE(SUM(vendor_amount), 0) as pending_earnings 
+        SELECT COALESCE(SUM(vendor_amount), 0) as paid_earnings 
         FROM vendor_earnings 
+        WHERE vendor_id = ? AND status = 'paid'
+    ");
+    $stmt->execute([$vendor_id]);
+    $paid_earnings = $stmt->fetchColumn();
+    
+    // Get processing withdrawals amount
+    $stmt = $db->prepare("
+        SELECT COALESCE(SUM(withdrawal_amount), 0) as processing_amount
+        FROM vendor_withdrawals
         WHERE vendor_id = ? AND status IN ('pending', 'processing')
     ");
     $stmt->execute([$vendor_id]);
-    $pending_earnings = $stmt->fetch()['pending_earnings'];
+    $processing_amount = $stmt->fetchColumn();
+    
+    $available_balance = $paid_earnings - $processing_amount;
 
     // Get bank accounts
-    $stmt = $db->prepare("SELECT * FROM vendor_bank_accounts WHERE vendor_id = ? ORDER BY is_default DESC");
+    $stmt = $db->prepare("
+        SELECT * FROM vendor_bank_accounts 
+        WHERE vendor_id = ? 
+        ORDER BY is_default DESC, created_at DESC
+    ");
     $stmt->execute([$vendor_id]);
-    $bank_accounts = $stmt->fetchAll();
+    $bank_accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Get PayPal accounts
+    try {
+        $stmt = $db->prepare("
+            SELECT * FROM vendor_paypal_accounts 
+            WHERE vendor_id = ? 
+            ORDER BY is_default DESC, created_at DESC
+        ");
+        $stmt->execute([$vendor_id]);
+        $paypal_accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $paypal_accounts = [];
+    }
+
+    // Get Stripe accounts
+    try {
+        $stmt = $db->prepare("
+            SELECT * FROM vendor_stripe_accounts 
+            WHERE vendor_id = ? 
+            ORDER BY is_default DESC, created_at DESC
+        ");
+        $stmt->execute([$vendor_id]);
+        $stripe_accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $stripe_accounts = [];
+    }
+
+    // Get Easypaisa accounts
+    try {
+        $stmt = $db->prepare("
+            SELECT * FROM vendor_mobile_accounts 
+            WHERE vendor_id = ? AND account_type = 'easypaisa'
+            ORDER BY is_default DESC, created_at DESC
+        ");
+        $stmt->execute([$vendor_id]);
+        $easypaisa_accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $easypaisa_accounts = [];
+    }
+
+    // Get JazzCash accounts
+    try {
+        $stmt = $db->prepare("
+            SELECT * FROM vendor_mobile_accounts 
+            WHERE vendor_id = ? AND account_type = 'jazzcash'
+            ORDER BY is_default DESC, created_at DESC
+        ");
+        $stmt->execute([$vendor_id]);
+        $jazzcash_accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $jazzcash_accounts = [];
+    }
+
+    // Get cards
+    try {
+        $stmt = $db->prepare("
+            SELECT * FROM vendor_cards 
+            WHERE vendor_id = ? 
+            ORDER BY is_default DESC, created_at DESC
+        ");
+        $stmt->execute([$vendor_id]);
+        $cards = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $cards = [];
+    }
 
     // Get withdrawal history
     $stmt = $db->prepare("
         SELECT * FROM vendor_withdrawals 
         WHERE vendor_id = ? 
         ORDER BY created_at DESC 
-        LIMIT 10
+        LIMIT 20
     ");
     $stmt->execute([$vendor_id]);
-    $withdrawals = $stmt->fetchAll();
+    $withdrawals = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get notifications
+    try {
+        $stmt = $db->prepare("
+            SELECT * FROM notifications 
+            WHERE user_id = ? 
+            ORDER BY created_at DESC 
+            LIMIT 5
+        ");
+        $stmt->execute([$vendor_id]);
+        $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        $notifications = [];
+    }
+    
 } catch (PDOException $e) {
     $_SESSION['error'] = 'Error loading withdrawal data: ' . $e->getMessage();
-    $pending_earnings = 0;
-    $bank_accounts = [];
-    $withdrawals = [];
-    $vendor = ['full_name' => '', 'email' => ''];
+    error_log("Withdraw page error: " . $e->getMessage());
 }
 
-$errors = [];
 $min_withdrawal = 50.00;
 
-function processWithdrawal($vendor_id, $pending_earnings, $min_withdrawal)
-{
-    global $db;
+// Calculate counts for quick stats
+$bank_count = count($bank_accounts);
+$bank_verified = count(array_filter($bank_accounts, function($acc) { return !empty($acc['is_verified']); }));
 
-    $withdrawal_amount = (float)($_POST['amount'] ?? 0);
-    $withdrawal_method = trim($_POST['method'] ?? '');
-    $account_id = isset($_POST['account_id']) ? (int)$_POST['account_id'] : null;
-    $notes = trim($_POST['notes'] ?? '');
+$paypal_count = count($paypal_accounts);
+$paypal_verified = count(array_filter($paypal_accounts, function($acc) { return !empty($acc['is_verified']); }));
 
-    error_log("Processing withdrawal: Amount=$withdrawal_amount, Method=$withdrawal_method, Account=$account_id");
+$stripe_count = count($stripe_accounts);
+$stripe_verified = count(array_filter($stripe_accounts, function($acc) { return !empty($acc['is_verified']); }));
 
-    // Validation
-    $errors = [];
+$easypaisa_count = count($easypaisa_accounts);
+$easypaisa_verified = count(array_filter($easypaisa_accounts, function($acc) { return !empty($acc['is_verified']); }));
 
-    if ($withdrawal_amount < $min_withdrawal) {
-        $errors[] = "Minimum withdrawal amount is $" . number_format($min_withdrawal, 2);
-    }
+$jazzcash_count = count($jazzcash_accounts);
+$jazzcash_verified = count(array_filter($jazzcash_accounts, function($acc) { return !empty($acc['is_verified']); }));
 
-    if ($withdrawal_amount > $pending_earnings) {
-        $errors[] = "Insufficient pending earnings. Available: $" . number_format($pending_earnings, 2);
-    }
+$cards_count = count($cards);
+$cards_verified = count(array_filter($cards, function($acc) { return !empty($acc['is_verified']); }));
 
-    if (empty($withdrawal_method)) {
-        $errors[] = "Please select withdrawal method";
-    }
-
-    if ($withdrawal_method == 'bank' && empty($account_id)) {
-        $errors[] = "Please select a bank account";
-    }
-
-    if (empty($errors)) {
-        try {
-            $db = getDB();
-
-            // Check if bank account belongs to vendor and is verified
-            if ($withdrawal_method == 'bank') {
-                $stmt = $db->prepare("
-    SELECT id, is_verified 
-    FROM vendor_bank_accounts 
-    WHERE id = ? AND vendor_id = ?
-");
-                $stmt->execute([$account_id, $vendor_id]);
-                $account = $stmt->fetch();
-
-                if (!$account) {
-                    $errors[] = "Invalid bank account selected";
-                } elseif (!$account['is_verified']) {
-                    $errors[] = "Bank account must be verified before withdrawal";
-                }
-            }
-
-            if (empty($errors)) {
-                $db->beginTransaction();
-
-                // Prepare account details
-                $account_details = '';
-                if ($withdrawal_method == 'bank' && $account_id) {
-                    $stmt_acc = $db->prepare("SELECT * FROM vendor_bank_accounts WHERE id = ?");
-                    $stmt_acc->execute([$account_id]);
-                    $account = $stmt_acc->fetch();
-                    if ($account) {
-                        $account_details = json_encode([
-                            'bank_name' => $account['bank_name'],
-                            'account_holder' => $account['account_holder_name'],
-                            'account_number' => substr($account['account_number'], -4),
-                            'ifsc' => $account['ifsc_code']
-                        ]);
-                    }
-                }
-
-                // Insert withdrawal record
-                $stmt = $db->prepare("
-                    INSERT INTO vendor_withdrawals (
-                        vendor_id, 
-                        withdrawal_method, 
-                        withdrawal_amount, 
-                        account_details, 
-                        notes, 
-                        status,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, ?, 'pending', NOW())
-                ");
-
-                $result = $stmt->execute([
-                    $vendor_id,
-                    $withdrawal_method,
-                    $withdrawal_amount,
-                    $account_details,
-                    $notes
-                ]);
-
-                if (!$result) {
-                    throw new Exception("Failed to insert withdrawal record");
-                }
-
-                $withdrawal_id = $db->lastInsertId();
-                error_log("Withdrawal record created: ID=$withdrawal_id");
-
-                // Update vendor earnings status to processing
-                if ($withdrawal_amount > 0) {
-                    $stmt = $db->prepare("
-                        UPDATE vendor_earnings 
-                        SET status = 'processing' 
-                        WHERE vendor_id = ? AND status = 'pending'
-                        ORDER BY id ASC
-                        LIMIT ?
-                    ");
-
-                    // Calculate how many earnings records to mark as processing
-                    // Assuming average earning per record to estimate
-                    $avg_earning = 10; // $10 per order
-                    $limit = ceil($withdrawal_amount / $avg_earning);
-                    $stmt->execute([$vendor_id, $limit]);
-
-                    error_log("Updated earnings: $limit records marked as processing");
-                }
-
-                $db->commit();
-
-                $_SESSION['success'] = "Withdrawal request of $" . number_format($withdrawal_amount, 2) . " submitted successfully! It will be processed within 3-5 business days.";
-                error_log("Withdrawal completed successfully");
-
-                // Redirect to avoid resubmission
-                header('Location: withdraw.php');
-                exit();
-            }
-        } catch (Exception $e) {
-            if (isset($db) && $db->inTransaction()) {
-                $db->rollBack();
-            }
-            $errors[] = 'Error processing withdrawal: ' . $e->getMessage();
-            error_log("Withdrawal error: " . $e->getMessage());
-        }
-    }
-
-    if (!empty($errors)) {
-        $_SESSION['form_errors'] = $errors;
-        header('Location: withdraw.php');
-        exit();
-    }
-}
-function addBankAccount($vendor_id)
-{
-    global $db;
-
-    $account_holder_name = trim($_POST['account_holder_name'] ?? '');
-    $bank_name = trim($_POST['bank_name'] ?? '');
-    $account_number = trim($_POST['account_number'] ?? '');
-    $ifsc_code = trim($_POST['ifsc_code'] ?? '');
-    $branch_name = trim($_POST['branch_name'] ?? '');
-    $account_type = trim($_POST['account_type'] ?? 'savings');
-    $is_default = isset($_POST['is_default']) ? 1 : 0;
-
-    error_log("Adding bank account for vendor: $vendor_id");
-    error_log("Account data: " . print_r($_POST, true));
-
-    // Validation
-    $errors = [];
-
-    if (empty($account_holder_name)) {
-        $errors[] = "Account holder name is required";
-    }
-
-    if (empty($bank_name)) {
-        $errors[] = "Bank name is required";
-    }
-
-    if (empty($account_number)) {
-        $errors[] = "Account number is required";
-    }
-
-    if (empty($ifsc_code)) {
-        $errors[] = "IFSC code is required";
-    }
-
-    if (empty($errors)) {
-        try {
-            $db = getDB();
-
-            // If setting as default, unset other defaults
-            if ($is_default) {
-                $stmt = $db->prepare("UPDATE vendor_bank_accounts SET is_default = 0 WHERE vendor_id = ?");
-                $stmt->execute([$vendor_id]);
-                error_log("Reset default accounts for vendor: $vendor_id");
-            }
-
-            // Insert bank account
-            $stmt = $db->prepare("
-                INSERT INTO vendor_bank_accounts (
-                    vendor_id, 
-                    account_holder_name, 
-                    bank_name, 
-                    account_number, 
-                    ifsc_code, 
-                    branch_name, 
-                    account_type, 
-                    is_default,
-                    is_verified,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
-            ");
-
-            $result = $stmt->execute([
-                $vendor_id,
-                $account_holder_name,
-                $bank_name,
-                $account_number,
-                $ifsc_code,
-                $branch_name,
-                $account_type,
-                $is_default
-            ]);
-
-            if ($result) {
-                $account_id = $db->lastInsertId();
-                error_log("Bank account added successfully: ID=$account_id");
-                $_SESSION['success'] = "Bank account added successfully! It will be verified by admin within 24 hours.";
-            } else {
-                error_log("Failed to insert bank account");
-                $_SESSION['error'] = "Failed to add bank account";
-            }
-        } catch (PDOException $e) {
-            error_log("Bank account error: " . $e->getMessage());
-            $_SESSION['error'] = 'Error adding bank account: ' . $e->getMessage();
-        }
-    } else {
-        $_SESSION['form_errors'] = $errors;
-        error_log("Bank account validation errors: " . print_r($errors, true));
-    }
-
-    // Redirect to avoid resubmission
-    header('Location: withdraw.php');
-    exit();
+// Helper functions
+function getStatusBadge($status) {
+    $classes = [
+        'pending' => 'warning',
+        'processing' => 'info',
+        'completed' => 'success',
+        'rejected' => 'danger',
+        'cancelled' => 'secondary'
+    ];
+    $class = $classes[$status] ?? 'secondary';
+    return "<span class='badge bg-{$class} px-3 py-2 rounded-pill'>{$status}</span>";
 }
 
-// Process form submissions based on action
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-
-    error_log("POST action: " . $action);
-    error_log("POST data: " . print_r($_POST, true));
-
-    switch ($action) {
-        case 'request_withdrawal':
-            processWithdrawal($vendor_id, $pending_earnings, $min_withdrawal);
-            break;
-
-        case 'add_bank_account':
-            addBankAccount($vendor_id);
-            break;
-
-        default:
-            $_SESSION['error'] = 'Invalid action';
-            header('Location: withdraw.php');
-            exit();
-    }
+function formatCurrency($amount) {
+    return '$' . number_format($amount, 2);
 }
 
-
-// NOW include the header after all PHP logic
+// Include header
 require_once '../../includes/header.php';
 ?>
 
-<div class="dashboard-container">
-    <?php
-    // Check if vendor sidebar exists
-    $sidebar_path = '../../includes/vendor-sidebar.php';
-    if (file_exists($sidebar_path)) {
-        include_once $sidebar_path;
+<style>
+:root {
+    --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --success-gradient: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+    --warning-gradient: linear-gradient(135deg, #fad961 0%, #f76b1c 100%);
+    --info-gradient: linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%);
+    --danger-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.dashboard-container {
+    display: flex;
+    min-height: 100vh;
+    background: #f4f7fc;
+}
+
+.main-content {
+    flex: 1;
+    padding: 30px;
+    overflow-y: auto;
+}
+
+/* Stats Cards */
+.stat-card {
+    background: white;
+    border-radius: 20px;
+    padding: 25px;
+    transition: all 0.3s ease;
+    border: none;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+}
+
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    background: var(--primary-gradient);
+}
+
+.stat-card.success::before { background: var(--success-gradient); }
+.stat-card.warning::before { background: var(--warning-gradient); }
+.stat-card.primary::before { background: var(--primary-gradient); }
+
+.stat-icon {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    background: rgba(102, 126, 234, 0.1);
+    color: #667eea;
+}
+
+.stat-card.success .stat-icon {
+    background: rgba(132, 250, 176, 0.1);
+    color: #84fab0;
+}
+
+.stat-card.warning .stat-icon {
+    background: rgba(250, 217, 97, 0.1);
+    color: #fad961;
+}
+
+.stat-card.primary .stat-icon {
+    background: rgba(102, 126, 234, 0.1);
+    color: #667eea;
+}
+
+/* Payment Method Cards */
+.method-card {
+    background: white;
+    border-radius: 15px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.03);
+}
+
+.method-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+.method-card.active {
+    border-color: #667eea;
+    background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%);
+}
+
+.method-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    margin: 0 auto 15px;
+}
+
+.method-card.bank .method-icon { background: rgba(102, 126, 234, 0.1); color: #667eea; }
+.method-card.paypal .method-icon { background: rgba(0, 115, 177, 0.1); color: #0073b1; }
+.method-card.stripe .method-icon { background: rgba(106, 27, 154, 0.1); color: #6a1b9a; }
+.method-card.easypaisa .method-icon { background: rgba(40, 167, 69, 0.1); color: #28a745; }
+.method-card.jazzcash .method-icon { background: rgba(220, 53, 69, 0.1); color: #dc3545; }
+.method-card.cards .method-icon { background: rgba(255, 193, 7, 0.1); color: #ffc107; }
+
+.method-count {
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    background: #f0f0f0;
+    display: inline-block;
+    margin-top: 10px;
+}
+
+/* Account Cards */
+.account-card {
+    background: white;
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 15px;
+    border-left: 4px solid #dee2e6;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+}
+
+.account-card:hover {
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+}
+
+.account-card.default {
+    border-left-color: #28a745;
+    background: linear-gradient(135deg, #f8fff9 0%, #ffffff 100%);
+}
+
+.account-card.verified {
+    border-left-color: #17a2b8;
+}
+
+.account-card.pending {
+    border-left-color: #ffc107;
+    opacity: 0.9;
+}
+
+/* Amount Input */
+.amount-input-group {
+    display: flex;
+    align-items: stretch;
+    border-radius: 15px;
+    overflow: hidden;
+    border: 2px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.amount-input-group:focus-within {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.amount-input-group .input-group-text {
+    background: #f8f9fa;
+    border: none;
+    font-size: 18px;
+    font-weight: 600;
+    padding: 12px 20px;
+}
+
+.amount-input-group input {
+    border: none;
+    padding: 12px 20px;
+    font-size: 18px;
+    font-weight: 600;
+    background: white;
+}
+
+.amount-input-group input:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+.amount-input-group .btn-max {
+    background: #667eea;
+    color: white;
+    border: none;
+    padding: 12px 25px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.amount-input-group .btn-max:hover {
+    background: #5a67d8;
+}
+
+/* Custom Buttons */
+.btn-gradient {
+    background: var(--primary-gradient);
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 12px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-gradient:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    color: white;
+}
+
+/* Method options */
+.method-option {
+    background: #f8f9fa;
+    border: 2px solid #e9ecef;
+    border-radius: 15px;
+    padding: 15px 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.method-option i {
+    font-size: 24px;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.method-option span {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.method-option.active {
+    border-color: #667eea;
+    background: linear-gradient(135deg, #667eea10 0%, #764ba210 100%);
+}
+
+.method-option.bank-option.active i,
+.method-option.bank-option.active span { color: #667eea; }
+
+.method-option.paypal-option.active i,
+.method-option.paypal-option.active span { color: #0073b1; }
+
+.method-option.stripe-option.active i,
+.method-option.stripe-option.active span { color: #6a1b9a; }
+
+.method-option.easypaisa-option.active i,
+.method-option.easypaisa-option.active span { color: #28a745; }
+
+.method-option.jazzcash-option.active i,
+.method-option.jazzcash-option.active span { color: #dc3545; }
+
+.method-option.cards-option.active i,
+.method-option.cards-option.active span { color: #ffc107; }
+
+/* Progress bars */
+.progress {
+    background-color: #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    transition: width 0.6s ease;
+}
+
+/* Tab styling */
+.nav-tabs .nav-link {
+    border: none;
+    color: #6c757d;
+    font-weight: 500;
+    padding: 12px 20px;
+    border-radius: 12px 12px 0 0;
+    transition: all 0.3s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    background: #f8f9fa;
+    color: #495057;
+}
+
+.nav-tabs .nav-link.active {
+    color: #667eea;
+    background: white;
+    border-bottom: 3px solid #667eea;
+}
+
+.nav-tabs .badge {
+    font-size: 11px;
+    padding: 4px 8px;
+}
+
+/* Timeline */
+.timeline-item {
+    position: relative;
+    padding-left: 30px;
+    padding-bottom: 20px;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e9ecef;
+}
+
+.timeline-item::after {
+    content: '';
+    position: absolute;
+    left: -4px;
+    top: 5px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #667eea;
+}
+
+.timeline-item:last-child {
+    padding-bottom: 0;
+}
+
+.timeline-item:last-child::before {
+    display: none;
+}
+
+/* Rounded utilities */
+.rounded-15 { border-radius: 15px; }
+.rounded-20 { border-radius: 20px; }
+
+/* Opacity utilities */
+.opacity-25 { opacity: 0.25; }
+
+/* Animations */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
     }
-    ?>
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-slide-in {
+    animation: slideIn 0.5s ease forwards;
+}
+
+.delay-1 { animation-delay: 0.1s; }
+.delay-2 { animation-delay: 0.2s; }
+.delay-3 { animation-delay: 0.3s; }
+</style>
+
+<div class="dashboard-container">
+    <?php include_once '../../includes/vendor-sidebar.php'; ?>
 
     <main class="main-content">
         <!-- Header -->
-        <div class="dashboard-header bg-white shadow-sm p-4 mb-4 rounded">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-                <div>
-                    <h1 class="h3 mb-1 fw-bold text-primary">Withdraw Earnings</h1>
-                    <p class="text-muted mb-0">Transfer your earnings to your account</p>
-                </div>
-                <div class="d-flex gap-3">
-                    <a href="earnings.php" class="btn btn-outline-secondary">
-                        <i class="fas fa-arrow-left me-2"></i> Back to Earnings
-                    </a>
-                </div>
+        <div class="d-flex justify-content-between align-items-center mb-4 animate-slide-in">
+            <div>
+                <h1 class="h2 fw-bold text-dark mb-1">Withdraw Earnings</h1>
+                <p class="text-muted mb-0">
+                    <i class="fas fa-clock me-2"></i>Last updated: <?php echo date('F j, Y g:i A'); ?>
+                </p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="earnings.php" class="btn btn-outline-secondary rounded-pill px-4">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Earnings
+                </a>
+                <button class="btn btn-outline-primary rounded-pill px-4" onclick="window.location.reload()">
+                    <i class="fas fa-sync-alt me-2"></i>Refresh
+                </button>
             </div>
         </div>
 
-        <!-- Error/Success Messages -->
-        <?php if (!empty($errors)): ?>
-            <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
-                <i class="fas fa-exclamation-circle me-2"></i>
-                <strong>Please fix the following errors:</strong>
-                <ul class="mb-0 mt-2">
-                    <?php foreach ($errors as $error): ?>
-                        <li><?php echo htmlspecialchars($error); ?></li>
-                    <?php endforeach; ?>
-                </ul>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        <!-- Notifications -->
+        <?php if (!empty($notifications)): ?>
+            <div class="mb-4 animate-slide-in delay-1">
+                <?php foreach ($notifications as $note): ?>
+                    <div class="alert alert-<?php echo $note['type']; ?> alert-dismissible fade show rounded-15 shadow-sm" role="alert">
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i class="fas fa-<?php echo $note['type'] == 'success' ? 'check-circle' : ($note['type'] == 'error' ? 'exclamation-circle' : 'info-circle'); ?> fa-2x"></i>
+                            </div>
+                            <div>
+                                <strong><?php echo htmlspecialchars($note['title']); ?></strong><br>
+                                <?php echo htmlspecialchars($note['message']); ?>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <?php endforeach; ?>
             </div>
         <?php endif; ?>
 
+        <!-- Error/Success Messages -->
         <?php if (isset($_SESSION['form_errors'])): ?>
-            <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
-                <i class="fas fa-exclamation-circle me-2"></i>
-                <strong>Please fix the following errors:</strong>
-                <ul class="mb-0 mt-2">
-                    <?php foreach ($_SESSION['form_errors'] as $error): ?>
-                        <li><?php echo htmlspecialchars($error); ?></li>
-                    <?php endforeach; ?>
-                </ul>
+            <div class="alert alert-danger alert-dismissible fade show rounded-15 shadow-sm mb-4 animate-slide-in delay-1" role="alert">
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <i class="fas fa-exclamation-circle fa-2x"></i>
+                    </div>
+                    <div>
+                        <strong>Please fix the following errors:</strong>
+                        <ul class="mb-0 mt-2">
+                            <?php foreach ($_SESSION['form_errors'] as $error): ?>
+                                <li><?php echo htmlspecialchars($error); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
             <?php unset($_SESSION['form_errors']); ?>
         <?php endif; ?>
 
         <?php if (isset($_SESSION['error'])): ?>
-            <div class="alert alert-danger alert-dismissible fade show mb-4" role="alert">
-                <i class="fas fa-exclamation-circle me-2"></i>
-                <?php echo htmlspecialchars($_SESSION['error']);
-                unset($_SESSION['error']); ?>
+            <div class="alert alert-danger alert-dismissible fade show rounded-15 shadow-sm mb-4 animate-slide-in delay-1" role="alert">
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <i class="fas fa-exclamation-circle fa-2x"></i>
+                    </div>
+                    <div>
+                        <?php echo htmlspecialchars($_SESSION['error']); ?>
+                    </div>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
+            <?php unset($_SESSION['error']); ?>
         <?php endif; ?>
 
         <?php if (isset($_SESSION['success'])): ?>
-            <div class="alert alert-success alert-dismissible fade show mb-4" role="alert">
-                <i class="fas fa-check-circle me-2"></i>
-                <?php echo htmlspecialchars($_SESSION['success']);
-                unset($_SESSION['success']); ?>
+            <div class="alert alert-success alert-dismissible fade show rounded-15 shadow-sm mb-4 animate-slide-in delay-1" role="alert">
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <i class="fas fa-check-circle fa-2x"></i>
+                    </div>
+                    <div>
+                        <?php echo htmlspecialchars($_SESSION['success']); ?>
+                    </div>
+                </div>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
+            <?php unset($_SESSION['success']); ?>
         <?php endif; ?>
 
-        <!-- Earnings Summary -->
-        <div class="row g-4 mb-4">
-            <div class="col-md-8">
-                <div class="card border-0 shadow-sm border-start border-5 border-warning">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h5 class="fw-bold mb-1">Available for Withdrawal</h5>
-                                <h1 class="display-6 fw-bold text-warning mb-0">$<?php echo number_format($pending_earnings, 2); ?></h1>
-                                <p class="text-muted mb-0">
-                                    Minimum withdrawal: $<?php echo number_format($min_withdrawal, 2); ?>
-                                    <?php if ($pending_earnings < $min_withdrawal): ?>
-                                        <span class="text-danger"> (Insufficient balance)</span>
-                                    <?php endif; ?>
-                                </p>
-                            </div>
-                            <div class="avatar-lg bg-warning bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center">
-                                <i class="fas fa-wallet fa-3x text-warning"></i>
-                            </div>
+        <!-- Stats Cards -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-4 animate-slide-in delay-1">
+                <div class="stat-card success">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <p class="text-muted mb-2">Paid Earnings</p>
+                            <h2 class="fw-bold mb-2"><?php echo formatCurrency($paid_earnings); ?></h2>
+                            <p class="text-muted small mb-0">
+                                <i class="fas fa-arrow-up text-success me-1"></i>
+                                Total earnings paid to you
+                            </p>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-money-bill-wave"></i>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body text-center">
-                        <h6 class="fw-bold mb-3">Withdrawal Status</h6>
-                        <?php
-                        $verified_accounts = array_filter($bank_accounts, function ($acc) {
-                            return $acc['is_verified'] == 1;
-                        });
-                        $has_verified_accounts = !empty($verified_accounts);
-                        ?>
-
-                        <?php if ($pending_earnings >= $min_withdrawal): ?>
-                            <div class="alert alert-success mb-3">
-                                <i class="fas fa-check-circle me-2"></i>
-                                Ready to Withdraw
-                            </div>
-                            <button class="btn btn-warning w-100" data-bs-toggle="modal" data-bs-target="#withdrawModal"
-                                <?php echo !$has_verified_accounts ? 'disabled' : ''; ?>>
-                                <i class="fas fa-wallet me-2"></i> Request Withdrawal
-                            </button>
-                            <?php if (!$has_verified_accounts): ?>
-                                <small class="text-danger d-block mt-2">
-                                    <i class="fas fa-exclamation-triangle me-1"></i>
-                                    Please add and verify a bank account first
-                                </small>
-                            <?php endif; ?>
-                        <?php else: ?>
-                            <div class="alert alert-info mb-3">
-                                <i class="fas fa-clock me-2"></i>
-                                Need $<?php echo number_format($min_withdrawal - $pending_earnings, 2); ?> more
-                            </div>
-                            <a href="<?php echo SITE_URL; ?>admin/vendors/dashboard.php" class="btn btn-outline-primary w-100">
-                                <i class="fas fa-chart-line me-2"></i> Boost Sales
-                            </a>
-                        <?php endif; ?>
+            
+            <div class="col-md-4 animate-slide-in delay-2">
+                <div class="stat-card warning">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <p class="text-muted mb-2">Processing</p>
+                            <h2 class="fw-bold mb-2"><?php echo formatCurrency($processing_amount); ?></h2>
+                            <p class="text-muted small mb-0">
+                                <i class="fas fa-clock text-warning me-1"></i>
+                                Pending withdrawal requests
+                            </p>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4 animate-slide-in delay-3">
+                <div class="stat-card primary">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <p class="text-muted mb-2">Available for Withdrawal</p>
+                            <h2 class="fw-bold mb-2"><?php echo formatCurrency($available_balance); ?></h2>
+                            <p class="text-muted small mb-0">
+                                <i class="fas fa-info-circle text-primary me-1"></i>
+                                Min: <?php echo formatCurrency($min_withdrawal); ?>
+                            </p>
+                        </div>
+                        <div class="stat-icon">
+                            <i class="fas fa-wallet"></i>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="row g-4">
-            <!-- Bank Accounts -->
-            <div class="col-lg-6">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-university me-2 text-primary"></i> Bank Accounts
-                        </h5>
-                        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#bankAccountModal">
-                            <i class="fas fa-plus me-1"></i> Add Account
-                        </button>
+        <!-- Payment Methods Quick Access -->
+        <div class="row g-3 mb-5">
+            <div class="col-12">
+                <h5 class="fw-bold mb-3">Quick Access</h5>
+            </div>
+            <div class="col-lg-2 col-md-4 col-6">
+                <div class="method-card bank" onclick="showMethod('bank')">
+                    <div class="method-icon">
+                        <i class="fas fa-university"></i>
                     </div>
-                    <div class="card-body">
-                        <?php if (empty($bank_accounts)): ?>
-                            <div class="text-center py-4">
-                                <i class="fas fa-university fa-3x text-muted mb-3"></i>
-                                <p class="text-muted">No bank accounts added yet</p>
-                                <p class="text-muted small">Add a bank account to withdraw your earnings</p>
+                    <h6 class="mb-1">Bank Accounts</h6>
+                    <span class="method-count"><?php echo $bank_verified; ?>/<?php echo $bank_count; ?> Verified</span>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-6">
+                <div class="method-card paypal" onclick="showMethod('paypal')">
+                    <div class="method-icon">
+                        <i class="fab fa-paypal"></i>
+                    </div>
+                    <h6 class="mb-1">PayPal</h6>
+                    <span class="method-count"><?php echo $paypal_verified; ?>/<?php echo $paypal_count; ?> Verified</span>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-6">
+                <div class="method-card stripe" onclick="showMethod('stripe')">
+                    <div class="method-icon">
+                        <i class="fab fa-stripe"></i>
+                    </div>
+                    <h6 class="mb-1">Stripe</h6>
+                    <span class="method-count"><?php echo $stripe_verified; ?>/<?php echo $stripe_count; ?> Verified</span>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-6">
+                <div class="method-card easypaisa" onclick="showMethod('easypaisa')">
+                    <div class="method-icon">
+                        <i class="fas fa-mobile-alt"></i>
+                    </div>
+                    <h6 class="mb-1">Easypaisa</h6>
+                    <span class="method-count"><?php echo $easypaisa_verified; ?>/<?php echo $easypaisa_count; ?> Verified</span>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-6">
+                <div class="method-card jazzcash" onclick="showMethod('jazzcash')">
+                    <div class="method-icon">
+                        <i class="fas fa-mobile-alt"></i>
+                    </div>
+                    <h6 class="mb-1">JazzCash</h6>
+                    <span class="method-count"><?php echo $jazzcash_verified; ?>/<?php echo $jazzcash_count; ?> Verified</span>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-6">
+                <div class="method-card cards" onclick="showMethod('cards')">
+                    <div class="method-icon">
+                        <i class="fas fa-credit-card"></i>
+                    </div>
+                    <h6 class="mb-1">Cards & Stripe</h6>
+                    <span class="method-count"><?php echo $cards_verified + $stripe_verified; ?>/<?php echo $cards_count + $stripe_count; ?> Verified</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Left Column - Withdrawal Form & Accounts -->
+            <div class="col-lg-7">
+                <!-- Withdrawal Form Card -->
+                <div class="card border-0 shadow-sm rounded-20 mb-4 animate-slide-in">
+                    <div class="card-header bg-white border-0 p-4">
+                        <h5 class="mb-0 fw-bold">
+                            <span class="bg-primary bg-opacity-10 rounded-15 p-2 me-2">
+                                <i class="fas fa-paper-plane text-primary"></i>
+                            </span>
+                            Request New Withdrawal
+                        </h5>
+                    </div>
+                    <div class="card-body p-4 pt-0">
+                        <?php if ($available_balance < $min_withdrawal): ?>
+                            <div class="alert alert-info rounded-15 border-0 bg-info bg-opacity-10">
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        <i class="fas fa-info-circle fa-2x text-info"></i>
+                                    </div>
+                                    <div>
+                                        <h6 class="fw-bold mb-1">Insufficient Balance</h6>
+                                        <p class="mb-0">You need <?php echo formatCurrency($min_withdrawal - $available_balance); ?> more to request a withdrawal. 
+                                        <a href="../dashboard.php" class="text-info fw-bold">Continue selling →</a></p>
+                                    </div>
+                                </div>
                             </div>
                         <?php else: ?>
-                            <div class="list-group list-group-flush">
-                                <?php foreach ($bank_accounts as $account): ?>
-                                    <div class="list-group-item border-0 px-0 py-3">
-                                        <div class="d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <h6 class="mb-1"><?php echo htmlspecialchars($account['bank_name']); ?></h6>
-                                                <small class="text-muted">
-                                                    Account: ****<?php echo substr($account['account_number'], -4); ?> |
-                                                    <?php echo ucfirst($account['account_type']); ?>
-                                                </small>
-                                            </div>
-                                            <div>
-                                                <?php if ($account['is_default']): ?>
-                                                    <span class="badge bg-success me-2">Default</span>
-                                                <?php endif; ?>
-                                                <?php if ($account['is_verified']): ?>
-                                                    <span class="badge bg-success">
-                                                        <i class="fas fa-check me-1"></i> Verified
-                                                    </span>
-                                                <?php else: ?>
-                                                    <span class="badge bg-warning">
-                                                        <i class="fas fa-clock me-1"></i> Pending
-                                                    </span>
-                                                <?php endif; ?>
+                            <form method="POST" id="withdrawalForm" action="action/process-withdrawal.php">
+                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold text-muted mb-2">Withdrawal Amount</label>
+                                    <div class="amount-input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" 
+                                               name="withdrawal_amount" 
+                                               class="form-control" 
+                                               step="0.01" 
+                                               min="<?php echo $min_withdrawal; ?>" 
+                                               max="<?php echo $available_balance; ?>"
+                                               value="<?php echo min($available_balance, $available_balance); ?>"
+                                               id="withdrawalAmount"
+                                               required>
+                                        <button type="button" class="btn-max" onclick="setMaxAmount()">MAX</button>
+                                    </div>
+                                    <div class="d-flex justify-content-between mt-2">
+                                        <small class="text-muted">Min: <?php echo formatCurrency($min_withdrawal); ?></small>
+                                        <small class="text-muted">Max: <?php echo formatCurrency($available_balance); ?></small>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold text-muted mb-2">Payment Method</label>
+                                    <div class="row g-2" id="methodSelection">
+                                        <div class="col-6">
+                                            <div class="method-option bank-option active" onclick="selectMethod('bank')" data-method="bank">
+                                                <i class="fas fa-university"></i>
+                                                <span>Bank Transfer</span>
                                             </div>
                                         </div>
-                                        <small class="text-muted d-block mt-1">
-                                            <?php echo htmlspecialchars($account['account_holder_name']); ?> | IFSC: <?php echo htmlspecialchars($account['ifsc_code']); ?>
-                                        </small>
+                                        <div class="col-6">
+                                            <div class="method-option paypal-option" onclick="selectMethod('paypal')" data-method="paypal">
+                                                <i class="fab fa-paypal"></i>
+                                                <span>PayPal</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="method-option stripe-option" onclick="selectMethod('stripe')" data-method="stripe">
+                                                <i class="fab fa-stripe"></i>
+                                                <span>Stripe</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="method-option easypaisa-option" onclick="selectMethod('easypaisa')" data-method="easypaisa">
+                                                <i class="fas fa-mobile-alt"></i>
+                                                <span>Easypaisa</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="method-option jazzcash-option" onclick="selectMethod('jazzcash')" data-method="jazzcash">
+                                                <i class="fas fa-mobile-alt"></i>
+                                                <span>JazzCash</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="method-option cards-option" onclick="selectMethod('cards')" data-method="cards">
+                                                <i class="fas fa-credit-card"></i>
+                                                <span>Cards/Stripe</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
+                                </div>
 
-                        <div class="alert alert-info mt-3">
-                            <small>
-                                <i class="fas fa-info-circle me-1"></i>
-                                Bank accounts require admin verification before use. Withdrawals to unverified accounts may be delayed.
-                            </small>
-                        </div>
+                                <!-- Bank Account Selection -->
+                                <div class="mb-4 method-fields" id="bankField">
+                                    <label class="form-label fw-bold text-muted mb-2">Select Bank Account</label>
+                                    <?php 
+                                    $verified_banks = array_filter($bank_accounts, function($acc) { return !empty($acc['is_verified']); });
+                                    if (empty($verified_banks)): ?>
+                                        <div class="alert alert-warning rounded-15">
+                                            <i class="fas fa-exclamation-triangle me-2"></i>
+                                            No verified bank accounts. 
+                                            <a href="#" data-bs-toggle="modal" data-bs-target="#addBankModal" class="alert-link">Add one now</a>
+                                        </div>
+                                    <?php else: ?>
+                                        <select name="account_id" class="form-select form-select-lg rounded-15">
+                                            <option value="">Choose account</option>
+                                            <?php foreach ($verified_banks as $acc): ?>
+                                                <option value="<?php echo $acc['id']; ?>" <?php echo !empty($acc['is_default']) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($acc['bank_name']); ?> - 
+                                                    ****<?php echo substr($acc['account_number'], -4); ?>
+                                                    <?php echo !empty($acc['is_default']) ? '(Default)' : ''; ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    <?php endif; ?>
+                                </div>
+
+                                <!-- PayPal Field -->
+                                <div class="mb-4 method-fields d-none" id="paypalField">
+                                    <label class="form-label fw-bold text-muted mb-2">PayPal Email</label>
+                                    <input type="email" name="paypal_email" class="form-control form-control-lg rounded-15" 
+                                           placeholder="your@email.com">
+                                    <small class="text-muted">Enter the email associated with your PayPal account</small>
+                                </div>
+
+                                <!-- Stripe Field -->
+                                <div class="mb-4 method-fields d-none" id="stripeField">
+                                    <label class="form-label fw-bold text-muted mb-2">Stripe Account ID</label>
+                                    <input type="text" name="stripe_account_id" class="form-control form-control-lg rounded-15" 
+                                           placeholder="acct_...">
+                                    <small class="text-muted">Your Stripe account ID (starts with acct_)</small>
+                                </div>
+
+                                <!-- Mobile Account Selection (Easypaisa/JazzCash) -->
+                                <div class="mb-4 method-fields d-none" id="mobileField">
+                                    <label class="form-label fw-bold text-muted mb-2" id="mobileFieldLabel">Select Account</label>
+                                    <select name="mobile_account_id" class="form-select form-select-lg rounded-15" id="mobileSelect">
+                                        <option value="">Choose account</option>
+                                    </select>
+                                </div>
+
+                                <!-- Card/Stripe Selection -->
+                                <div class="mb-4 method-fields d-none" id="cardField">
+                                    <label class="form-label fw-bold text-muted mb-2">Select Payment Method</label>
+                                    
+                                    <!-- Stripe Accounts -->
+                                    <?php if (!empty($stripe_accounts)): ?>
+                                        <div class="mb-3">
+                                            <label class="form-label text-muted small">Stripe Accounts</label>
+                                            <select name="stripe_account_id" class="form-select form-select-lg rounded-15 mb-3">
+                                                <option value="">Choose Stripe account</option>
+                                                <?php foreach ($stripe_accounts as $acc): ?>
+                                                    <?php if (!empty($acc['is_verified'])): ?>
+                                                    <option value="<?php echo $acc['id']; ?>" <?php echo !empty($acc['is_default']) ? 'selected' : ''; ?>>
+                                                        <i class="fab fa-stripe me-1"></i>
+                                                        Stripe - <?php echo htmlspecialchars($acc['account_email']); ?> 
+                                                        (<?php echo substr($acc['stripe_account_id'], 0, 8); ?>...)
+                                                        <?php echo !empty($acc['is_default']) ? ' (Default)' : ''; ?>
+                                                    </option>
+                                                    <?php endif; ?>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                    <?php endif; ?>
+                                    
+                                    <!-- Regular Cards -->
+                                    <?php if (!empty($cards)): ?>
+                                        <div>
+                                            <label class="form-label text-muted small">Credit/Debit Cards</label>
+                                            <select name="card_id" class="form-select form-select-lg rounded-15">
+                                                <option value="">Choose card</option>
+                                                <?php foreach ($cards as $card): ?>
+                                                    <?php if (!empty($card['is_verified'])): ?>
+                                                    <option value="<?php echo $card['id']; ?>" <?php echo !empty($card['is_default']) ? 'selected' : ''; ?>>
+                                                        <?php 
+                                                        $card_icon = '';
+                                                        if ($card['card_type'] == 'visa') $card_icon = '💳 Visa';
+                                                        elseif ($card['card_type'] == 'mastercard') $card_icon = '💳 Mastercard';
+                                                        elseif ($card['card_type'] == 'amex') $card_icon = '💳 Amex';
+                                                        else $card_icon = '💳 Card';
+                                                        ?>
+                                                        <?php echo $card_icon; ?> - 
+                                                        **** **** **** <?php echo $card['card_last_four']; ?>
+                                                        (Exp: <?php echo $card['expiry_month']; ?>/<?php echo $card['expiry_year']; ?>)
+                                                        <?php echo !empty($card['is_default']) ? ' (Default)' : ''; ?>
+                                                    </option>
+                                                    <?php endif; ?>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                    <?php endif; ?>
+                                    
+                                    <?php if (empty($stripe_accounts) && empty($cards)): ?>
+                                        <div class="alert alert-warning rounded-15">
+                                            <i class="fas fa-exclamation-triangle me-2"></i>
+                                            No verified cards or Stripe accounts. 
+                                            <a href="#" data-bs-toggle="modal" data-bs-target="#addCardModal" class="alert-link">Add a card</a> or 
+                                            <a href="#" data-bs-toggle="modal" data-bs-target="#addStripeModal" class="alert-link">connect Stripe</a>.
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold text-muted mb-2">Notes (Optional)</label>
+                                    <textarea name="notes" class="form-control rounded-15" rows="3" 
+                                              placeholder="Any special instructions or notes..."></textarea>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="agreeTerms" required>
+                                        <label class="form-check-label" for="agreeTerms">
+                                            I confirm that the above details are correct and I understand that 
+                                            withdrawals are processed within 3-5 business days.
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <button type="submit" class="btn-gradient w-100 py-3" id="submitBtn">
+                                    <i class="fas fa-paper-plane me-2"></i> Submit Withdrawal Request
+                                </button>
+                            </form>
+                        <?php endif; ?>
                     </div>
                 </div>
 
-                <!-- Withdrawal Rules -->
-                <div class="card border-0 shadow-sm mt-4">
-                    <div class="card-body">
-                        <h5 class="card-title mb-3 fw-bold">
-                            <i class="fas fa-gem me-2 text-warning"></i> Withdrawal Rules
-                        </h5>
-                        <ul class="list-unstyled mb-0">
-                            <li class="mb-2">
-                                <i class="fas fa-check-circle text-success me-2"></i>
-                                Minimum withdrawal: $<?php echo number_format($min_withdrawal, 2); ?>
+                <!-- Tabs for Payment Methods -->
+                <div class="card border-0 shadow-sm rounded-20 animate-slide-in">
+                    <div class="card-header bg-white border-0 p-4 pb-0">
+                        <ul class="nav nav-tabs border-0" id="paymentTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="bank-tab" data-bs-toggle="tab" data-bs-target="#bank" type="button">
+                                    <i class="fas fa-university me-2"></i>Bank Accounts
+                                    <?php if ($bank_count > 0): ?>
+                                        <span class="badge bg-primary ms-2"><?php echo $bank_count; ?></span>
+                                    <?php endif; ?>
+                                </button>
                             </li>
-                            <li class="mb-2">
-                                <i class="fas fa-check-circle text-success me-2"></i>
-                                Processing time: 3-5 business days
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="paypal-tab" data-bs-toggle="tab" data-bs-target="#paypal" type="button">
+                                    <i class="fab fa-paypal me-2"></i>PayPal
+                                    <?php if ($paypal_count > 0): ?>
+                                        <span class="badge bg-info ms-2"><?php echo $paypal_count; ?></span>
+                                    <?php endif; ?>
+                                </button>
                             </li>
-                            <li class="mb-2">
-                                <i class="fas fa-check-circle text-success me-2"></i>
-                                Available payment methods: Bank Transfer
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="stripe-tab" data-bs-toggle="tab" data-bs-target="#stripe" type="button">
+                                    <i class="fab fa-stripe me-2"></i>Stripe
+                                    <?php if ($stripe_count > 0): ?>
+                                        <span class="badge bg-purple ms-2"><?php echo $stripe_count; ?></span>
+                                    <?php endif; ?>
+                                </button>
                             </li>
-                            <li class="mb-2">
-                                <i class="fas fa-check-circle text-success me-2"></i>
-                                30-day holding period for new orders
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="easypaisa-tab" data-bs-toggle="tab" data-bs-target="#easypaisa" type="button">
+                                    <i class="fas fa-mobile-alt me-2"></i>Easypaisa
+                                    <?php if ($easypaisa_count > 0): ?>
+                                        <span class="badge bg-success ms-2"><?php echo $easypaisa_count; ?></span>
+                                    <?php endif; ?>
+                                </button>
                             </li>
-                            <li>
-                                <i class="fas fa-check-circle text-success me-2"></i>
-                                Monthly withdrawal limit: $10,000
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="jazzcash-tab" data-bs-toggle="tab" data-bs-target="#jazzcash" type="button">
+                                    <i class="fas fa-mobile-alt me-2"></i>JazzCash
+                                    <?php if ($jazzcash_count > 0): ?>
+                                        <span class="badge bg-danger ms-2"><?php echo $jazzcash_count; ?></span>
+                                    <?php endif; ?>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="cards-tab" data-bs-toggle="tab" data-bs-target="#cards" type="button">
+                                    <i class="fas fa-credit-card me-2"></i>Cards & Stripe
+                                    <?php if ($cards_count + $stripe_count > 0): ?>
+                                        <span class="badge bg-warning ms-2"><?php echo $cards_count + $stripe_count; ?></span>
+                                    <?php endif; ?>
+                                </button>
                             </li>
                         </ul>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="tab-content">
+                            <!-- Bank Tab -->
+                            <div class="tab-pane fade show active" id="bank" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">Your Bank Accounts</h6>
+                                    <button class="btn btn-sm btn-gradient rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addBankModal">
+                                        <i class="fas fa-plus me-1"></i> Add New
+                                    </button>
+                                </div>
+                                <?php if (empty($bank_accounts)): ?>
+                                    <div class="text-center py-5">
+                                        <div class="mb-3">
+                                            <i class="fas fa-university fa-4x text-muted opacity-25"></i>
+                                        </div>
+                                        <h6 class="text-muted mb-2">No Bank Accounts Added</h6>
+                                        <p class="text-muted small mb-3">Add your first bank account to start withdrawing</p>
+                                        <button class="btn btn-gradient btn-sm" data-bs-toggle="modal" data-bs-target="#addBankModal">
+                                            <i class="fas fa-plus me-2"></i>Add Bank Account
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($bank_accounts as $acc): ?>
+                                        <div class="account-card <?php echo !empty($acc['is_default']) ? 'default' : ''; ?> <?php echo !empty($acc['is_verified']) ? 'verified' : 'pending'; ?>">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div>
+                                                    <h6 class="fw-bold mb-1"><?php echo htmlspecialchars($acc['bank_name']); ?></h6>
+                                                    <p class="mb-1 small">
+                                                        <i class="fas fa-user me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_holder_name']); ?><br>
+                                                        <i class="fas fa-credit-card me-1 text-muted"></i>****<?php echo substr($acc['account_number'], -4); ?>
+                                                        <?php if (!empty($acc['ifsc_code'])): ?>
+                                                            <br><i class="fas fa-code me-1 text-muted"></i>IFSC: <?php echo $acc['ifsc_code']; ?>
+                                                        <?php endif; ?>
+                                                    </p>
+                                                </div>
+                                                <div class="text-end">
+                                                    <?php if (!empty($acc['is_default'])): ?>
+                                                        <span class="badge bg-success mb-2">Default</span>
+                                                    <?php endif; ?>
+                                                    <br>
+                                                    <?php if (!empty($acc['is_verified'])): ?>
+                                                        <span class="badge bg-info">Verified</span>
+                                                    <?php else: ?>
+                                                        <span class="badge bg-warning">Pending</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex gap-2 mt-3">
+                                                <?php if (empty($acc['is_default']) && !empty($acc['is_verified'])): ?>
+                                                    <button class="btn btn-sm btn-outline-success rounded-pill px-3" onclick="setDefault('bank', <?php echo $acc['id']; ?>)">
+                                                        <i class="fas fa-check me-1"></i>Set Default
+                                                    </button>
+                                                <?php endif; ?>
+                                                <button class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteMethod('bank', <?php echo $acc['id']; ?>)">
+                                                    <i class="fas fa-trash me-1"></i>Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- PayPal Tab -->
+                            <div class="tab-pane fade" id="paypal" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">PayPal Accounts</h6>
+                                    <button class="btn btn-sm btn-gradient rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addPayPalModal">
+                                        <i class="fas fa-plus me-1"></i> Add New
+                                    </button>
+                                </div>
+                                <?php if (empty($paypal_accounts)): ?>
+                                    <div class="text-center py-5">
+                                        <i class="fab fa-paypal fa-4x text-muted opacity-25 mb-3"></i>
+                                        <h6 class="text-muted mb-2">No PayPal Accounts Added</h6>
+                                        <button class="btn btn-gradient btn-sm" data-bs-toggle="modal" data-bs-target="#addPayPalModal">
+                                            <i class="fas fa-plus me-2"></i>Add PayPal
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($paypal_accounts as $acc): ?>
+                                        <div class="account-card <?php echo !empty($acc['is_default']) ? 'default' : ''; ?>">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div>
+                                                    <h6 class="fw-bold mb-1"><?php echo htmlspecialchars($acc['paypal_email']); ?></h6>
+                                                    <p class="mb-1 small">
+                                                        <i class="fas fa-user me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_holder_name']); ?>
+                                                    </p>
+                                                </div>
+                                                <div class="text-end">
+                                                    <?php if (!empty($acc['is_default'])): ?>
+                                                        <span class="badge bg-success mb-2">Default</span>
+                                                    <?php endif; ?>
+                                                    <br>
+                                                    <?php if (!empty($acc['is_verified'])): ?>
+                                                        <span class="badge bg-info">Verified</span>
+                                                    <?php else: ?>
+                                                        <span class="badge bg-warning">Pending</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex gap-2 mt-3">
+                                                <?php if (empty($acc['is_default']) && !empty($acc['is_verified'])): ?>
+                                                    <button class="btn btn-sm btn-outline-success rounded-pill px-3" onclick="setDefault('paypal', <?php echo $acc['id']; ?>)">
+                                                        <i class="fas fa-check me-1"></i>Set Default
+                                                    </button>
+                                                <?php endif; ?>
+                                                <button class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteMethod('paypal', <?php echo $acc['id']; ?>)">
+                                                    <i class="fas fa-trash me-1"></i>Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- Stripe Tab -->
+                            <div class="tab-pane fade" id="stripe" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">Stripe Accounts</h6>
+                                    <button class="btn btn-sm btn-gradient rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addStripeModal">
+                                        <i class="fas fa-plus me-1"></i> Connect New
+                                    </button>
+                                </div>
+                                <?php if (empty($stripe_accounts)): ?>
+                                    <div class="text-center py-5">
+                                        <i class="fab fa-stripe fa-4x text-muted opacity-25 mb-3"></i>
+                                        <h6 class="text-muted mb-2">No Stripe Accounts Connected</h6>
+                                        <button class="btn btn-gradient btn-sm" data-bs-toggle="modal" data-bs-target="#addStripeModal">
+                                            <i class="fas fa-plus me-2"></i>Connect Stripe
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($stripe_accounts as $acc): ?>
+                                        <div class="account-card <?php echo !empty($acc['is_default']) ? 'default' : ''; ?>">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div>
+                                                    <div class="d-flex align-items-center mb-2">
+                                                        <i class="fab fa-stripe text-primary me-2" style="font-size: 20px;"></i>
+                                                        <h6 class="fw-bold mb-0">Stripe Account</h6>
+                                                        <?php if (!empty($acc['is_default'])): ?>
+                                                            <span class="badge bg-success ms-2">Default</span>
+                                                        <?php endif; ?>
+                                                        <?php if (!empty($acc['is_verified'])): ?>
+                                                            <span class="badge bg-info ms-2">Verified</span>
+                                                        <?php else: ?>
+                                                            <span class="badge bg-warning ms-2">Pending</span>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <p class="mb-1 small">
+                                                        <i class="fas fa-envelope me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_email']); ?><br>
+                                                        <i class="fas fa-id-card me-1 text-muted"></i>ID: <?php echo substr($acc['stripe_account_id'], 0, 8); ?>...<br>
+                                                        <i class="fas fa-user me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_holder_name']); ?>
+                                                        <?php if (!empty($acc['stripe_publishable_key'])): ?>
+                                                            <br><i class="fas fa-key me-1 text-muted"></i>PK: <?php echo substr($acc['stripe_publishable_key'], 0, 8); ?>...
+                                                        <?php endif; ?>
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex gap-2 mt-3">
+                                                <?php if (empty($acc['is_default']) && !empty($acc['is_verified'])): ?>
+                                                    <button class="btn btn-sm btn-outline-success rounded-pill px-3" onclick="setDefault('stripe', <?php echo $acc['id']; ?>)">
+                                                        <i class="fas fa-check me-1"></i>Set Default
+                                                    </button>
+                                                <?php endif; ?>
+                                                <button class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteMethod('stripe', <?php echo $acc['id']; ?>)">
+                                                    <i class="fas fa-trash me-1"></i>Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- Easypaisa Tab -->
+                            <div class="tab-pane fade" id="easypaisa" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">Easypaisa Accounts</h6>
+                                    <button class="btn btn-sm btn-gradient rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addEasypaisaModal">
+                                        <i class="fas fa-plus me-1"></i> Add New
+                                    </button>
+                                </div>
+                                <?php if (empty($easypaisa_accounts)): ?>
+                                    <div class="text-center py-5">
+                                        <i class="fas fa-mobile-alt fa-4x text-muted opacity-25 mb-3"></i>
+                                        <h6 class="text-muted mb-2">No Easypaisa Accounts Added</h6>
+                                        <button class="btn btn-gradient btn-sm" data-bs-toggle="modal" data-bs-target="#addEasypaisaModal">
+                                            <i class="fas fa-plus me-2"></i>Add Easypaisa
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($easypaisa_accounts as $acc): ?>
+                                        <div class="account-card">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div>
+                                                    <h6 class="fw-bold mb-1">****<?php echo substr($acc['mobile_number'], -4); ?></h6>
+                                                    <p class="mb-1 small">
+                                                        <i class="fas fa-user me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_holder_name']); ?><br>
+                                                        <?php if (!empty($acc['cnic_number'])): ?>
+                                                            <i class="fas fa-id-card me-1 text-muted"></i><?php echo $acc['cnic_number']; ?>
+                                                        <?php endif; ?>
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <?php if (!empty($acc['is_verified'])): ?>
+                                                        <span class="badge bg-info">Verified</span>
+                                                    <?php else: ?>
+                                                        <span class="badge bg-warning">Pending</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex gap-2 mt-3">
+                                                <button class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteMethod('easypaisa', <?php echo $acc['id']; ?>)">
+                                                    <i class="fas fa-trash me-1"></i>Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- JazzCash Tab -->
+                            <div class="tab-pane fade" id="jazzcash" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">JazzCash Accounts</h6>
+                                    <button class="btn btn-sm btn-gradient rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addJazzCashModal">
+                                        <i class="fas fa-plus me-1"></i> Add New
+                                    </button>
+                                </div>
+                                <?php if (empty($jazzcash_accounts)): ?>
+                                    <div class="text-center py-5">
+                                        <i class="fas fa-mobile-alt fa-4x text-muted opacity-25 mb-3"></i>
+                                        <h6 class="text-muted mb-2">No JazzCash Accounts Added</h6>
+                                        <button class="btn btn-gradient btn-sm" data-bs-toggle="modal" data-bs-target="#addJazzCashModal">
+                                            <i class="fas fa-plus me-2"></i>Add JazzCash
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <?php foreach ($jazzcash_accounts as $acc): ?>
+                                        <div class="account-card">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div>
+                                                    <h6 class="fw-bold mb-1">****<?php echo substr($acc['mobile_number'], -4); ?></h6>
+                                                    <p class="mb-1 small">
+                                                        <i class="fas fa-user me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_holder_name']); ?><br>
+                                                        <?php if (!empty($acc['cnic_number'])): ?>
+                                                            <i class="fas fa-id-card me-1 text-muted"></i><?php echo $acc['cnic_number']; ?>
+                                                        <?php endif; ?>
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <?php if (!empty($acc['is_verified'])): ?>
+                                                        <span class="badge bg-info">Verified</span>
+                                                    <?php else: ?>
+                                                        <span class="badge bg-warning">Pending</span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex gap-2 mt-3">
+                                                <button class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteMethod('jazzcash', <?php echo $acc['id']; ?>)">
+                                                    <i class="fas fa-trash me-1"></i>Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+
+                            <!-- Cards Tab (Combined Cards & Stripe) -->
+                            <div class="tab-pane fade" id="cards" role="tabpanel">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">Credit/Debit Cards & Stripe</h6>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-gradient rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addCardModal">
+                                            <i class="fas fa-plus me-1"></i> Add Card
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addStripeModal">
+                                            <i class="fab fa-stripe me-1"></i> Add Stripe
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <?php if (empty($cards) && empty($stripe_accounts)): ?>
+                                    <div class="text-center py-5">
+                                        <i class="fas fa-credit-card fa-4x text-muted opacity-25 mb-3"></i>
+                                        <h6 class="text-muted mb-2">No Cards or Stripe Accounts Added</h6>
+                                        <p class="text-muted small mb-3">Add a credit/debit card or connect your Stripe account</p>
+                                        <div class="d-flex justify-content-center gap-2">
+                                            <button class="btn btn-gradient btn-sm" data-bs-toggle="modal" data-bs-target="#addCardModal">
+                                                <i class="fas fa-plus me-2"></i>Add Card
+                                            </button>
+                                            <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addStripeModal">
+                                                <i class="fab fa-stripe me-2"></i>Connect Stripe
+                                            </button>
+                                        </div>
+                                    </div>
+                                <?php else: ?>
+                                    <!-- First show Stripe Accounts -->
+                                    <?php if (!empty($stripe_accounts)): ?>
+                                        <h6 class="fw-bold mt-3 mb-2">Stripe Accounts</h6>
+                                        <?php foreach ($stripe_accounts as $acc): ?>
+                                            <div class="account-card <?php echo !empty($acc['is_default']) ? 'default' : ''; ?>">
+                                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                                    <div>
+                                                        <div class="d-flex align-items-center mb-2">
+                                                            <i class="fab fa-stripe text-primary me-2" style="font-size: 20px;"></i>
+                                                            <h6 class="fw-bold mb-0">Stripe Account</h6>
+                                                            <?php if (!empty($acc['is_default'])): ?>
+                                                                <span class="badge bg-success ms-2">Default</span>
+                                                            <?php endif; ?>
+                                                            <?php if (!empty($acc['is_verified'])): ?>
+                                                                <span class="badge bg-info ms-2">Verified</span>
+                                                            <?php else: ?>
+                                                                <span class="badge bg-warning ms-2">Pending</span>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                        <p class="mb-1 small">
+                                                            <i class="fas fa-envelope me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_email']); ?><br>
+                                                            <i class="fas fa-id-card me-1 text-muted"></i>ID: <?php echo substr($acc['stripe_account_id'], 0, 8); ?>...<br>
+                                                            <i class="fas fa-user me-1 text-muted"></i><?php echo htmlspecialchars($acc['account_holder_name']); ?>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex gap-2 mt-3">
+                                                    <?php if (empty($acc['is_default']) && !empty($acc['is_verified'])): ?>
+                                                        <button class="btn btn-sm btn-outline-success rounded-pill px-3" onclick="setDefault('stripe', <?php echo $acc['id']; ?>)">
+                                                            <i class="fas fa-check me-1"></i>Set Default
+                                                        </button>
+                                                    <?php endif; ?>
+                                                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteMethod('stripe', <?php echo $acc['id']; ?>)">
+                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+
+                                    <!-- Then show Regular Cards -->
+                                    <?php if (!empty($cards)): ?>
+                                        <h6 class="fw-bold mt-4 mb-2">Credit/Debit Cards</h6>
+                                        <?php foreach ($cards as $card): ?>
+                                            <div class="account-card <?php echo !empty($card['is_default']) ? 'default' : ''; ?>">
+                                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                                    <div>
+                                                        <div class="d-flex align-items-center mb-2">
+                                                            <?php 
+                                                            $card_icons = [
+                                                                'visa' => 'fab fa-cc-visa',
+                                                                'mastercard' => 'fab fa-cc-mastercard',
+                                                                'amex' => 'fab fa-cc-amex'
+                                                            ];
+                                                            $icon = $card_icons[$card['card_type']] ?? 'fas fa-credit-card';
+                                                            ?>
+                                                            <i class="<?php echo $icon; ?> me-2" style="font-size: 20px; color: #667eea;"></i>
+                                                            <h6 class="fw-bold mb-0">
+                                                                <?php echo ucfirst($card['card_type']); ?> 
+                                                                **** **** **** <?php echo $card['card_last_four']; ?>
+                                                            </h6>
+                                                            <?php if (!empty($card['is_default'])): ?>
+                                                                <span class="badge bg-success ms-2">Default</span>
+                                                            <?php endif; ?>
+                                                            <?php if (!empty($card['is_verified'])): ?>
+                                                                <span class="badge bg-info ms-2">Verified</span>
+                                                            <?php else: ?>
+                                                                <span class="badge bg-warning ms-2">Pending</span>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                        <p class="mb-1 small">
+                                                            <i class="fas fa-user me-1 text-muted"></i><?php echo htmlspecialchars($card['card_holder_name']); ?><br>
+                                                            <i class="fas fa-calendar me-1 text-muted"></i>Expires: <?php echo $card['expiry_month']; ?>/<?php echo $card['expiry_year']; ?>
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex gap-2 mt-3">
+                                                    <?php if (empty($card['is_default']) && !empty($card['is_verified'])): ?>
+                                                        <button class="btn btn-sm btn-outline-success rounded-pill px-3" onclick="setDefault('card', <?php echo $card['id']; ?>)">
+                                                            <i class="fas fa-check me-1"></i>Set Default
+                                                        </button>
+                                                    <?php endif; ?>
+                                                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3" onclick="deleteMethod('card', <?php echo $card['id']; ?>)">
+                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info bg-info bg-opacity-10 border-0 rounded-15 mt-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-shield-alt fa-2x text-info me-3"></i>
+                                <div>
+                                    <h6 class="fw-bold mb-1">Security Notice</h6>
+                                    <p class="small text-muted mb-0">
+                                        All payment methods must be verified before withdrawal. Verification typically takes 24-48 hours.
+                                        We only store the last 4 digits of your accounts for security.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Withdrawal History -->
-            <div class="col-lg-6">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0">
+            <!-- Right Column - Withdrawal History & Info -->
+            <div class="col-lg-5">
+                <!-- Withdrawal History Card -->
+                <div class="card border-0 shadow-sm rounded-20 mb-4 animate-slide-in">
+                    <div class="card-header bg-white border-0 p-4">
                         <h5 class="mb-0 fw-bold">
-                            <i class="fas fa-history me-2 text-primary"></i> Withdrawal History
+                            <span class="bg-primary bg-opacity-10 rounded-15 p-2 me-2">
+                                <i class="fas fa-history text-primary"></i>
+                            </span>
+                            Recent Withdrawals
                         </h5>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4 pt-0">
                         <?php if (empty($withdrawals)): ?>
-                            <div class="text-center py-4">
-                                <i class="fas fa-history fa-3x text-muted mb-3"></i>
-                                <p class="text-muted">No withdrawal history</p>
+                            <div class="text-center py-5">
+                                <div class="mb-3">
+                                    <i class="fas fa-history fa-4x text-muted opacity-25"></i>
+                                </div>
+                                <h6 class="text-muted">No withdrawal history yet</h6>
                                 <p class="text-muted small">Your withdrawal requests will appear here</p>
                             </div>
                         <?php else: ?>
-                            <div class="table-responsive">
-                                <table class="table table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>Date</th>
-                                            <th>Amount</th>
-                                            <th>Method</th>
-                                            <th>Status</th>
-                                            <th>Transaction</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($withdrawals as $withdrawal): ?>
-                                            <tr>
-                                                <td><?php echo date('M d', strtotime($withdrawal['created_at'])); ?></td>
-                                                <td class="fw-bold">$<?php echo number_format($withdrawal['withdrawal_amount'], 2); ?></td>
-                                                <td><?php echo ucfirst($withdrawal['withdrawal_method']); ?></td>
-                                                <td>
-                                                    <?php
-                                                    $status_color = 'secondary';
-                                                    if ($withdrawal['status'] == 'completed') $status_color = 'success';
-                                                    if ($withdrawal['status'] == 'pending') $status_color = 'warning';
-                                                    if ($withdrawal['status'] == 'processing') $status_color = 'info';
-                                                    if ($withdrawal['status'] == 'rejected') $status_color = 'danger';
-                                                    ?>
-                                                    <span class="badge bg-<?php echo $status_color; ?>">
-                                                        <?php echo ucfirst($withdrawal['status']); ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <?php if ($withdrawal['transaction_id']): ?>
-                                                        <small class="text-muted"><?php echo substr($withdrawal['transaction_id'], 0, 12); ?>...</small>
-                                                    <?php else: ?>
-                                                        <span class="text-muted">-</span>
-                                                    <?php endif; ?>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
+                            <div class="timeline">
+                                <?php foreach ($withdrawals as $w): ?>
+                                    <div class="timeline-item">
+                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                            <div>
+                                                <span class="fw-bold fs-5"><?php echo formatCurrency($w['withdrawal_amount']); ?></span>
+                                                <?php echo getStatusBadge($w['status']); ?>
+                                            </div>
+                                            <small class="text-muted"><?php echo date('d M Y', strtotime($w['created_at'])); ?></small>
+                                        </div>
+                                        <p class="small text-muted mb-1">
+                                            <i class="fas fa-<?php 
+                                                echo $w['withdrawal_method'] == 'bank' ? 'university' : 
+                                                    ($w['withdrawal_method'] == 'paypal' ? 'paypal' : 
+                                                    ($w['withdrawal_method'] == 'stripe' ? 'stripe' : 
+                                                    (in_array($w['withdrawal_method'], ['easypaisa', 'jazzcash']) ? 'mobile-alt' : 'credit-card'))); 
+                                            ?> me-1"></i>
+                                            <?php echo ucfirst($w['withdrawal_method']); ?>
+                                            <?php if ($w['status'] == 'completed' && !empty($w['transaction_id'])): ?>
+                                                <br><span class="text-muted">TXID: <?php echo substr($w['transaction_id'], 0, 12); ?>...</span>
+                                            <?php endif; ?>
+                                            <?php if ($w['status'] == 'rejected' && !empty($w['notes'])): ?>
+                                                <br><span class="text-danger">Reason: <?php echo htmlspecialchars($w['notes']); ?></span>
+                                            <?php endif; ?>
+                                        </p>
+                                    </div>
+                                <?php endforeach; ?>
                             </div>
+                            
+                            <?php if (count($withdrawals) >= 20): ?>
+                                <div class="text-center mt-3">
+                                    <a href="withdrawal-history.php" class="btn btn-link text-primary">View All History →</a>
+                                </div>
+                            <?php endif; ?>
                         <?php endif; ?>
+                    </div>
+                </div>
 
-                        <div class="text-center mt-3">
-                            <a href="../settings/bank.php" class="btn btn-outline-primary btn-sm">
-                                View Complete History and request<i class="fas fa-arrow-right ms-1"></i>
-                            </a>
+                <!-- Quick Stats Card -->
+                <div class="card border-0 shadow-sm rounded-20 mb-4 animate-slide-in">
+                    <div class="card-header bg-white border-0 p-4">
+                        <h5 class="mb-0 fw-bold">
+                            <span class="bg-primary bg-opacity-10 rounded-15 p-2 me-2">
+                                <i class="fas fa-chart-pie text-primary"></i>
+                            </span>
+                            Quick Stats
+                        </h5>
+                    </div>
+                    <div class="card-body p-4 pt-0">
+                        <?php
+                        $total_withdrawn = 0;
+                        $completed_count = 0;
+                        foreach ($withdrawals as $w) {
+                            if ($w['status'] == 'completed') {
+                                $total_withdrawn += $w['withdrawal_amount'];
+                                $completed_count++;
+                            }
+                        }
+                        $avg_withdrawal = $completed_count > 0 ? $total_withdrawn / $completed_count : 0;
+                        $pending_count = count(array_filter($withdrawals, function($w) { return $w['status'] == 'pending'; }));
+                        ?>
+                        
+                        <div class="row g-4 text-center">
+                            <div class="col-4">
+                                <div class="p-3 bg-primary bg-opacity-10 rounded-15">
+                                    <h4 class="fw-bold text-primary mb-1"><?php echo count($withdrawals); ?></h4>
+                                    <small class="text-muted">Total Requests</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-3 bg-success bg-opacity-10 rounded-15">
+                                    <h4 class="fw-bold text-success mb-1"><?php echo formatCurrency($total_withdrawn); ?></h4>
+                                    <small class="text-muted">Total Withdrawn</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-3 bg-info bg-opacity-10 rounded-15">
+                                    <h4 class="fw-bold text-info mb-1"><?php echo formatCurrency($avg_withdrawal); ?></h4>
+                                    <small class="text-muted">Average</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="text-muted small">Pending Requests</span>
+                                <span class="fw-bold"><?php echo $pending_count; ?></span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-warning" style="width: <?php echo count($withdrawals) > 0 ? ($pending_count / count($withdrawals)) * 100 : 0; ?>%"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Quick Stats -->
-                <div class="card border-0 shadow-sm mt-4">
-                    <div class="card-body">
-                        <h5 class="card-title mb-3 fw-bold">
-                            <i class="fas fa-chart-pie me-2 text-success"></i> Quick Stats
+                <!-- Withdrawal Info Card -->
+                <div class="card border-0 shadow-sm rounded-20 animate-slide-in">
+                    <div class="card-header bg-white border-0 p-4">
+                        <h5 class="mb-0 fw-bold">
+                            <span class="bg-primary bg-opacity-10 rounded-15 p-2 me-2">
+                                <i class="fas fa-info-circle text-primary"></i>
+                            </span>
+                            Withdrawal Information
                         </h5>
-                        <?php
-                        try {
-                            $stmt = $db->prepare("
-                                SELECT 
-                                    COUNT(*) as total_withdrawals,
-                                    COALESCE(SUM(CASE WHEN status = 'completed' THEN withdrawal_amount ELSE 0 END), 0) as total_withdrawn,
-                                    COALESCE(MAX(withdrawal_amount), 0) as largest_withdrawal
-                                FROM vendor_withdrawals 
-                                WHERE vendor_id = ?
-                            ");
-                            $stmt->execute([$vendor_id]);
-                            $stats = $stmt->fetch();
-                        } catch (PDOException $e) {
-                            $stats = ['total_withdrawals' => 0, 'total_withdrawn' => 0, 'largest_withdrawal' => 0];
-                        }
-                        ?>
-                        <div class="row text-center">
-                            <div class="col-4">
-                                <h4 class="fw-bold text-primary mb-1"><?php echo $stats['total_withdrawals']; ?></h4>
-                                <small class="text-muted">Total</small>
+                    </div>
+                    <div class="card-body p-4 pt-0">
+                        <div class="list-group list-group-flush">
+                            <div class="list-group-item px-0 border-0 d-flex align-items-center">
+                                <div class="bg-primary bg-opacity-10 rounded-circle p-2 me-3">
+                                    <i class="fas fa-check text-primary"></i>
+                                </div>
+                                <div>
+                                    <h6 class="fw-bold mb-0">Minimum Amount</h6>
+                                    <small class="text-muted"><?php echo formatCurrency($min_withdrawal); ?> per withdrawal</small>
+                                </div>
                             </div>
-                            <div class="col-4">
-                                <h4 class="fw-bold text-success mb-1">$<?php echo number_format($stats['total_withdrawn'], 2); ?></h4>
-                                <small class="text-muted">Withdrawn</small>
+                            <div class="list-group-item px-0 border-0 d-flex align-items-center">
+                                <div class="bg-success bg-opacity-10 rounded-circle p-2 me-3">
+                                    <i class="fas fa-clock text-success"></i>
+                                </div>
+                                <div>
+                                    <h6 class="fw-bold mb-0">Processing Time</h6>
+                                    <small class="text-muted">3-5 business days after approval</small>
+                                </div>
                             </div>
-                            <div class="col-4">
-                                <h4 class="fw-bold text-warning mb-1">$<?php echo number_format($stats['largest_withdrawal'], 2); ?></h4>
-                                <small class="text-muted">Largest</small>
+                            <div class="list-group-item px-0 border-0 d-flex align-items-center">
+                                <div class="bg-info bg-opacity-10 rounded-circle p-2 me-3">
+                                    <i class="fas fa-shield-alt text-info"></i>
+                                </div>
+                                <div>
+                                    <h6 class="fw-bold mb-0">Verification Required</h6>
+                                    <small class="text-muted">All payment methods must be verified</small>
+                                </div>
                             </div>
+                            <div class="list-group-item px-0 border-0 d-flex align-items-center">
+                                <div class="bg-warning bg-opacity-10 rounded-circle p-2 me-3">
+                                    <i class="fas fa-clock text-warning"></i>
+                                </div>
+                                <div>
+                                    <h6 class="fw-bold mb-0">Cut-off Time</h6>
+                                    <small class="text-muted">Requests before 2 PM processed same day</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-warning bg-warning bg-opacity-10 border-0 rounded-15 mt-3 mb-0">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <small>Please ensure all account details are correct. Incorrect details may delay your withdrawal.</small>
                         </div>
                     </div>
                 </div>
@@ -680,414 +1677,286 @@ require_once '../../includes/header.php';
     </main>
 </div>
 
-<!-- Withdrawal Modal -->
-<div class="modal fade" id="withdrawModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="POST" action="">
-                <input type="hidden" name="action" value="request_withdrawal">
+<!-- Modals -->
+<?php include 'modals.php'; ?>
 
-                <div class="modal-header">
-                    <h5 class="modal-title">Request Withdrawal</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-info">
-                        <small>
-                            <i class="fas fa-info-circle me-1"></i>
-                            Available for withdrawal: <strong>$<?php echo number_format($pending_earnings, 2); ?></strong>
-                        </small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Amount to Withdraw *</label>
-                        <div class="input-group">
-                            <span class="input-group-text">$</span>
-                            <input type="number" class="form-control" name="amount"
-                                min="<?php echo $min_withdrawal; ?>"
-                                max="<?php echo $pending_earnings; ?>"
-                                step="0.01"
-                                value="<?php echo min($pending_earnings, $pending_earnings); ?>"
-                                required>
-                        </div>
-                        <div class="form-text">
-                            Minimum: $<?php echo number_format($min_withdrawal, 2); ?> |
-                            Maximum: $<?php echo number_format($pending_earnings, 2); ?>
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Withdrawal Method *</label>
-                        <select class="form-select" name="method" id="withdrawalMethod" required>
-                            <option value="">Select Method</option>
-                            <option value="bank">Bank Transfer</option>
-                        </select>
-                    </div>
-
-                    <div class="mb-3" id="bankAccountField" style="display: none;">
-                        <label class="form-label fw-bold">Select Bank Account *</label>
-                        <?php
-                        $verified_accounts = array_filter($bank_accounts, function ($acc) {
-                            return $acc['is_verified'] == 1;
-                        });
-                        ?>
-
-                        <?php if (empty($verified_accounts)): ?>
-                            <div class="alert alert-warning">
-                                <small>No verified bank accounts. Please add and wait for verification.</small>
-                            </div>
-                        <?php else: ?>
-                            <select class="form-select" name="account_id" required>
-                                <option value="">Select Account</option>
-                                <?php foreach ($verified_accounts as $account): ?>
-                                    <option value="<?php echo $account['id']; ?>" <?php echo $account['is_default'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($account['bank_name']); ?> - ****<?php echo substr($account['account_number'], -4); ?>
-                                        <?php echo $account['is_default'] ? ' (Default)' : ''; ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        <?php endif; ?>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Notes (Optional)</label>
-                        <textarea class="form-control" name="notes" rows="2" placeholder="Add any special instructions..."></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" name="request_withdrawal" class="btn btn-primary" id="submitWithdrawalBtn">
-                        <i class="fas fa-paper-plane me-2"></i> Submit Request
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Bank Account Modal -->
-<div class="modal fade" id="bankAccountModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="POST" action="">
-                <input type="hidden" name="action" value="add_bank_account">
-
-                <div class="modal-header">
-                    <h5 class="modal-title">Add Bank Account</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-info">
-                        <small>
-                            <i class="fas fa-info-circle me-1"></i>
-                            Your bank account details are securely stored and encrypted.
-                        </small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Account Holder Name *</label>
-                        <input type="text" class="form-control" name="account_holder_name" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Bank Name *</label>
-                        <input type="text" class="form-control" name="bank_name" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Account Number *</label>
-                        <input type="text" class="form-control" name="account_number" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">IFSC Code *</label>
-                        <input type="text" class="form-control" name="ifsc_code" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Branch Name</label>
-                        <input type="text" class="form-control" name="branch_name">
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Account Type *</label>
-                        <select class="form-select" name="account_type" required>
-                            <option value="savings">Savings Account</option>
-                            <option value="current">Current Account</option>
-                        </select>
-                    </div>
-
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="is_default" id="is_default" value="1">
-                            <label class="form-check-label" for="is_default">
-                                Set as default account for withdrawals
-                            </label>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" name="add_bank_account" class="btn btn-primary">
-                        <i class="fas fa-save me-2"></i> Save Account
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
+<!-- JavaScript Functions -->
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('Withdraw page loaded');
+// Global variables
+let currentMethod = 'bank';
+let csrfToken = '<?php echo $_SESSION['csrf_token']; ?>';
 
-        // Auto-close alerts after 5 seconds
-        setTimeout(function() {
-            const alerts = document.querySelectorAll('.alert');
-            alerts.forEach(alert => {
-                try {
-                    if (alert) {
-                        const bsAlert = new bootstrap.Alert(alert);
-                        bsAlert.close();
-                    }
-                } catch (e) {
-                    console.log('Could not close alert:', e);
-                }
-            });
-        }, 5000);
+// Set max amount
+function setMaxAmount() {
+    const maxAmount = <?php echo $available_balance; ?>;
+    document.getElementById('withdrawalAmount').value = maxAmount.toFixed(2);
+}
 
-        // Show/hide bank account field based on method selection
-        const withdrawalMethod = document.getElementById('withdrawalMethod');
-        const bankAccountField = document.getElementById('bankAccountField');
-        const submitWithdrawalBtn = document.getElementById('submitWithdrawalBtn');
-
-        if (withdrawalMethod) {
-            withdrawalMethod.addEventListener('change', function() {
-                if (this.value === 'bank') {
-                    bankAccountField.style.display = 'block';
-                    // Check if there are verified accounts
-                    const selectElement = bankAccountField.querySelector('select');
-                    if (selectElement) {
-                        selectElement.required = true;
-                    }
-                } else {
-                    bankAccountField.style.display = 'none';
-                    const selectElement = bankAccountField.querySelector('select');
-                    if (selectElement) {
-                        selectElement.required = false;
-                    }
-                }
-                updateSubmitButton();
-            });
-
-            // Initial check
-            if (withdrawalMethod.value === 'bank') {
-                bankAccountField.style.display = 'block';
-            }
-        }
-
-        // Amount validation
-        const amountInput = document.querySelector('input[name="amount"]');
-        if (amountInput) {
-            amountInput.addEventListener('input', function() {
-                const max = parseFloat(this.getAttribute('max'));
-                const min = parseFloat(this.getAttribute('min'));
-                let value = parseFloat(this.value) || 0;
-
-                if (value > max) {
-                    this.value = max.toFixed(2);
-                    showToast('Amount cannot exceed available balance', 'warning');
-                }
-
-                if (value < min) {
-                    this.value = min.toFixed(2);
-                    showToast(`Minimum withdrawal is $${min.toFixed(2)}`, 'warning');
-                }
-
-                updateSubmitButton();
-            });
-        }
-
-        // Update submit button state
-        function updateSubmitButton() {
-            if (!submitWithdrawalBtn) return;
-
-            const amount = parseFloat(amountInput?.value) || 0;
-            const method = withdrawalMethod?.value;
-            const hasVerifiedAccounts = <?php echo !empty($verified_accounts) ? 'true' : 'false'; ?>;
-
-            let disabled = false;
-
-            if (amount < <?php echo $min_withdrawal; ?>) {
-                disabled = true;
-            }
-
-            if (!method) {
-                disabled = true;
-            }
-
-            if (method === 'bank' && !hasVerifiedAccounts) {
-                disabled = true;
-            }
-
-            submitWithdrawalBtn.disabled = disabled;
-        }
-
-        // Initialize tooltips
-        const tooltipTriggerList = document.querySelectorAll('[title]');
-        if (tooltipTriggerList.length > 0 && bootstrap && bootstrap.Tooltip) {
-            tooltipTriggerList.forEach(function(tooltipTriggerEl) {
-                try {
-                    new bootstrap.Tooltip(tooltipTriggerEl);
-                } catch (e) {
-                    console.log('Tooltip error:', e);
-                }
-            });
-        }
-
-        // Form submission loading states
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', function(e) {
-                const submitBtn = this.querySelector('button[type="submit"]');
-                if (submitBtn && !submitBtn.disabled) {
-                    const originalHTML = submitBtn.innerHTML;
-                    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Processing...';
-                    submitBtn.disabled = true;
-
-                    // Re-enable after 5 seconds (in case of error)
-                    setTimeout(() => {
-                        submitBtn.innerHTML = originalHTML;
-                        submitBtn.disabled = false;
-                    }, 5000);
-                }
-            });
-        });
-
-        // Initial button state check
-        updateSubmitButton();
+// Select payment method
+function selectMethod(method) {
+    currentMethod = method;
+    
+    // Update UI
+    document.querySelectorAll('.method-option').forEach(el => {
+        el.classList.remove('active');
     });
+    document.querySelector(`.${method}-option`).classList.add('active');
+    
+    // Hide all fields
+    document.querySelectorAll('.method-fields').forEach(el => {
+        el.classList.add('d-none');
+    });
+    
+    // Show selected field
+    if (method === 'bank') {
+        document.getElementById('bankField').classList.remove('d-none');
+    } else if (method === 'paypal') {
+        document.getElementById('paypalField').classList.remove('d-none');
+    } else if (method === 'stripe') {
+        document.getElementById('stripeField').classList.remove('d-none');
+    } else if (method === 'easypaisa' || method === 'jazzcash') {
+        document.getElementById('mobileField').classList.remove('d-none');
+        updateMobileOptions(method);
+    } else if (method === 'cards') {
+        document.getElementById('cardField').classList.remove('d-none');
+    }
+}
 
-    // Helper function for toast messages
-    function showToast(message, type = 'info') {
-        // Create toast container if it doesn't exist
-        let toastContainer = document.querySelector('.toast-container');
-        if (!toastContainer) {
-            toastContainer = document.createElement('div');
-            toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
-            document.body.appendChild(toastContainer);
+// Update mobile options based on type
+function updateMobileOptions(type) {
+    const select = document.getElementById('mobileSelect');
+    select.innerHTML = '<option value="">Choose account</option>';
+    
+    <?php 
+    // Easypaisa options
+    foreach ($easypaisa_accounts as $acc): 
+        if (!empty($acc['is_verified'])): 
+    ?>
+        if (type === 'easypaisa') {
+            select.innerHTML += `<option value="<?php echo $acc['id']; ?>" <?php echo !empty($acc['is_default']) ? 'selected' : ''; ?>>
+                ****<?php echo substr($acc['mobile_number'], -4); ?> - <?php echo htmlspecialchars($acc['account_holder_name']); ?>
+            </option>`;
         }
+    <?php 
+        endif; 
+    endforeach; 
+    
+    // JazzCash options
+    foreach ($jazzcash_accounts as $acc): 
+        if (!empty($acc['is_verified'])): 
+    ?>
+        if (type === 'jazzcash') {
+            select.innerHTML += `<option value="<?php echo $acc['id']; ?>" <?php echo !empty($acc['is_default']) ? 'selected' : ''; ?>>
+                ****<?php echo substr($acc['mobile_number'], -4); ?> - <?php echo htmlspecialchars($acc['account_holder_name']); ?>
+            </option>`;
+        }
+    <?php 
+        endif; 
+    endforeach; 
+    ?>
+    
+    document.getElementById('mobileFieldLabel').textContent = 
+        type === 'easypaisa' ? 'Select Easypaisa Account' : 'Select JazzCash Account';
+}
 
-        // Create toast
-        const toastId = 'toast-' + Date.now();
-        const toast = document.createElement('div');
-        toast.className = `toast align-items-center text-white bg-${type === 'warning' ? 'warning' : type === 'success' ? 'success' : 'info'} border-0`;
-        toast.id = toastId;
-        toast.setAttribute('role', 'alert');
+// Show method tab from quick access
+function showMethod(method) {
+    const tabMap = {
+        'bank': '#bank-tab',
+        'paypal': '#paypal-tab',
+        'stripe': '#stripe-tab',
+        'easypaisa': '#easypaisa-tab',
+        'jazzcash': '#jazzcash-tab',
+        'cards': '#cards-tab'
+    };
+    
+    if (tabMap[method]) {
+        const tab = new bootstrap.Tab(document.querySelector(tabMap[method]));
+        tab.show();
+    }
+}
 
-        // Determine icon based on type
-        let icon = 'info-circle';
-        if (type === 'success') icon = 'check-circle';
-        if (type === 'warning') icon = 'exclamation-triangle';
+// Set default account
+function setDefault(type, id) {
+    if (!confirm('Set this as your default payment method?')) return;
+    
+    fetch('action/set-default.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `type=${type}&id=${id}&csrf_token=${csrfToken}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('success', 'Default method updated');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showNotification('error', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('error', 'Network error occurred');
+    });
+}
 
-        toast.innerHTML = `
+// Delete payment method
+function deleteMethod(type, id) {
+    if (!confirm('Are you sure you want to delete this payment method? This action cannot be undone.')) return;
+    
+    fetch('action/delete-payment-method.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `type=${type}&id=${id}&csrf_token=${csrfToken}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('success', 'Payment method deleted');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showNotification('error', data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showNotification('error', 'Network error occurred');
+    });
+}
+
+// Show notification
+function showNotification(type, message) {
+    const toastContainer = document.getElementById('toastContainer') || createToastContainer();
+    const toastId = 'toast-' + Date.now();
+    
+    const toast = document.createElement('div');
+    toast.id = toastId;
+    toast.className = `toast align-items-center text-white bg-${type} border-0`;
+    toast.setAttribute('role', 'alert');
+    
+    toast.innerHTML = `
         <div class="d-flex">
             <div class="toast-body">
-                <i class="fas fa-${icon} me-2"></i> ${message}
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} me-2"></i>
+                ${message}
             </div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
         </div>
     `;
+    
+    toastContainer.appendChild(toast);
+    
+    if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+        new bootstrap.Toast(toast, { autohide: true, delay: 3000 }).show();
+    } else {
+        toast.style.display = 'block';
+        setTimeout(() => toast.remove(), 3000);
+    }
+    
+    setTimeout(() => toast.remove(), 3500);
+}
 
-        toastContainer.appendChild(toast);
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.className = 'toast-container position-fixed top-0 end-0 p-3';
+    container.style.zIndex = '9999';
+    document.body.appendChild(container);
+    return container;
+}
 
-        // Initialize and show toast
-        if (bootstrap && bootstrap.Toast) {
-            const bsToast = new bootstrap.Toast(toast, {
-                autohide: true,
-                delay: 3000
-            });
-            bsToast.show();
-        } else {
-            // Fallback if Bootstrap not available
-            toast.style.display = 'block';
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                setTimeout(() => toast.remove(), 300);
-            }, 3000);
-        }
+// Form submission handler
+document.getElementById('withdrawalForm')?.addEventListener('submit', function(e) {
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Processing...';
+    }
+});
 
-        // Remove toast from DOM after it's hidden
-        toast.addEventListener('hidden.bs.toast', function() {
-            this.remove();
+// Auto-dismiss alerts
+setTimeout(() => {
+    document.querySelectorAll('.alert-dismissible').forEach(alert => {
+        try {
+            if (typeof bootstrap !== 'undefined' && bootstrap.Alert) {
+                bootstrap.Alert.getOrCreateInstance(alert).close();
+            } else {
+                alert.style.display = 'none';
+            }
+        } catch(e) {}
+    });
+}, 5000);
+
+// Card number formatting and validation
+document.addEventListener('DOMContentLoaded', function() {
+    // Set default method
+    selectMethod('bank');
+    
+    // Add card number formatting
+    const cardNumberInput = document.querySelector('input[name="card_number"]');
+    const cardTypeSelect = document.querySelector('select[name="card_type"]');
+    const cvvInput = document.querySelector('input[name="cvv"]');
+    
+    if (cardNumberInput) {
+        cardNumberInput.addEventListener('input', function(e) {
+            let value = this.value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+            let formattedValue = '';
+            
+            // Format based on card type or length
+            if (cardTypeSelect && cardTypeSelect.value === 'amex') {
+                // American Express: 4-6-5 format
+                for (let i = 0; i < value.length; i++) {
+                    if (i == 4 || i == 10) {
+                        formattedValue += ' ';
+                    }
+                    formattedValue += value[i];
+                }
+            } else {
+                // Visa/Mastercard: 4-4-4-4 format
+                for (let i = 0; i < value.length; i++) {
+                    if (i > 0 && i % 4 === 0) {
+                        formattedValue += ' ';
+                    }
+                    formattedValue += value[i];
+                }
+            }
+            
+            this.value = formattedValue.trim();
+            
+            // Update card type based on number
+            if (value.length >= 4) {
+                const firstDigit = value.charAt(0);
+                if (firstDigit === '4') {
+                    if (cardTypeSelect) cardTypeSelect.value = 'visa';
+                } else if (firstDigit === '5') {
+                    if (cardTypeSelect) cardTypeSelect.value = 'mastercard';
+                } else if (firstDigit === '3' && (value.charAt(1) === '4' || value.charAt(1) === '7')) {
+                    if (cardTypeSelect) cardTypeSelect.value = 'amex';
+                }
+            }
         });
     }
+    
+    // CVV formatting
+    if (cvvInput) {
+        cvvInput.addEventListener('input', function(e) {
+            this.value = this.value.replace(/[^0-9]/g, '').substring(0, 4);
+        });
+    }
+    
+    // Update CVV maxlength based on card type
+    if (cardTypeSelect && cvvInput) {
+        cardTypeSelect.addEventListener('change', function() {
+            if (this.value === 'amex') {
+                cvvInput.maxLength = 4;
+                cvvInput.placeholder = '4 digits';
+            } else {
+                cvvInput.maxLength = 3;
+                cvvInput.placeholder = '3 digits';
+            }
+        });
+    }
+});
 </script>
 
-<style>
-    .dashboard-container {
-        display: flex;
-        min-height: 100vh;
-        background: #f8f9fa;
-    }
-
-    .main-content {
-        flex: 1;
-        padding: 20px;
-        overflow-y: auto;
-    }
-
-    .dashboard-header {
-        border-radius: 10px;
-        margin-bottom: 20px;
-    }
-
-    .card.border-start {
-        border-left-width: 5px !important;
-    }
-
-    .avatar-lg {
-        width: 80px;
-        height: 80px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .list-group-item {
-        border-left: none;
-        border-right: none;
-    }
-
-    .list-group-item:first-child {
-        border-top: none;
-    }
-
-    .table th {
-        background: #f8f9fa;
-        font-weight: 600;
-    }
-
-    .modal-content {
-        border-radius: 10px;
-        border: none;
-    }
-
-    .toast-container {
-        z-index: 9999;
-    }
-
-    @media (max-width: 768px) {
-        .dashboard-container {
-            flex-direction: column;
-        }
-
-        .main-content {
-            padding: 15px;
-        }
-    }
-</style>
-
-<?php
-// Include footer
-include_once '../../includes/footer.php';
-?>
+<?php require_once '../../includes/footer.php'; ?>

@@ -1,0 +1,32 @@
+[2026-02-26 15:04:38] === Add Card Started ===
+[2026-02-26 15:04:38] POST data: Array
+(
+    [csrf_token] => 162deeec6b8cf35e4fac665b4cd066e7649497edf9c103bafce2bc35b33453f9
+    [card_type] => mastercard
+    [card_holder_name] => Moazzams
+    [card_number] => 42401-7061995-5
+    [expiry_month] => 08
+    [expiry_year] => 2028
+    [cvv] => 3782
+    [is_default] => on
+)
+
+[2026-02-26 15:04:38] Vendor ID: 1
+[2026-02-26 15:04:38] Form data: type=mastercard, holder=Moazzams, number=****9955, length=13
+[2026-02-26 15:04:38] Validation errors: Mastercard number must be 16 digits. Card number doesn't match selected type. Detected: Visa. CVV must be 3 digits for Visa/Mastercard
+[2026-02-26 15:05:52] === Add Card Started ===
+[2026-02-26 15:05:52] POST data: Array
+(
+    [csrf_token] => 162deeec6b8cf35e4fac665b4cd066e7649497edf9c103bafce2bc35b33453f9
+    [card_type] => visa
+    [card_holder_name] => Moazzams
+    [card_number] => 4240 1706 1995 5
+    [expiry_month] => 08
+    [expiry_year] => 2028
+    [cvv] => 5555
+    [is_default] => on
+)
+
+[2026-02-26 15:05:52] Vendor ID: 1
+[2026-02-26 15:05:52] Form data: type=visa, holder=Moazzams, number=****9955, length=13
+[2026-02-26 15:05:52] Validation errors: Invalid card number (failed checksum). CVV must be 3 digits for Visa/Mastercard

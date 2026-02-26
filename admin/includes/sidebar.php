@@ -29,7 +29,7 @@ if ($is_vendor && file_exists(__DIR__ . '/vendor-sidebar.php')) {
             <div class="avatar mb-3">
                 <img src="<?php echo SITE_URL; ?>assets/images/profiles/<?php echo $_SESSION['profile_pic'] ?? 'default.png'; ?>" 
                      alt="Profile" class="rounded-circle" width="80" height="80" 
-                     onerror="this.src='<?php echo SITE_URL; ?>assets/images/profiles/default.png'">
+                     onerror="this.src='<?php echo SITE_URL; ?>assets/images/avatars/default.png'">
             </div>
             <h6 class="mb-1"><?php echo $_SESSION['full_name']; ?></h6>
             <small class="text-black-50">

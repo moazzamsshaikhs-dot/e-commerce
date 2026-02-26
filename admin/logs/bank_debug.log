@@ -1,0 +1,42 @@
+[2026-02-26 12:53:01] === Add Bank Account Started ===
+[2026-02-26 12:53:01] POST data: Array
+(
+    [csrf_token] => 2a34243f56d30c571425b0fc7798d6abc455365252119216800a078c7ef82e0d
+    [account_holder_name] => Moazzam shaikh
+    [bank_name] => Example Bank
+    [account_number] => 13746515665
+    [ifsc_code] => EXMP0001234
+    [branch_name] => Main Branch
+    [account_type] => savings
+    [swift_code] => 121
+    [routing_number] => 
+    [is_default] => on
+)
+
+[2026-02-26 12:53:01] Vendor ID: 1
+[2026-02-26 12:53:01] Form data: holder=Moazzam shaikh, bank=Example Bank, acct=5665
+[2026-02-26 12:53:01] Vendor country: PK
+[2026-02-26 12:53:01] Transaction started
+[2026-02-26 12:53:01] Setting as default, unsetting others
+[2026-02-26 12:53:01] Inserting into vendor_payment_methods
+[2026-02-26 12:53:01] Payment method ID: 1
+[2026-02-26 12:53:01] Inserting into vendor_bank_accounts
+[2026-02-26 12:53:01] Transaction committed
+[2026-02-26 13:24:40] === Add Bank Account Started ===
+[2026-02-26 13:24:40] POST data: Array
+(
+    [csrf_token] => 2a34243f56d30c571425b0fc7798d6abc455365252119216800a078c7ef82e0d
+    [account_holder_name] => Moazzam shaikh
+    [bank_name] => Example Bank
+    [account_number] => 13746515646
+    [ifsc_code] => EXMP0001234
+    [branch_name] => easypaisa
+    [account_type] => savings
+    [swift_code] => 
+    [routing_number] => 
+    [is_default] => on
+)
+
+[2026-02-26 13:24:40] Vendor ID: 1
+[2026-02-26 13:24:40] Form data: holder=Moazzam shaikh, bank=Example Bank, acct=5646
+[2026-02-26 13:24:40] Vendor country: PK

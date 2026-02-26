@@ -1,0 +1,54 @@
+[2026-02-25 19:46:13] === Add Bank Account Started ===
+[2026-02-25 19:46:13] POST data: Array
+(
+)
+
+[2026-02-25 19:46:13] FILES data: Array
+(
+)
+
+[2026-02-25 19:46:13] SESSION: Array
+(
+    [user_id] => 1
+    [username] => Moazzam
+    [email] => moazzamsshaikhs@gmail.com
+    [full_name] => Moazzam shaikh
+    [user_type] => vendor
+    [profile_pic] => vendor_1_1771684353.png
+    [subscription_plan] => free
+    [session_token] => ad03cd64b147bd2ecb20bec3937ee1e40742828cba8b7e5dc3fd76da424a5c47
+    [login_time] => 1772030773
+    [last_activity] => 1772028771
+    [csrf_token] => 7f12a09868c7ec84e3d76dd03e7dfca69daacce612242571831dfecf352b073b
+)
+
+[2026-02-25 19:46:13] Invalid request method
+[2026-02-25 19:46:13] ERROR: Invalid request method
+[2026-02-25 19:46:13] Stack trace: #0 {main}
+[2026-02-25 19:46:54] === Add Bank Account Started ===
+[2026-02-25 19:46:54] POST data: Array
+(
+)
+
+[2026-02-25 19:46:54] FILES data: Array
+(
+)
+
+[2026-02-25 19:46:54] SESSION: Array
+(
+    [user_id] => 1
+    [username] => Moazzam
+    [email] => moazzamsshaikhs@gmail.com
+    [full_name] => Moazzam shaikh
+    [user_type] => vendor
+    [profile_pic] => vendor_1_1771684353.png
+    [subscription_plan] => free
+    [session_token] => ad03cd64b147bd2ecb20bec3937ee1e40742828cba8b7e5dc3fd76da424a5c47
+    [login_time] => 1772030814
+    [last_activity] => 1772028771
+    [csrf_token] => 7f12a09868c7ec84e3d76dd03e7dfca69daacce612242571831dfecf352b073b
+)
+
+[2026-02-25 19:46:54] Invalid request method
+[2026-02-25 19:46:54] ERROR: Invalid request method
+[2026-02-25 19:46:54] Stack trace: #0 {main}

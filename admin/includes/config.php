@@ -866,18 +866,14 @@ function decryptData($data) {
     $encrypted = substr($data, 16);
     return openssl_decrypt($encrypted, 'AES-256-CBC', $key, 0, $iv);
 }
-function encryptCardData($card_number, $expiry_month, $expiry_year) {
-    $data = json_encode([
-        'card_number' => $card_number,
-        'expiry_month' => $expiry_month,
-        'expiry_year' => $expiry_year
-    ]);
-    return encryptData($data);
-}
+// function encryptCardData($card_number, $expiry_month, $expiry_year) {
+//     $data = json_encode([
+//         'card_number' => $card_number,
+//         'expiry_month' => $expiry_month,
+//         'expiry_year' => $expiry_year
+//     ]);
+//     return encryptData($data);
+// }
 
-function SMSsend($phone, $message) {
-    // In production, integrate with an SMS gateway like Twilio
-    error_log("SMS to $phone: $message");
-    return true; // For demo purposes
-}
+
 ?>
