@@ -961,7 +961,7 @@ $vendor['total_products'] = $stmt->fetchColumn();
                         </div>
                     </div>
                     <div class="col-md-4 text-md-end">
-                        <a href="bank.php" class="btn btn-light btn-lg px-4">
+                        <a href="../earnings/withdraw.php" class="btn btn-light btn-lg px-4">
                             <i class="fas fa-university me-2"></i> Bank Settings
                         </a>
                     </div>
