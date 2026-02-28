@@ -186,6 +186,20 @@ try {
     $rejected_result = $rejected_stmt->fetch(PDO::FETCH_ASSOC);
     $stats['rejected'] = $rejected_result ? (int)$rejected_result['rejected'] : 0;
     
+    // In the products query, add JOIN to get category details
+$products_sql = "
+    SELECT p.*, vc.name as category_name, vc.icon as category_icon, vc.commission_rate 
+    FROM products p 
+    LEFT JOIN vendor_categories vc ON p.category_id = vc.id 
+    {$where_clause} 
+    ORDER BY 
+        CASE p.approved_status 
+            WHEN 'pending' THEN 1
+            WHEN 'approved' THEN 2
+            WHEN 'rejected' THEN 3
+        END, {$order_by} 
+    LIMIT {$limit} OFFSET {$offset}
+";
 } catch(PDOException $e) {
     $error = "Database Error: " . $e->getMessage();
     error_log("Products page error: " . $e->getMessage());

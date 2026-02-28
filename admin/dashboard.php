@@ -758,6 +758,39 @@ $revenues = array_reverse($revenues);
             </div>
         </div>
 
+        <!-- Add this in admin dashboard stats -->
+<?php
+try {
+    $db = getDB();
+    $stmt = $db->query("SELECT COUNT(*) FROM vendor_categories WHERE approval_status = 'pending'");
+    $pending_categories = $stmt->fetchColumn();
+} catch(Exception $e) {
+    $pending_categories = 0;
+}
+?>
+
+<!-- Add this card in your admin dashboard -->
+<div class="col-xl-3 col-md-6">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-muted mb-1">Category Approvals</h6>
+                    <h3 class="mb-0"><?php echo $pending_categories; ?></h3>
+                    <small class="text-warning">Pending review</small>
+                </div>
+                <div class="avatar-sm bg-warning bg-opacity-10 rounded-circle">
+                    <i class="fas fa-check-double text-warning fa-lg"></i>
+                </div>
+            </div>
+            <div class="mt-3">
+                <a href="categories/approvals.php" class="btn btn-sm btn-outline-warning w-100">
+                    Review Categories
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
         <!-- Charts and Tables Row -->
         <div class="row g-4 mb-4">
             <!-- Revenue Chart -->

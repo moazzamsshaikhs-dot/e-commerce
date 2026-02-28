@@ -608,9 +608,9 @@ try {
                             <td>
                                 <div class="btn-group">
                                     <?php if ($product['approved_status'] == 'pending'): ?>
-                                        <button class="btn-action btn-approve me-1" onclick="approveProduct(<?php echo $product['id']; ?>)">
+                                        <a href="action/approve-product.php?id=<?php echo $product['id']; ?>&redirect=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>" class="btn-action btn-approve me-1" onclick="approveProduct(<?php echo $product['id']; ?>)">
                                             <i class="fas fa-check"></i>
-                                        </button>
+                                        </a>
                                         <button class="btn-action btn-reject me-1" onclick="rejectProduct(<?php echo $product['id']; ?>)">
                                             <i class="fas fa-times"></i>
                                         </button>

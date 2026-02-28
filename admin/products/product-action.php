@@ -1544,11 +1544,43 @@ function showViewProduct($product) {
                                 <?php echo $stock_text; ?>
                             </span>
                             
-                            <?php if (!empty($product['category'])): ?>
-                            <span class="badge-custom badge-info">
-                                <i class="fas fa-tag"></i> <?php echo htmlspecialchars($product['category']); ?>
-                            </span>
-                            <?php endif; ?>
+                            <!-- // Replace the existing category section with this: -->
+
+<!-- Category Dropdown with only approved categories -->
+<div class="col-md-6">
+    <label class="form-label">Category</label>
+    <select class="form-select" name="category_id">
+        <option value="">Select Category</option>
+        <?php
+        try {
+            $db = getDB();
+            // Only show approved categories
+            $stmt = $db->query("
+                SELECT id, name, icon, commission_rate 
+                FROM vendor_categories 
+                WHERE approval_status = 'approved' 
+                ORDER BY name ASC
+            ");
+            $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            foreach($categories as $cat) {
+                $selected = (isset($form_data['category_id']) && $form_data['category_id'] == $cat['id']) ? 'selected' : '';
+                $icon_html = !empty($cat['icon']) ? '<i class="fas ' . $cat['icon'] . ' me-1"></i>' : '';
+                echo "<option value='{$cat['id']}' {$selected}>{$icon_html} " . htmlspecialchars($cat['name']) . " ({$cat['commission_rate']}%)</option>";
+            }
+        } catch(Exception $e) {
+            echo "<option value=''>Error loading categories</option>";
+        }
+        ?>
+    </select>
+    <div class="form-text">
+        <i class="fas fa-info-circle me-1"></i>
+        Only approved categories are shown. 
+        <a href="../vendors/categories/submit-category.php" target="_blank" class="text-primary">
+            Request new category
+        </a>
+    </div>
+</div>
                         </div>
                         
                         <!-- Price Section -->

@@ -275,7 +275,6 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed vendor dashb
                     </div>
                 </div>
             </div>
-            
             <!-- Total Orders -->
             <div class="col-xl-3 col-lg-6">
                 <div class="card border-0 shadow-sm stats-card h-100">
@@ -371,6 +370,52 @@ logUserActivity($_SESSION['user_id'], 'dashboard_access', 'Accessed vendor dashb
                 </div>
             </div>
         </div>
+                    <!-- Add this in the dashboard stats section -->
+<?php
+// Get category stats for this vendor
+try {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT 
+            COUNT(*) as total,
+            SUM(CASE WHEN approval_status = 'pending' THEN 1 ELSE 0 END) as pending,
+            SUM(CASE WHEN approval_status = 'approved' THEN 1 ELSE 0 END) as approved,
+            SUM(CASE WHEN approval_status = 'rejected' THEN 1 ELSE 0 END) as rejected
+        FROM vendor_categories 
+        WHERE vendor_id = ?
+    ");
+    $stmt->execute([$_SESSION['user_id']]);
+    $cat_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+} catch(Exception $e) {
+    $cat_stats = ['total' => 0, 'pending' => 0, 'approved' => 0, 'rejected' => 0];
+}
+?>
+
+<!-- Add this card in your dashboard -->
+<div class="col-md-3">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="text-muted mb-1">My Categories</h6>
+                    <h3 class="mb-0"><?php echo $cat_stats['total']; ?></h3>
+                    <small class="text-warning">
+                        <i class="fas fa-clock me-1"></i>
+                        <?php echo $cat_stats['pending']; ?> Pending
+                    </small>
+                </div>
+                <div class="avatar-sm bg-info bg-opacity-10 rounded-circle">
+                    <i class="fas fa-tags text-info fa-lg"></i>
+                </div>
+            </div>
+            <div class="mt-3">
+                <a href="categories/my-categories.php" class="text-decoration-none small d-flex align-items-center">
+                    Manage Categories
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
         
         <!-- Recent Orders & Low Stock -->
         <div class="row g-4">

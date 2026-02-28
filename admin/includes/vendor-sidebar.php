@@ -204,6 +204,26 @@ $is_approved = ($vendor_status === 'approved');
                     <i class="fas fa-user me-3"></i> Vendor Profile
                 </a>
             </li>
+
+            <!-- Add this in vendor sidebar -->
+<li class="nav-item mb-2">
+    <a href="categories/my-categories.php" class="nav-link text-dark <?php echo strpos($_SERVER['PHP_SELF'], 'my-categories.php') ? 'active' : ''; ?>">
+        <i class="fas fa-tags me-3"></i>
+        <span>My Categories</span>
+        <?php
+        // Get pending count for this vendor
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("SELECT COUNT(*) FROM vendor_categories WHERE vendor_id = ? AND approval_status = 'pending'");
+            $stmt->execute([$_SESSION['user_id']]);
+            $pending_count = $stmt->fetchColumn();
+            if ($pending_count > 0) {
+                echo '<span class="badge bg-warning ms-auto">' . $pending_count . '</span>';
+            }
+        } catch(Exception $e) {}
+        ?>
+    </a>
+</li>
             
             <!-- Settings -->
             <li class="nav-item mb-2">
