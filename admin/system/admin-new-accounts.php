@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ");
                 $stmt->execute([$username, $email, $hashed_password, $full_name, $subscription_plan]);
                 
-                $admin_id = $db->lastInsertId();
+                $admin_id = $db->lastInsertId() ;
                 
                 // Insert into admin_system_access
                 $stmt = $db->prepare("
