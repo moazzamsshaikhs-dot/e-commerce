@@ -107,7 +107,7 @@ function isUser() {
 
 // Redirect function
 function redirect($url) {
-    echo "<script>window.location.href='" . $url . "';</script>";
+    header('Location: ' . SITE_URL . $url);
     exit();
 }
 
@@ -151,7 +151,7 @@ function sendOTPEmail($email, $otp) {
     error_log("OTP for $email: $otp");
     
     // Uncomment to actually send email
-   // return mail($email, $subject, $message, $headers);
+   return mail($email, $subject, $message, $headers);
     
     return true; // For demo purposes
 }
