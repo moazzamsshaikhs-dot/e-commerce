@@ -1,5 +1,8 @@
 <?php
 // Check if user is logged in
+
+use Stripe\BillingPortal\Session;   
+
 if (!isset($_SESSION['user_id'])) {
     return;
 }
@@ -63,6 +66,20 @@ if ($is_vendor && file_exists(__DIR__ . '/vendor-sidebar.php')) {
                             }
                         } catch(Exception $e) {}
                         ?>
+                    </a>
+                </li>
+                <?php if (isset($_SESSION['user_id']) && $_SESSION['user_type'] === 'admin' && $_SESSION['username'] === 'system administrator' && $_SESSION['subscription_plan'] === 'business'): ?>
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo (strpos($current_page, 'admin_access') !== false) ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>admin/system/dashboard.php">
+                        <i class="fas fa-user-shield me-2"></i> Super Admin
+                    </a>
+                </li>
+                <?php endif; ?>
+                <li class="nav-item mb-2">
+                    <a class="nav-link <?php echo (strpos($current_page, 'admin_access') !== false) ? 'active' : ''; ?>" 
+                       href="<?php echo SITE_URL; ?>admin/vendors/document-approvals.php">
+                        <i class="fa-brands fa-dochub me-2"></i> document approvals
                     </a>
                 </li>
                 <li class="nav-item mb-2">

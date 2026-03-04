@@ -1,5 +1,9 @@
 <?php
 // admin/system/admin-new-accounts.php
+
+// IMPORTANT: Sabse pehle output buffering start karo
+ob_start();
+
 require_once '../includes/config.php';
 require_once '../includes/auth-check.php';
 require_once '../includes/admin-access-check.php';
@@ -53,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ");
                 $stmt->execute([$username, $email, $hashed_password, $full_name, $subscription_plan]);
                 
-                $admin_id = $db->lastInsertId() ;
+                $admin_id = $db->lastInsertId();
                 
                 // Insert into admin_system_access
                 $stmt = $db->prepare("
@@ -88,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['error'] = implode('<br>', $errors);
         }
         
-        redirect('admin-new-accounts.php');
+        redirect('admin/system/admin-new-accounts.php');
         exit();
     }
     
@@ -126,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['error'] = "Error: " . $e->getMessage();
         }
         
-        redirect('admin-new-accounts.php');
+        redirect('admin/system/admin-new-accounts.php');
         exit();
     }
     
@@ -143,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['error'] = "Error: " . $e->getMessage();
         }
         
-        redirect('admin-new-accounts.php');
+        redirect('admin/system/admin-new-accounts.php');
         exit();
     }
 }
@@ -155,7 +159,7 @@ $admins = $db->query("
     FROM users u
     LEFT JOIN admin_system_access asa ON u.id = asa.admin_id
     WHERE u.user_type = 'admin'
-    ORDER BY u.is_super_admin DESC, u.created_at DESC
+    ORDER BY asa.is_super_admin DESC, u.created_at DESC
 ")->fetchAll();
 
 // Get stats
@@ -175,28 +179,71 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 <style>
 :root {
     --primary: #4361ee;
+    --primary-dark: #3651c4;
+    --primary-light: rgba(67, 97, 238, 0.1);
     --success: #06d6a0;
+    --success-dark: #05b585;
+    --success-light: rgba(6, 214, 160, 0.1);
     --warning: #ffb703;
+    --warning-dark: #e6a500;
+    --warning-light: rgba(255, 183, 3, 0.1);
     --danger: #ef476f;
+    --danger-dark: #d64161;
+    --danger-light: rgba(239, 71, 111, 0.1);
     --info: #4cc9f0;
+    --info-dark: #3aa9d9;
+    --info-light: rgba(76, 201, 240, 0.1);
     --dark: #2b2d42;
+    --dark-light: rgba(43, 45, 66, 0.1);
     --light: #f8f9fa;
+    --border: #e9ecef;
+    --shadow: 0 10px 30px rgba(0,0,0,0.05);
+    --shadow-hover: 0 15px 40px rgba(0,0,0,0.1);
+    --transition: all 0.3s ease;
+    --radius-sm: 0.375rem;
+    --radius: 0.5rem;
+    --radius-md: 0.75rem;
+    --radius-lg: 1rem;
+    --radius-xl: 1.5rem;
 }
 
+/* Main Layout */
 .admin-container {
     padding: 30px;
-    background: #f4f7fc;
+    background: linear-gradient(135deg, var(--light) 0%, #e9ecef 100%);
     min-height: 100vh;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+/* Page Header */
 .page-header {
     background: white;
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     padding: 25px;
     margin-bottom: 30px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
 }
 
+.page-header::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 300px;
+    height: 300px;
+    background: linear-gradient(135deg, var(--primary-light) 0%, transparent 100%);
+    border-radius: 50%;
+    z-index: 0;
+}
+
+.page-header > div {
+    position: relative;
+    z-index: 1;
+}
+
+/* Stats Cards */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -206,23 +253,49 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 
 .stat-card {
     background: white;
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     padding: 20px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.03);
+    box-shadow: var(--shadow);
+    transition: var(--transition);
     border-left: 4px solid var(--primary);
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-hover);
+}
+
+.stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100px;
+    height: 100px;
+    background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.1) 100%);
+    border-radius: 50%;
 }
 
 .stat-value {
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 700;
     color: var(--dark);
+    line-height: 1.2;
+    margin-bottom: 5px;
 }
 
 .stat-label {
-    color: #6c757d;
+    color: var(--dark);
+    opacity: 0.7;
     font-size: 14px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
+/* Admin Grid */
 .admin-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -232,20 +305,33 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 
 .admin-card {
     background: white;
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     padding: 20px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.03);
-    transition: all 0.3s ease;
+    box-shadow: var(--shadow);
+    transition: var(--transition);
     border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
 }
 
 .admin-card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 10px 30px rgba(67, 97, 238, 0.1);
+    box-shadow: var(--shadow-hover);
 }
 
 .admin-card.super-admin {
-    border: 2px solid gold;
+    border: 2px solid var(--warning);
+    position: relative;
+}
+
+.admin-card.super-admin::before {
+    content: '👑';
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    font-size: 40px;
+    opacity: 0.1;
+    transform: rotate(15deg);
 }
 
 .admin-header {
@@ -256,19 +342,25 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 }
 
 .admin-avatar {
-    width: 50px;
-    height: 50px;
-    border-radius: 10px;
-    background: var(--primary);
+    width: 55px;
+    height: 55px;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, var(--primary) 0%, var(--info) 100%);
     color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 600;
+    box-shadow: 0 4px 10px rgba(67, 97, 238, 0.3);
+}
+
+.admin-info {
+    flex: 1;
 }
 
 .admin-info h5 {
+    font-size: 16px;
     font-weight: 600;
     color: var(--dark);
     margin-bottom: 4px;
@@ -276,33 +368,54 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 
 .admin-info .admin-email {
     font-size: 12px;
-    color: #6c757d;
+    color: var(--dark);
+    opacity: 0.7;
+    margin-bottom: 6px;
 }
 
+/* Admin Badges */
 .admin-badge {
     display: inline-block;
-    padding: 3px 8px;
+    padding: 4px 10px;
     border-radius: 20px;
     font-size: 10px;
     font-weight: 600;
     margin-right: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .badge-super {
-    background: gold;
-    color: #000;
+    background: var(--warning-light);
+    color: var(--warning-dark);
+    border: 1px solid var(--warning);
 }
 
 .badge-plan {
-    background: var(--info);
-    color: white;
+    background: var(--info-light);
+    color: var(--info-dark);
+    border: 1px solid var(--info);
 }
 
+.badge-active {
+    background: var(--success-light);
+    color: var(--success-dark);
+    border: 1px solid var(--success);
+}
+
+.badge-inactive {
+    background: var(--danger-light);
+    color: var(--danger-dark);
+    border: 1px solid var(--danger);
+}
+
+/* Access List */
 .access-list {
     margin: 15px 0;
-    padding: 10px;
+    padding: 15px;
     background: var(--light);
-    border-radius: 10px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
 }
 
 .access-item {
@@ -319,29 +432,55 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 
 .access-label {
     font-size: 12px;
-    color: #6c757d;
+    color: var(--dark);
+    opacity: 0.7;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.access-label i {
+    width: 16px;
+    color: var(--primary);
 }
 
 .access-value {
     font-size: 12px;
     font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
 }
 
-.access-value.yes { color: var(--success); }
-.access-value.no { color: var(--danger); }
+.access-value.yes {
+    background: var(--success-light);
+    color: var(--success-dark);
+}
 
+.access-value.no {
+    background: var(--danger-light);
+    color: var(--danger-dark);
+}
+
+/* Buttons */
 .btn-add {
     background: var(--primary);
     color: white;
     border: none;
-    padding: 10px 20px;
-    border-radius: 10px;
-    transition: all 0.3s ease;
+    padding: 12px 24px;
+    border-radius: var(--radius);
+    font-weight: 500;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
 }
 
 .btn-add:hover {
-    background: #3651c4;
+    background: var(--primary-dark);
     transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(67, 97, 238, 0.3);
+    color: white;
 }
 
 .btn-edit {
@@ -349,15 +488,144 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     color: white;
     border: none;
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     font-size: 12px;
-    transition: all 0.3s ease;
+    font-weight: 500;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
 }
 
 .btn-edit:hover {
-    filter: brightness(110%);
+    background: var(--info-dark);
     transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(76, 201, 240, 0.3);
+    color: white;
 }
+
+/* Alerts */
+.alert-success {
+    background: var(--success-light);
+    color: var(--success-dark);
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+}
+
+.alert-danger {
+    background: var(--danger-light);
+    color: var(--danger-dark);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+}
+
+/* Modal Styles */
+.modal-content {
+    border-radius: var(--radius-lg);
+    border: none;
+    overflow: hidden;
+}
+
+.modal-header {
+    padding: 20px 25px;
+    border-bottom: none;
+}
+
+.modal-header.bg-primary {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+}
+
+.modal-header.bg-info {
+    background: linear-gradient(135deg, var(--info) 0%, var(--info-dark) 100%) !important;
+}
+
+.modal-body {
+    padding: 25px;
+}
+
+.modal-footer {
+    padding: 20px 25px;
+    border-top: 1px solid var(--border);
+    background: var(--light);
+}
+
+/* Form Controls */
+.form-control, .form-select {
+    border-radius: var(--radius);
+    border: 2px solid var(--border);
+    padding: 10px 15px;
+    transition: var(--transition);
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+    outline: none;
+}
+
+.form-check-input {
+    cursor: pointer;
+}
+
+.form-check-input:checked {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+.form-label {
+    color: var(--dark);
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .admin-container {
+        padding: 20px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .admin-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 15px;
+    }
+    
+    .btn-add {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Animations */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.admin-card {
+    animation: slideIn 0.3s ease forwards;
+}
+
+.admin-card:nth-child(1) { animation-delay: 0.1s; }
+.admin-card:nth-child(2) { animation-delay: 0.15s; }
+.admin-card:nth-child(3) { animation-delay: 0.2s; }
+.admin-card:nth-child(4) { animation-delay: 0.25s; }
+.admin-card:nth-child(5) { animation-delay: 0.3s; }
 </style>
 
 <div class="admin-container">
@@ -365,19 +633,25 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     <div class="page-header d-flex justify-content-between align-items-center">
         <div>
             <h1 class="h3 mb-0">
-                <i class="fas fa-user-shield me-2 text-primary"></i>
+                <i class="fas fa-user-shield me-2" style="color: var(--primary);"></i>
                 Admin Accounts Management
             </h1>
             <p class="text-muted mb-0">Create and manage administrator accounts</p>
         </div>
-        <button class="btn-add" data-bs-toggle="modal" data-bs-target="#addAdminModal">
-            <i class="fas fa-plus-circle me-2"></i> Add New Admin
-        </button>
+        <div class="flex-1 gap-2">
+            <a href="dashboard.php" class="btn btn-outline-primary">
+                <i class="fas fa-users me-1"></i> View All Admins
+            </a>
+            <button class="btn-add" data-bs-toggle="modal" data-bs-target="#addAdminModal">
+                <i class="fas fa-user-plus me-1"></i> Add New Admin
+            </button>
+        </div>
     </div>
 
     <!-- Messages -->
     <?php if (isset($_SESSION['success'])): ?>
         <div class="alert alert-success alert-dismissible fade show">
+            <i class="fas fa-check-circle me-2"></i>
             <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -385,6 +659,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     
     <?php if (isset($_SESSION['error'])): ?>
         <div class="alert alert-danger alert-dismissible fade show">
+            <i class="fas fa-exclamation-circle me-2"></i>
             <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -412,7 +687,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
         <div class="admin-card <?php echo ($admin['is_super_admin'] ?? 0) ? 'super-admin' : ''; ?>">
             <div class="admin-header">
                 <div class="admin-avatar">
-                    <?php echo strtoupper(substr($admin['username'], 0, 1)); ?>
+                    <?php echo strtoupper(substr($admin['username'] ?? 'A', 0, 1)); ?>
                 </div>
                 <div class="admin-info">
                     <h5><?php echo htmlspecialchars($admin['full_name'] ?? $admin['username']); ?></h5>
@@ -421,8 +696,9 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
                         <?php if ($admin['is_super_admin'] ?? 0): ?>
                             <span class="admin-badge badge-super"><i class="fas fa-crown me-1"></i> SUPER</span>
                         <?php endif; ?>
-                        <span class="admin-badge badge-plan"><?php echo ucfirst($admin['subscription_plan']); ?></span>
-                        <span class="admin-badge badge-<?php echo $admin['account_status'] == 'active' ? 'success' : 'secondary'; ?>">
+                        <span class="admin-badge badge-plan"><?php echo ucfirst($admin['subscription_plan'] ?? 'free'); ?></span>
+                        <span class="admin-badge <?php echo ($admin['account_status'] ?? 'active') == 'active' ? 'badge-active' : 'badge-inactive'; ?>">
+                            <i class="fas fa-<?php echo ($admin['account_status'] ?? 'active') == 'active' ? 'check-circle' : 'times-circle'; ?> me-1"></i>
                             <?php echo ucfirst($admin['account_status'] ?? 'active'); ?>
                         </span>
                     </div>
@@ -431,25 +707,33 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 
             <div class="access-list">
                 <div class="access-item">
-                    <span class="access-label">Manage Accounts</span>
+                    <span class="access-label">
+                        <i class="fas fa-credit-card"></i> Manage Accounts
+                    </span>
                     <span class="access-value <?php echo ($admin['can_manage_accounts'] ?? 0) ? 'yes' : 'no'; ?>">
                         <?php echo ($admin['can_manage_accounts'] ?? 0) ? 'Yes' : 'No'; ?>
                     </span>
                 </div>
                 <div class="access-item">
-                    <span class="access-label">Manage Withdrawals</span>
+                    <span class="access-label">
+                        <i class="fas fa-hand-holding-usd"></i> Manage Withdrawals
+                    </span>
                     <span class="access-value <?php echo ($admin['can_manage_withdrawals'] ?? 0) ? 'yes' : 'no'; ?>">
                         <?php echo ($admin['can_manage_withdrawals'] ?? 0) ? 'Yes' : 'No'; ?>
                     </span>
                 </div>
                 <div class="access-item">
-                    <span class="access-label">Process Payments</span>
+                    <span class="access-label">
+                        <i class="fas fa-exchange-alt"></i> Process Payments
+                    </span>
                     <span class="access-value <?php echo ($admin['can_process_payments'] ?? 0) ? 'yes' : 'no'; ?>">
                         <?php echo ($admin['can_process_payments'] ?? 0) ? 'Yes' : 'No'; ?>
                     </span>
                 </div>
                 <div class="access-item">
-                    <span class="access-label">Manage Admins</span>
+                    <span class="access-label">
+                        <i class="fas fa-user-shield"></i> Manage Admins
+                    </span>
                     <span class="access-value <?php echo ($admin['can_manage_admins'] ?? 0) ? 'yes' : 'no'; ?>">
                         <?php echo ($admin['can_manage_admins'] ?? 0) ? 'Yes' : 'No'; ?>
                     </span>
@@ -473,7 +757,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 <div class="modal fade" id="addAdminModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST">
+            <form method="POST" action="admin-new-accounts.php">
                 <input type="hidden" name="action" value="add_admin">
                 
                 <div class="modal-header bg-primary text-white">
@@ -534,7 +818,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 <div class="modal fade" id="editAccessModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST">
+            <form method="POST" action="admin-new-accounts.php">
                 <input type="hidden" name="action" value="update_access">
                 <input type="hidden" name="admin_id" id="edit_admin_id">
                 
@@ -599,6 +883,12 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     </div>
 </div>
 
+<!-- Hidden Form for Toggle Status -->
+<form method="POST" id="toggleStatusForm" action="admin-new-accounts.php" style="display: none;">
+    <input type="hidden" name="action" value="toggle_status">
+    <input type="hidden" name="admin_id" id="toggle_admin_id">
+</form>
+
 <script>
 function editAccess(admin) {
     document.getElementById('edit_admin_id').value = admin.id;
@@ -613,16 +903,19 @@ function editAccess(admin) {
 
 function toggleStatus(id) {
     if (confirm('Toggle admin account status?')) {
-        let form = document.createElement('form');
-        form.method = 'POST';
-        form.innerHTML = `
-            <input type="hidden" name="action" value="toggle_status">
-            <input type="hidden" name="admin_id" value="${id}">
-        `;
-        document.body.appendChild(form);
-        form.submit();
+        document.getElementById('toggle_admin_id').value = id;
+        document.getElementById('toggleStatusForm').submit();
     }
 }
+
+// Auto-hide alerts after 5 seconds
+setTimeout(function() {
+    document.querySelectorAll('.alert').forEach(alert => {
+        try {
+            bootstrap.Alert.getOrCreateInstance(alert).close();
+        } catch(e) {}
+    });
+}, 5000);
 </script>
 
 <?php require_once '../includes/footer.php'; ?>

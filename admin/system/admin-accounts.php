@@ -220,9 +220,15 @@ foreach ($accounts as $acc) {
             </h1>
             <p class="text-muted mb-0">Manage all payment collection accounts</p>
         </div>
-        <div class="flex gap-3">
-            <a class="btn-add text-decoration-none" href="accept-vendor-accounts.php">
-            <i class="fas fa-bank me-2"></i> accept vendor accounts
+        <div class="flex-1 gap-2 d-flex justify-content-end">
+            <a class="btn btn-outline-primary text-decoration-none" href="accept-vendor-accounts.php">
+            <i class="fas fa-bank me-2"></i> vendor accounts
+        </a>
+        <a class="btn btn-outline-primary text-decoration-none" href="withdrawal-management.php">
+    <i class="fas fa-hand-holding-usd me-2"></i> Withdrawals
+</a>
+            <a class="btn btn-outline-primary text-decoration-none" href="dashboard.php">
+            <i class="fas fa-home me-2"></i> back
         </a>
         <button class="btn-add" data-bs-toggle="modal" data-bs-target="#accountModal">
             <i class="fas fa-plus-circle me-2"></i> Add New Account

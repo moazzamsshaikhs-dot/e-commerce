@@ -266,7 +266,7 @@ try {
             </span>
         </a>
 
-        <a href="../vendors/index.php" class="action-card">
+        <a href="../vendors/vendors.php" class="action-card">
             <div class="action-icon">
                 <i class="fas fa-store"></i>
             </div>

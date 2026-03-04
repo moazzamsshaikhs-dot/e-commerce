@@ -1,5 +1,9 @@
 <?php
 // admin/system/accept-vendor-accounts.php
+
+// IMPORTANT: Sabse pehle output buffering start karo
+ob_start();
+
 require_once '../includes/config.php';
 require_once '../includes/auth-check.php';
 require_once '../includes/admin-access-check.php';
@@ -7,15 +11,29 @@ require_once '../includes/admin-access-check.php';
 // Special check for system administrator
 requireSystemAdmin();
 
-$page_title = 'Accept Vendor Accounts';
-require_once '../includes/header.php';
-
 $db = getDB();
-$message = '';
-$message_type = 'success';
+
+// Helper function for time elapsed
+function timeElapsedString($datetime) {
+    $now = new DateTime();
+    $ago = new DateTime($datetime);
+    $diff = $now->diff($ago);
+    
+    if ($diff->y > 0) return $diff->y . ' year' . ($diff->y > 1 ? 's' : '') . ' ago';
+    if ($diff->m > 0) return $diff->m . ' month' . ($diff->m > 1 ? 's' : '') . ' ago';
+    if ($diff->d > 0) return $diff->d . ' day' . ($diff->d > 1 ? 's' : '') . ' ago';
+    if ($diff->h > 0) return $diff->h . ' hour' . ($diff->h > 1 ? 's' : '') . ' ago';
+    if ($diff->i > 0) return $diff->i . ' minute' . ($diff->i > 1 ? 's' : '') . ' ago';
+    return 'just now';
+}
 
 // Handle export requests
 if (isset($_GET['export'])) {
+    // Clear all output buffers
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    
     $format = $_GET['export'];
     $status = $_GET['status'] ?? 'pending';
     
@@ -44,65 +62,150 @@ if (isset($_GET['export'])) {
     $vendors = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     if ($format === 'pdf') {
-        // PDF Export
-        require_once dirname(__DIR__, 2) . '/vendor/autoload.php'; // If using TCPDF or similar
+        // Check if Dompdf exists
+        $dompdfPath = dirname(__DIR__, 2) . '/vendor/autoload.php';
         
-        // Create new PDF document
-        $pdf = new dompdf(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
-        
-        // Set document information
-        $pdf->SetCreator('E-Commerce System');
-        $pdf->SetAuthor('System Administrator');
-        $pdf->SetTitle(ucfirst($status) . ' Vendor Accounts Report');
-        
-        // Add a page
-        $pdf->AddPage();
-        
-        // Set font
-        $pdf->SetFont('helvetica', '', 10);
-        
-        // Title
-        $pdf->SetFont('helvetica', 'B', 16);
-        $pdf->Cell(0, 10, ucfirst($status) . ' Vendor Accounts Report', 0, 1, 'C');
-        $pdf->Ln(5);
-        
-        // Date
-        $pdf->SetFont('helvetica', '', 10);
-        $pdf->Cell(0, 10, 'Generated on: ' . date('d M Y h:i A'), 0, 1, 'R');
-        $pdf->Ln(5);
-        
-        // Table header
-        $pdf->SetFont('helvetica', 'B', 9);
-        $pdf->SetFillColor(67, 97, 238);
-        $pdf->SetTextColor(255, 255, 255);
-        
-        $pdf->Cell(10, 8, '#', 1, 0, 'C', true);
-        $pdf->Cell(50, 8, 'Vendor Name', 1, 0, 'L', true);
-        $pdf->Cell(50, 8, 'Email', 1, 0, 'L', true);
-        $pdf->Cell(30, 8, 'Category', 1, 0, 'L', true);
-        $pdf->Cell(20, 8, 'Products', 1, 0, 'C', true);
-        $pdf->Cell(30, 8, 'Registered', 1, 1, 'C', true);
-        
-        // Table data
-        $pdf->SetFont('helvetica', '', 8);
-        $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetFillColor(245, 245, 245);
-        
-        $fill = false;
-        $count = 1;
-        foreach ($vendors as $vendor) {
-            $pdf->Cell(10, 8, $count++, 1, 0, 'C', $fill);
-            $pdf->Cell(50, 8, substr($vendor['full_name'] ?? $vendor['username'], 0, 25), 1, 0, 'L', $fill);
-            $pdf->Cell(50, 8, substr($vendor['email'], 0, 25), 1, 0, 'L', $fill);
-            $pdf->Cell(30, 8, substr($vendor['category_name'] ?? 'N/A', 0, 15), 1, 0, 'L', $fill);
-            $pdf->Cell(20, 8, $vendor['total_products'], 1, 0, 'C', $fill);
-            $pdf->Cell(30, 8, date('d M Y', strtotime($vendor['registered_date'])), 1, 1, 'C', $fill);
-            $fill = !$fill;
+        if (file_exists($dompdfPath)) {
+            // Use Dompdf
+            require_once $dompdfPath;
+            
+            // Create HTML content with your root colors
+            $html = '<!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>' . ucfirst($status) . ' Vendor Accounts Report</title>
+                <style>
+                    :root {
+                        --primary: #4361ee;
+                        --success: #06d6a0;
+                        --warning: #ffb703;
+                        --danger: #ef476f;
+                        --info: #4cc9f0;
+                        --dark: #2b2d42;
+                        --light: #f8f9fa;
+                    }
+                    body { font-family: Arial, sans-serif; margin: 20px; background: var(--light); }
+                    h1 { color: var(--primary); text-align: center; font-size: 24px; margin-bottom: 10px; }
+                    .header { margin-bottom: 30px; }
+                    .date { text-align: right; color: var(--dark); font-size: 12px; margin-bottom: 20px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+                    th { background: var(--primary); color: white; padding: 10px; text-align: left; font-weight: bold; }
+                    td { padding: 8px; border-bottom: 1px solid #ddd; }
+                    tr:nth-child(even) { background: var(--light); }
+                    .status-pending { color: var(--warning); font-weight: bold; }
+                    .status-approved { color: var(--success); font-weight: bold; }
+                    .status-rejected { color: var(--danger); font-weight: bold; }
+                    .status-suspended { color: var(--dark); font-weight: bold; }
+                    .footer { margin-top: 30px; text-align: center; color: var(--dark); font-size: 10px; }
+                </style>
+            </head>
+            <body>
+                <h1>' . ucfirst($status) . ' Vendor Accounts Report</h1>
+                <div class="date">Generated on: ' . date('d M Y h:i A') . '</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Vendor Name</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Category</th>
+                            <th>Products</th>
+                            <th>Documents</th>
+                            <th>Verified</th>
+                            <th>Registered</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>';
+            
+            $count = 1;
+            foreach ($vendors as $vendor) {
+                $statusClass = 'status-' . $vendor['vendor_status'];
+                $html .= '<tr>';
+                $html .= '<td>' . $count++ . '</td>';
+                $html .= '<td>' . htmlspecialchars($vendor['full_name'] ?? $vendor['username']) . '</td>';
+                $html .= '<td>' . htmlspecialchars($vendor['email']) . '</td>';
+                $html .= '<td>' . htmlspecialchars($vendor['phone'] ?? 'N/A') . '</td>';
+                $html .= '<td>' . htmlspecialchars($vendor['category_name'] ?? 'N/A') . '</td>';
+                $html .= '<td style="text-align: center;">' . $vendor['total_products'] . '</td>';
+                $html .= '<td style="text-align: center;">' . $vendor['total_documents'] . '</td>';
+                $html .= '<td style="text-align: center;">' . $vendor['verified_documents'] . '</td>';
+                $html .= '<td>' . date('d M Y', strtotime($vendor['registered_date'])) . '</td>';
+                $html .= '<td class="' . $statusClass . '">' . ucfirst($vendor['vendor_status']) . '</td>';
+                $html .= '</tr>';
+            }
+            
+            $html .= '       </tbody>
+                </table>
+                <div class="footer">Generated by E-Commerce System</div>
+            </body>
+            </html>';
+            
+            // Generate PDF
+            $dompdf = new Dompdf\Dompdf();
+            $dompdf->set_option('isHtml5ParserEnabled', true);
+            $dompdf->set_option('isRemoteEnabled', true);
+            $dompdf->loadHtml($html);
+            $dompdf->setPaper('A4', 'landscape');
+            $dompdf->render();
+            $dompdf->stream(ucfirst($status) . '_Vendors_' . date('Y-m-d') . '.pdf', array('Attachment' => 1));
+            exit();
+        } else {
+            // Fallback to HTML if Dompdf not installed
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<html><head><title>Vendor Report</title>';
+            echo '<style>
+                :root {
+                    --primary: #4361ee;
+                    --success: #06d6a0;
+                    --warning: #ffb703;
+                    --danger: #ef476f;
+                    --info: #4cc9f0;
+                    --dark: #2b2d42;
+                    --light: #f8f9fa;
+                }
+                body{font-family:Arial;padding:20px;background:var(--light)}
+                h1{color:var(--primary);text-align:center}
+                table{border-collapse:collapse;width:100%;margin-top:20px}
+                th{background:var(--primary);color:white;padding:10px;text-align:left}
+                td{padding:8px;border:1px solid #ddd}
+                tr:nth-child(even){background:var(--light)}
+                .date{text-align:right;color:var(--dark);margin-bottom:20px}
+                .status-pending{color:var(--warning);font-weight:bold}
+                .status-approved{color:var(--success);font-weight:bold}
+                .status-rejected{color:var(--danger);font-weight:bold}
+                .status-suspended{color:var(--dark);font-weight:bold}
+            </style>';
+            echo '</head><body>';
+            echo '<h1>' . ucfirst($status) . ' Vendor Accounts Report</h1>';
+            echo '<div class="date">Generated on: ' . date('d M Y h:i A') . '</div>';
+            echo '<table>';
+            echo '<tr><th>#</th><th>Vendor</th><th>Email</th><th>Phone</th><th>Category</th><th>Products</th><th>Docs</th><th>Verified</th><th>Registered</th><th>Status</th></tr>';
+            
+            $count = 1;
+            foreach ($vendors as $vendor) {
+                $statusClass = 'status-' . $vendor['vendor_status'];
+                echo '<tr>';
+                echo '<td>' . $count++ . '</td>';
+                echo '<td>' . htmlspecialchars($vendor['full_name'] ?? $vendor['username']) . '</td>';
+                echo '<td>' . htmlspecialchars($vendor['email']) . '</td>';
+                echo '<td>' . htmlspecialchars($vendor['phone'] ?? 'N/A') . '</td>';
+                echo '<td>' . htmlspecialchars($vendor['category_name'] ?? 'N/A') . '</td>';
+                echo '<td style="text-align:center">' . $vendor['total_products'] . '</td>';
+                echo '<td style="text-align:center">' . $vendor['total_documents'] . '</td>';
+                echo '<td style="text-align:center">' . $vendor['verified_documents'] . '</td>';
+                echo '<td>' . date('d M Y', strtotime($vendor['registered_date'])) . '</td>';
+                echo '<td class="' . $statusClass . '">' . ucfirst($vendor['vendor_status']) . '</td>';
+                echo '</tr>';
+            }
+            
+            echo '</table>';
+            echo '<p><em>Note: Dompdf not installed. Install with: composer require dompdf/dompdf</em></p>';
+            echo '</body></html>';
+            exit();
         }
-        
-        // Output PDF
-        $pdf->Output(ucfirst($status) . '_Vendors_' . date('Y-m-d') . '.pdf', 'D');
-        exit();
         
     } elseif ($format === 'excel') {
         // Excel Export (CSV format)
@@ -181,9 +284,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'approve') {
                 $message = "🎉 Congratulations! Your vendor account has been approved. You can now start adding products.";
             } elseif ($action === 'reject') {
-                $message = " Your vendor account has been rejected.<br><strong>Reason:</strong> {$rejection_reason}";
+                $message = "❌ Your vendor account has been rejected.<br><strong>Reason:</strong> {$rejection_reason}";
             } else {
-                $message = " Your vendor account has been suspended.<br><strong>Reason:</strong> {$rejection_reason}";
+                $message = "⚠️ Your vendor account has been suspended.<br><strong>Reason:</strong> {$rejection_reason}";
             }
             
             $stmt = $db->prepare("
@@ -210,6 +313,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit();
     }
 }
+
+// YAHAN SE NORMAL PAGE DISPLAY SHURU HOTA HAI
+$page_title = 'Accept Vendor Accounts';
+require_once '../includes/header.php';
 
 // Get filter
 $status = $_GET['status'] ?? 'pending';
@@ -265,29 +372,431 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 ?>
 
 <style>
+/* Your Root Colors */
 :root {
     --primary: #4361ee;
+    --primary-dark: #3651c4;
+    --primary-light: rgba(67, 97, 238, 0.1);
     --success: #06d6a0;
+    --success-dark: #05b585;
+    --success-light: rgba(6, 214, 160, 0.1);
     --warning: #ffb703;
+    --warning-dark: #e6a500;
+    --warning-light: rgba(255, 183, 3, 0.1);
     --danger: #ef476f;
+    --danger-dark: #d64161;
+    --danger-light: rgba(239, 71, 111, 0.1);
     --info: #4cc9f0;
+    --info-dark: #3aa9d9;
+    --info-light: rgba(76, 201, 240, 0.1);
     --dark: #2b2d42;
+    --dark-light: rgba(43, 45, 66, 0.1);
     --light: #f8f9fa;
-    --border: #edf2f9;
+    --border: #e9ecef;
+    --shadow: 0 10px 30px rgba(0,0,0,0.05);
+    --shadow-hover: 0 15px 40px rgba(0,0,0,0.1);
+    --shadow-glow: 0 0 20px rgba(67, 97, 238, 0.3);
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    --radius-sm: 0.375rem;
+    --radius: 0.5rem;
+    --radius-md: 0.75rem;
+    --radius-lg: 1rem;
+    --radius-xl: 1.5rem;
 }
 
+/* Base Animations */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideInUp {
+    from {
+        transform: translateY(30px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInLeft {
+    from {
+        transform: translateX(-30px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(30px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+@keyframes pulse-glow {
+    0% { 
+        box-shadow: 0 0 0 0 var(--primary);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(67, 97, 238, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(67, 97, 238, 0);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -1000px 0;
+    }
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
+    100% { transform: translateY(0px); }
+}
+
+@keyframes glow {
+    0% { box-shadow: 0 0 5px var(--primary-light); }
+    50% { box-shadow: 0 0 20px var(--primary); }
+    100% { box-shadow: 0 0 5px var(--primary-light); }
+}
+
+@keyframes border-pulse {
+    0% { border-color: var(--primary); }
+    50% { border-color: var(--info); }
+    100% { border-color: var(--primary); }
+}
+
+@keyframes count-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Apply animations to elements */
+.page-header {
+    animation: slideInUp 0.6s ease-out;
+}
+
+.stat-card {
+    animation: slideInUp 0.5s ease-out;
+    animation-fill-mode: both;
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transform: translateX(-100%);
+    animation: shimmer 2s infinite;
+    pointer-events: none;
+}
+
+.stat-card:nth-child(1) { animation-delay: 0.1s; }
+.stat-card:nth-child(2) { animation-delay: 0.15s; }
+.stat-card:nth-child(3) { animation-delay: 0.2s; }
+.stat-card:nth-child(4) { animation-delay: 0.25s; }
+
+.stat-card:hover {
+    transform: translateY(-5px) scale(1.02);
+    box-shadow: var(--shadow-hover);
+}
+
+.stat-card:hover .stat-icon-wrapper {
+    animation: pulse 0.5s ease;
+}
+
+.stat-icon-wrapper {
+    transition: var(--transition);
+}
+
+.stat-value {
+    animation: count-up 0.8s ease-out;
+}
+
+.quick-stat-card {
+    animation: slideInLeft 0.5s ease-out;
+    animation-fill-mode: both;
+}
+
+.quick-stat-card:nth-child(1) { animation-delay: 0.1s; }
+.quick-stat-card:nth-child(2) { animation-delay: 0.15s; }
+.quick-stat-card:nth-child(3) { animation-delay: 0.2s; }
+.quick-stat-card:nth-child(4) { animation-delay: 0.25s; }
+
+.quick-stat-card:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: var(--shadow-hover);
+}
+
+.quick-stat-card:hover .quick-stat-icon {
+    animation: pulse 0.5s ease;
+}
+
+.filter-bar {
+    animation: slideInUp 0.5s ease-out 0.3s both;
+}
+
+.filter-tab {
+    position: relative;
+    overflow: hidden;
+    transition: var(--transition);
+}
+
+.filter-tab::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.filter-tab:active::after {
+    width: 200px;
+    height: 200px;
+}
+
+.filter-tab:hover {
+    transform: translateY(-2px);
+}
+
+.filter-tab.active {
+    animation: pulse-glow 2s infinite;
+}
+
+.search-box {
+    transition: var(--transition);
+}
+
+.search-box:focus-within {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.search-box button {
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.search-box button::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.search-box button:active::after {
+    width: 200px;
+    height: 200px;
+}
+
+.export-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-export {
+    transition: var(--transition-bounce);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-export::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.btn-export:active::after {
+    width: 200px;
+    height: 200px;
+}
+
+.btn-export:hover {
+    transform: translateY(-3px) scale(1.05);
+}
+
+.vendors-card {
+    animation: slideInUp 0.6s ease-out 0.4s both;
+}
+
+.vendors-table tbody tr {
+    animation: slideInRight 0.4s ease-out;
+    animation-fill-mode: both;
+    transition: var(--transition);
+}
+
+.vendors-table tbody tr:nth-child(1) { animation-delay: 0.1s; }
+.vendors-table tbody tr:nth-child(2) { animation-delay: 0.15s; }
+.vendors-table tbody tr:nth-child(3) { animation-delay: 0.2s; }
+.vendors-table tbody tr:nth-child(4) { animation-delay: 0.25s; }
+.vendors-table tbody tr:nth-child(5) { animation-delay: 0.3s; }
+.vendors-table tbody tr:nth-child(6) { animation-delay: 0.35s; }
+.vendors-table tbody tr:nth-child(7) { animation-delay: 0.4s; }
+.vendors-table tbody tr:nth-child(8) { animation-delay: 0.45s; }
+.vendors-table tbody tr:nth-child(9) { animation-delay: 0.5s; }
+.vendors-table tbody tr:nth-child(10) { animation-delay: 0.55s; }
+
+.vendors-table tbody tr:hover {
+    transform: translateX(5px) scale(1.01);
+    background: white;
+    box-shadow: var(--shadow);
+}
+
+.status-badge {
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.status-badge:hover {
+    transform: scale(1.1);
+    filter: brightness(1.1);
+}
+
+.btn-action {
+    transition: var(--transition-bounce);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-action::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.btn-action:active::after {
+    width: 200px;
+    height: 200px;
+}
+
+.btn-action:hover {
+    transform: translateY(-3px) scale(1.05);
+}
+
+.modal-content {
+    animation: scaleIn 0.3s ease-out;
+}
+
+.modal-header {
+    animation: slideInUp 0.3s ease-out;
+}
+
+.modal-footer .btn {
+    transition: var(--transition-bounce);
+    position: relative;
+    overflow: hidden;
+}
+
+.modal-footer .btn::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.modal-footer .btn:active::after {
+    width: 200px;
+    height: 200px;
+}
+
+.modal-footer .btn:hover {
+    transform: translateY(-2px);
+}
+
+/* Main Layout */
 .vendor-container {
     padding: 30px;
-    background: #f4f7fc;
+    background: linear-gradient(135deg, var(--light) 0%, #e9ecef 100%);
     min-height: 100vh;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow-x: hidden;
 }
 
+/* Page Header */
 .page-header {
     background: white;
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     padding: 25px;
     margin-bottom: 30px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    box-shadow: var(--shadow);
     position: relative;
     overflow: hidden;
 }
@@ -295,32 +804,40 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 .page-header::before {
     content: '';
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, var(--primary), var(--success), var(--warning), var(--danger));
+    top: -50%;
+    right: -10%;
+    width: 300px;
+    height: 300px;
+    background: linear-gradient(135deg, var(--primary-light) 0%, transparent 100%);
+    border-radius: 50%;
+    z-index: 0;
 }
 
+.page-header > div {
+    position: relative;
+    z-index: 1;
+}
+
+/* Stats Cards */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 20px;
     margin-bottom: 30px;
 }
 
 .stat-card {
     background: white;
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     padding: 20px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.03);
-    transition: all 0.3s ease;
+    box-shadow: var(--shadow);
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 15px;
     border-left: 4px solid transparent;
-}
-
-.stat-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 30px rgba(67, 97, 238, 0.1);
 }
 
 .stat-card.pending { border-left-color: var(--warning); }
@@ -328,37 +845,102 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 .stat-card.rejected { border-left-color: var(--danger); }
 .stat-card.suspended { border-left-color: var(--dark); }
 
-.stat-icon {
-    width: 50px;
-    height: 50px;
-    border-radius: 12px;
+.stat-icon-wrapper {
+    width: 60px;
+    height: 60px;
+    border-radius: var(--radius);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
-    margin-bottom: 15px;
+    font-size: 1.75rem;
 }
 
-.stat-card.pending .stat-icon { background: rgba(255, 183, 3, 0.1); color: var(--warning); }
-.stat-card.approved .stat-icon { background: rgba(6, 214, 160, 0.1); color: var(--success); }
-.stat-card.rejected .stat-icon { background: rgba(239, 71, 111, 0.1); color: var(--danger); }
-.stat-card.suspended .stat-icon { background: rgba(43, 45, 66, 0.1); color: var(--dark); }
+.stat-card.pending .stat-icon-wrapper { background: var(--warning-light); color: var(--warning); }
+.stat-card.approved .stat-icon-wrapper { background: var(--success-light); color: var(--success); }
+.stat-card.rejected .stat-icon-wrapper { background: var(--danger-light); color: var(--danger); }
+.stat-card.suspended .stat-icon-wrapper { background: var(--dark-light); color: var(--dark); }
+
+.stat-content {
+    flex: 1;
+}
 
 .stat-value {
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 2rem;
+    font-weight: 800;
     color: var(--dark);
-    margin-bottom: 5px;
+    line-height: 1.2;
 }
 
 .stat-label {
-    color: #6c757d;
-    font-size: 14px;
+    color: var(--dark);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
+.stat-trend {
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    color: var(--dark);
+    opacity: 0.7;
+}
+
+/* Quick Stats Row */
+.quick-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.quick-stat-card {
+    background: white;
+    border-radius: var(--radius);
+    padding: 15px 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: var(--shadow);
+    transition: var(--transition);
+    border: 1px solid var(--border);
+}
+
+.quick-stat-icon {
+    width: 45px;
+    height: 45px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+}
+
+.quick-stat-icon.success { background: var(--success-light); color: var(--success); }
+.quick-stat-icon.warning { background: var(--warning-light); color: var(--warning); }
+.quick-stat-icon.danger { background: var(--danger-light); color: var(--danger); }
+.quick-stat-icon.info { background: var(--info-light); color: var(--info); }
+
+.quick-stat-content h4 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--dark);
+    margin: 0;
+    line-height: 1.2;
+}
+
+.quick-stat-content span {
+    font-size: 0.75rem;
+    color: var(--dark);
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Filter Bar */
 .filter-bar {
     background: white;
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     padding: 20px;
     margin-bottom: 25px;
     display: flex;
@@ -366,58 +948,65 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     gap: 15px;
     align-items: center;
     justify-content: space-between;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
 }
 
 .filter-tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
 }
 
 .filter-tab {
     padding: 8px 16px;
     border-radius: 30px;
-    font-size: 13px;
+    font-size: 0.875rem;
     font-weight: 500;
-    color: #6c757d;
+    color: var(--dark);
     background: var(--light);
-    transition: all 0.3s ease;
+    transition: var(--transition);
     cursor: pointer;
     border: none;
     text-decoration: none;
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    border: 1px solid var(--border);
 }
 
 .filter-tab:hover {
     background: var(--primary);
     color: white;
+    border-color: var(--primary);
 }
 
 .filter-tab.active {
     background: var(--primary);
     color: white;
+    border-color: var(--primary);
 }
 
 .filter-tab .count {
     background: rgba(0,0,0,0.1);
     padding: 2px 8px;
     border-radius: 20px;
-    font-size: 11px;
+    font-size: 0.75rem;
 }
 
 .filter-tab.active .count {
     background: rgba(255,255,255,0.2);
 }
 
+/* Search Box */
 .search-box {
     display: flex;
     align-items: center;
     background: var(--light);
     border-radius: 30px;
     padding: 4px;
-    min-width: 280px;
+    min-width: 300px;
+    border: 1px solid var(--border);
 }
 
 .search-box input {
@@ -425,11 +1014,14 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     background: transparent;
     padding: 8px 16px;
     flex: 1;
-    font-size: 14px;
+    font-size: 0.875rem;
+    outline: none;
+    color: var(--dark);
 }
 
-.search-box input:focus {
-    outline: none;
+.search-box input::placeholder {
+    color: var(--dark);
+    opacity: 0.5;
 }
 
 .search-box button {
@@ -438,53 +1030,57 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     border: none;
     padding: 8px 20px;
     border-radius: 30px;
-    font-size: 13px;
+    font-size: 0.875rem;
     font-weight: 500;
-    transition: all 0.3s ease;
+    transition: var(--transition);
+    cursor: pointer;
 }
 
-.search-box button:hover {
-    background: #3651c4;
-}
-
+/* Export Buttons */
 .export-buttons {
     display: flex;
-    gap: 10px;
+    gap: 8px;
 }
 
 .btn-export {
     padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
     font-weight: 500;
-    transition: all 0.3s ease;
+    transition: var(--transition);
     border: none;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    text-decoration: none;
 }
 
 .btn-pdf {
-    background: #dc2626;
+    background: var(--danger);
     color: white;
+}
+
+.btn-pdf:hover {
+    background: var(--danger-dark);
 }
 
 .btn-excel {
-    background: #059669;
+    background: var(--success);
     color: white;
 }
 
-.btn-export:hover {
-    transform: translateY(-2px);
-    filter: brightness(110%);
+.btn-excel:hover {
+    background: var(--success-dark);
 }
 
+/* Vendors Card */
 .vendors-card {
     background: white;
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow);
     overflow: hidden;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.03);
+    border: 1px solid var(--border);
 }
 
 .table-header {
@@ -495,8 +1091,19 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     align-items: center;
     flex-wrap: wrap;
     gap: 15px;
+    background: var(--light);
 }
 
+.table-header h5 {
+    font-weight: 600;
+    color: var(--dark);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Table Styles */
 .table-responsive {
     padding: 0 25px 25px 25px;
     overflow-x: auto;
@@ -510,28 +1117,26 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 
 .vendors-table th {
     padding: 12px 15px;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #6c757d;
+    letter-spacing: 0.05em;
+    color: var(--dark);
+    opacity: 0.7;
     border-bottom: 2px solid var(--border);
 }
 
 .vendors-table td {
     padding: 15px;
     background: var(--light);
-    border-radius: 10px;
-    transition: all 0.3s ease;
-    font-size: 13px;
+    border-radius: var(--radius);
+    transition: var(--transition);
+    font-size: 0.875rem;
+    vertical-align: middle;
+    border: 1px solid var(--border);
 }
 
-.vendors-table tr:hover td {
-    background: white;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-    transform: scale(1.01);
-}
-
+/* Vendor Info */
 .vendor-info {
     display: flex;
     align-items: center;
@@ -541,9 +1146,10 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 .vendor-avatar {
     width: 45px;
     height: 45px;
-    border-radius: 10px;
+    border-radius: var(--radius);
     object-fit: cover;
-    background: var(--light);
+    border: 2px solid white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .vendor-details {
@@ -553,115 +1159,358 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
 .vendor-name {
     font-weight: 600;
     color: var(--dark);
-    margin-bottom: 3px;
+    margin-bottom: 2px;
 }
 
 .vendor-email {
-    font-size: 11px;
-    color: #6c757d;
+    font-size: 0.75rem;
+    color: var(--dark);
+    opacity: 0.7;
 }
 
+/* Status Badges */
 .status-badge {
     padding: 5px 12px;
     border-radius: 30px;
-    font-size: 11px;
+    font-size: 0.75rem;
     font-weight: 500;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
+    border: 1px solid transparent;
 }
 
 .status-pending {
-    background: rgba(255, 183, 3, 0.1);
-    color: var(--warning);
+    background: var(--warning-light);
+    color: var(--warning-dark);
+    border-color: var(--warning);
 }
 
 .status-approved {
-    background: rgba(6, 214, 160, 0.1);
-    color: var(--success);
+    background: var(--success-light);
+    color: var(--success-dark);
+    border-color: var(--success);
 }
 
 .status-rejected {
-    background: rgba(239, 71, 111, 0.1);
-    color: var(--danger);
+    background: var(--danger-light);
+    color: var(--danger-dark);
+    border-color: var(--danger);
 }
 
 .status-suspended {
-    background: rgba(43, 45, 66, 0.1);
+    background: var(--dark-light);
     color: var(--dark);
+    border-color: var(--dark);
 }
 
+/* Document Badge */
 .document-badge {
     background: white;
-    padding: 3px 8px;
+    padding: 4px 8px;
     border-radius: 20px;
-    font-size: 10px;
-    color: #6c757d;
+    font-size: 0.7rem;
+    color: var(--dark);
     display: inline-block;
+    border: 1px solid var(--border);
 }
 
+/* Action Buttons */
 .action-buttons {
     display: flex;
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
 }
 
 .btn-action {
     padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 11px;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
     font-weight: 500;
-    transition: all 0.3s ease;
+    transition: var(--transition);
     border: none;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    text-decoration: none;
+    border: 1px solid transparent;
 }
 
 .btn-approve {
+    background: var(--success-light);
+    color: var(--success-dark);
+    border-color: var(--success);
+}
+
+.btn-approve:hover {
     background: var(--success);
     color: white;
 }
 
 .btn-reject {
+    background: var(--danger-light);
+    color: var(--danger-dark);
+    border-color: var(--danger);
+}
+
+.btn-reject:hover {
     background: var(--danger);
     color: white;
 }
 
 .btn-suspend {
+    background: var(--dark-light);
+    color: var(--dark);
+    border-color: var(--dark);
+}
+
+.btn-suspend:hover {
     background: var(--dark);
     color: white;
 }
 
 .btn-view {
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    border-color: var(--primary);
+}
+
+.btn-view:hover {
     background: var(--primary);
     color: white;
 }
 
-.btn-action:hover {
-    transform: translateY(-2px);
-    filter: brightness(110%);
-}
-
+/* Empty State */
 .empty-state {
     text-align: center;
     padding: 60px 20px;
 }
 
 .empty-state i {
-    font-size: 60px;
-    color: #dee2e6;
+    font-size: 4rem;
+    color: var(--dark);
+    opacity: 0.2;
     margin-bottom: 20px;
 }
 
 .empty-state h5 {
+    font-size: 1.25rem;
+    font-weight: 600;
     color: var(--dark);
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 .empty-state p {
-    color: #6c757d;
+    color: var(--dark);
+    opacity: 0.7;
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+/* Badge */
+.badge {
+    padding: 4px 8px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.bg-info {
+    background: var(--info) !important;
+    color: white !important;
+}
+
+.bg-secondary {
+    background: var(--light) !important;
+    color: var(--dark) !important;
+    border: 1px solid var(--border);
+}
+
+/* Modal Styles */
+.modal-content {
+    border-radius: var(--radius-lg);
+    border: none;
+    overflow: hidden;
+}
+
+.modal-header {
+    padding: 20px 25px;
+    border-bottom: none;
+}
+
+.modal-header.bg-success {
+    background: var(--success) !important;
+}
+
+.modal-header.bg-danger {
+    background: var(--danger) !important;
+}
+
+.modal-header.bg-dark {
+    background: var(--dark) !important;
+}
+
+.modal-body {
+    padding: 25px;
+}
+
+.modal-footer {
+    padding: 20px 25px;
+    border-top: 1px solid var(--border);
+    background: var(--light);
+}
+
+/* Buttons */
+.btn-secondary {
+    background: var(--light);
+    color: var(--dark);
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-weight: 500;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.btn-secondary:hover {
+    background: var(--border);
+}
+
+.btn-success {
+    background: var(--success);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-weight: 500;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.btn-success:hover {
+    background: var(--success-dark);
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-weight: 500;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.btn-danger:hover {
+    background: var(--danger-dark);
+}
+
+.btn-dark {
+    background: var(--dark);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-weight: 500;
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.btn-dark:hover {
+    background: #1a1e2f;
+}
+
+/* Alerts */
+.alert-success {
+    background: var(--success-light);
+    color: var(--success-dark);
+    border: 1px solid var(--success);
+    border-radius: var(--radius);
+}
+
+.alert-danger {
+    background: var(--danger-light);
+    color: var(--danger-dark);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+}
+
+/* Loading state for pending */
+.status-pending {
+    position: relative;
+    animation: pulse-glow 2s infinite;
+}
+
+/* Float animation for icons */
+.fa-store, .fa-user-check, .fa-box, .fa-file-alt {
+    animation: float 3s ease-in-out infinite;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .vendor-container {
+        padding: 20px;
+    }
+    
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .search-box {
+        width: 100%;
+        min-width: auto;
+    }
+    
+    .export-buttons {
+        justify-content: flex-end;
+    }
+    
+    .table-responsive {
+        padding: 0 15px 15px 15px;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+    }
+    
+    .btn-action {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .quick-stats {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Extra fixes for body/html */
+html, body {
+    overflow-x: hidden;
+    overflow-y: auto;
+    height: auto;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    scroll-behavior: smooth;
+}
+
+/* Ensure nothing creates horizontal scroll */
+* {
+    box-sizing: border-box;
+    max-width: 100%;
 }
 </style>
 
@@ -671,13 +1520,24 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
             <div>
                 <h1 class="h3 mb-0">
-                    <i class="fas fa-user-check me-2 text-primary"></i>
+                    <i class="fas fa-user-check me-2" style="color: var(--primary);"></i>
                     Accept Vendor Accounts
                 </h1>
                 <p class="text-muted mb-0">
-                    <i class="fas fa-store me-2"></i>
+                    <i class="fas fa-store me-2" style="color: var(--primary);"></i>
                     Review and manage vendor registration requests
                 </p>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="admin-accounts.php" class="btn btn-outline-primary">
+                    <i class="fas fa-user me-2"></i> Admin Accounts
+                </a>
+                <a href="withdrawal-management.php" class="btn btn-outline-primary">
+                    <i class="fas fa-hand-holding-usd me-2"></i> Withdrawals
+                </a>
+                <a href="dashboard.php" class="btn btn-outline-secondary">
+                    <i class="fas fa-home me-2"></i> Dashboard
+                </a>
             </div>
         </div>
     </div>
@@ -685,6 +1545,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     <!-- Messages -->
     <?php if (isset($_SESSION['success'])): ?>
         <div class="alert alert-success alert-dismissible fade show">
+            <i class="fas fa-check-circle me-2"></i>
             <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -692,6 +1553,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     
     <?php if (isset($_SESSION['error'])): ?>
         <div class="alert alert-danger alert-dismissible fade show">
+            <i class="fas fa-exclamation-circle me-2"></i>
             <?php echo $_SESSION['error']; unset($_SESSION['error']); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -700,32 +1562,100 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     <!-- Statistics -->
     <div class="stats-grid">
         <div class="stat-card pending">
-            <div class="stat-icon">
+            <div class="stat-icon-wrapper">
                 <i class="fas fa-clock"></i>
             </div>
-            <div class="stat-value"><?php echo $stats['pending'] ?? 0; ?></div>
-            <div class="stat-label">Pending</div>
+            <div class="stat-content">
+                <div class="stat-value"><?php echo $stats['pending'] ?? 0; ?></div>
+                <div class="stat-label">Pending</div>
+                <div class="stat-trend">
+                    <i class="fas fa-hourglass-half me-1"></i> Awaiting review
+                </div>
+            </div>
         </div>
         <div class="stat-card approved">
-            <div class="stat-icon">
+            <div class="stat-icon-wrapper">
                 <i class="fas fa-check-circle"></i>
             </div>
-            <div class="stat-value"><?php echo $stats['approved'] ?? 0; ?></div>
-            <div class="stat-label">Approved</div>
+            <div class="stat-content">
+                <div class="stat-value"><?php echo $stats['approved'] ?? 0; ?></div>
+                <div class="stat-label">Approved</div>
+                <div class="stat-trend">
+                    <i class="fas fa-arrow-up me-1"></i> Active vendors
+                </div>
+            </div>
         </div>
         <div class="stat-card rejected">
-            <div class="stat-icon">
+            <div class="stat-icon-wrapper">
                 <i class="fas fa-times-circle"></i>
             </div>
-            <div class="stat-value"><?php echo $stats['rejected'] ?? 0; ?></div>
-            <div class="stat-label">Rejected</div>
+            <div class="stat-content">
+                <div class="stat-value"><?php echo $stats['rejected'] ?? 0; ?></div>
+                <div class="stat-label">Rejected</div>
+                <div class="stat-trend">
+                    <i class="fas fa-arrow-down me-1"></i> Need revision
+                </div>
+            </div>
         </div>
         <div class="stat-card suspended">
-            <div class="stat-icon">
+            <div class="stat-icon-wrapper">
                 <i class="fas fa-ban"></i>
             </div>
-            <div class="stat-value"><?php echo $stats['suspended'] ?? 0; ?></div>
-            <div class="stat-label">Suspended</div>
+            <div class="stat-content">
+                <div class="stat-value"><?php echo $stats['suspended'] ?? 0; ?></div>
+                <div class="stat-label">Suspended</div>
+                <div class="stat-trend">
+                    <i class="fas fa-exclamation-triangle me-1"></i> Inactive
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="quick-stats">
+        <div class="quick-stat-card">
+            <div class="quick-stat-icon success">
+                <i class="fas fa-store"></i>
+            </div>
+            <div class="quick-stat-content">
+                <h4><?php echo $stats['total'] ?? 0; ?></h4>
+                <span>Total Vendors</span>
+            </div>
+        </div>
+        <div class="quick-stat-card">
+            <div class="quick-stat-icon warning">
+                <i class="fas fa-box"></i>
+            </div>
+            <div class="quick-stat-content">
+                <?php 
+                $totalProducts = 0;
+                foreach($vendors as $v) { $totalProducts += $v['total_products']; }
+                ?>
+                <h4><?php echo $totalProducts; ?></h4>
+                <span>Total Products</span>
+            </div>
+        </div>
+        <div class="quick-stat-card">
+            <div class="quick-stat-icon info">
+                <i class="fas fa-file-alt"></i>
+            </div>
+            <div class="quick-stat-content">
+                <?php 
+                $totalDocs = 0;
+                foreach($vendors as $v) { $totalDocs += $v['total_documents']; }
+                ?>
+                <h4><?php echo $totalDocs; ?></h4>
+                <span>Total Documents</span>
+            </div>
+        </div>
+        <div class="quick-stat-card">
+            <div class="quick-stat-icon danger">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="quick-stat-content">
+                <h4><?php echo $stats['pending'] ?? 0; ?></h4>
+                <span>Awaiting Review</span>
+            </div>
         </div>
     </div>
 
@@ -778,7 +1708,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
     <div class="vendors-card">
         <div class="table-header">
             <h5>
-                <i class="fas fa-store me-2 text-primary"></i>
+                <i class="fas fa-store me-2" style="color: var(--primary);"></i>
                 <?php echo ucfirst($status); ?> Vendor Accounts
                 <span class="badge bg-secondary ms-2"><?php echo count($vendors); ?></span>
             </h5>
@@ -814,7 +1744,7 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
                                     <div class="vendor-details">
                                         <div class="vendor-name"><?php echo htmlspecialchars($vendor['full_name'] ?? $vendor['username']); ?></div>
                                         <div class="vendor-email"><?php echo htmlspecialchars($vendor['email']); ?></div>
-                                        <small class="text-muted"><?php echo htmlspecialchars($vendor['phone'] ?? 'No phone'); ?></small>
+                                        <small style="color: var(--dark); opacity: 0.6;"><?php echo htmlspecialchars($vendor['phone'] ?? 'No phone'); ?></small>
                                     </div>
                                 </div>
                             </td>
@@ -822,20 +1752,20 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
                                 <span class="badge bg-info"><?php echo htmlspecialchars($vendor['category_name'] ?? 'Not set'); ?></span>
                             </td>
                             <td>
-                                <span class="fw-bold"><?php echo $vendor['total_products']; ?></span>
+                                <span class="fw-bold" style="color: var(--dark);"><?php echo $vendor['total_products']; ?></span>
                             </td>
                             <td>
                                 <span class="document-badge">
-                                    <i class="fas fa-file-alt me-1"></i>
+                                    <i class="fas fa-file-alt me-1" style="color: var(--info);"></i>
                                     <?php echo $vendor['verified_documents']; ?>/<?php echo $vendor['total_documents']; ?> verified
                                 </span>
                                 <?php if (!empty($vendor['document_types'])): ?>
-                                    <br><small class="text-muted"><?php echo $vendor['document_types']; ?></small>
+                                    <br><small style="color: var(--dark); opacity: 0.6;"><?php echo $vendor['document_types']; ?></small>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php echo date('d M Y', strtotime($vendor['created_at'])); ?>
-                                <br><small class="text-muted"><?php echo timeElapsedString($vendor['created_at']); ?></small>
+                                <span style="color: var(--dark);"><?php echo date('d M Y', strtotime($vendor['created_at'])); ?></span>
+                                <br><small style="color: var(--dark); opacity: 0.6;"><?php echo timeElapsedString($vendor['created_at']); ?></small>
                             </td>
                             <td>
                                 <span class="status-badge status-<?php echo $vendor['vendor_status']; ?>">
@@ -891,9 +1821,9 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body text-center">
-                    <i class="fas fa-check-circle fa-4x text-success mb-3"></i>
-                    <h5>Confirm Approval</h5>
-                    <p>Are you sure you want to approve this vendor account?</p>
+                    <i class="fas fa-check-circle fa-4x" style="color: var(--success);"></i>
+                    <h5 style="color: var(--dark); margin-top: 15px;">Confirm Approval</h5>
+                    <p style="color: var(--dark); opacity: 0.7;">Are you sure you want to approve this vendor account?</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -917,10 +1847,10 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
                 </div>
                 <div class="modal-body">
                     <div class="text-center mb-4">
-                        <i class="fas fa-times-circle fa-4x text-danger"></i>
+                        <i class="fas fa-times-circle fa-4x" style="color: var(--danger);"></i>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Reason for Rejection</label>
+                        <label class="form-label" style="color: var(--dark);">Reason for Rejection</label>
                         <textarea name="rejection_reason" class="form-control" rows="4" required></textarea>
                     </div>
                 </div>
@@ -946,10 +1876,10 @@ $stats = $stats_query->fetch(PDO::FETCH_ASSOC);
                 </div>
                 <div class="modal-body">
                     <div class="text-center mb-4">
-                        <i class="fas fa-exclamation-triangle fa-4x text-warning"></i>
+                        <i class="fas fa-exclamation-triangle fa-4x" style="color: var(--warning);"></i>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Reason for Suspension</label>
+                        <label class="form-label" style="color: var(--dark);">Reason for Suspension</label>
                         <textarea name="rejection_reason" class="form-control" rows="4" required></textarea>
                     </div>
                 </div>
@@ -978,18 +1908,14 @@ function suspendVendor(id) {
     new bootstrap.Modal(document.getElementById('suspendModal')).show();
 }
 
-function timeElapsedString($datetime) {
-    $now = new DateTime();
-    $ago = new DateTime($datetime);
-    $diff = $now->diff($ago);
-    
-    if ($diff->y > 0) return $diff->y . ' year' . ($diff->y > 1 ? 's' : '') . ' ago';
-    if ($diff->m > 0) return $diff->m . ' month' . ($diff->m > 1 ? 's' : '') . ' ago';
-    if ($diff->d > 0) return $diff->d . ' day' . ($diff->d > 1 ? 's' : '') . ' ago';
-    if ($diff->h > 0) return $diff->h . ' hour' . ($diff->h > 1 ? 's' : '') . ' ago';
-    if ($diff->i > 0) return $diff->i . ' minute' . ($diff->i > 1 ? 's' : '') . ' ago';
-    return 'just now';
-}
+// Auto-hide alerts after 5 seconds
+setTimeout(function() {
+    document.querySelectorAll('.alert').forEach(alert => {
+        try {
+            bootstrap.Alert.getOrCreateInstance(alert).close();
+        } catch(e) {}
+    });
+}, 5000);
 </script>
 
 <?php require_once '../includes/footer.php'; ?>

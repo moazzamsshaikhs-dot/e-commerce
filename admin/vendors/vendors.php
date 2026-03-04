@@ -503,10 +503,17 @@ try {
                     Total <?php echo count($vendors); ?> vendors found
                 </p>
             </div>
-            <a href="add-vendor.php" class="btn btn-primary">
-                <i class="fas fa-plus-circle me-2"></i>
-                Add New Vendor
-            </a>
+            <div class="flex-1 gap-2">
+                <a href="../dashboard.php" class="btn btn-primary">
+                    <i class="fas fa-home me-2"></i> Back
+                </a>
+                <a href="add-vendor.php" class="btn btn-primary">
+                    <i class="fas fa-plus me-2"></i> Add New Vendor
+                </a>
+                <a href="document-approvals.php" class="btn btn-primary">
+                    <i class="fas fa-file-alt me-2"></i> Document Approvals
+                </a>    
+            </div>
         </div>
     </div>
 

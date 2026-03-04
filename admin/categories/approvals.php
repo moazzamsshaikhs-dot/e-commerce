@@ -91,11 +91,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = "🎉 Your category <strong>'{$selection['category_name']}'</strong> has been approved!";
                 $stmt = $db->prepare("
                     INSERT INTO notifications (user_id, title, message, type, created_at)
-                    VALUES (?, 'Category Approved ✅', ?, 'success', NOW())
+                    VALUES (?, 'Category Approved ', ?, 'success', NOW())
                 ");
                 $stmt->execute([$selection['vendor_id'], $message]);
                 
-                $_SESSION['success'] = "✅ Category approved for {$selection['vendor_name']}";
+                $_SESSION['success'] = " Category approved for {$selection['vendor_name']}";
                 
             } else {
                 // Reject the selection
@@ -129,15 +129,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 
                 // Create notification
-                $message = "❌ Your category <strong>'{$selection['category_name']}'</strong> has been rejected.<br>
+                $message = " Your category <strong>'{$selection['category_name']}'</strong> has been rejected.<br>
                            <strong>Reason:</strong> {$rejection_reason}";
                 $stmt = $db->prepare("
                     INSERT INTO notifications (user_id, title, message, type, created_at)
-                    VALUES (?, 'Category Rejected ❌', ?, 'error', NOW())
+                    VALUES (?, 'Category Rejected ', ?, 'error', NOW())
                 ");
                 $stmt->execute([$selection['vendor_id'], $message]);
                 
-                $_SESSION['success'] = "❌ Category rejected";
+                $_SESSION['success'] = " Category rejected";
             }
             
             $db->commit();
@@ -872,6 +872,11 @@ function timeElapsedString($datetime) {
                     <i class="fas fa-tags me-2"></i>
                     Review and manage vendor category selection requests
                 </p>
+            </div>
+            <div class="flex-1 gap-2 display-flex justify-content-center">
+                <a href="../dashboard.php" class="btn btn-outline-primary">
+                <i class="fas fa-users me-1"></i> View All Admins
+            </a>
             </div>
         </div>
     </div>
