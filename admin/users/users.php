@@ -2,6 +2,10 @@
 // admin/users/users.php
 require_once '../includes/config.php';
 require_once '../includes/auth-check.php';
+require_once '../includes/super-admin-check.php';  // YEH IMPORTANT LINE ADD KARO
+
+// Require super admin access
+requireSuperAdmin();
 
 // Check if user is admin
 if ($_SESSION['user_type'] !== 'admin') {
