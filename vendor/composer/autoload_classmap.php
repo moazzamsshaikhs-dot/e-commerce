@@ -8,6 +8,7 @@ $baseDir = dirname($vendorDir);
 return array(
     'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
     'Dompdf\\Cpdf' => $vendorDir . '/dompdf/dompdf/lib/Cpdf.php',
+    'Omnipay\\Omnipay' => $vendorDir . '/omnipay/common/src/Omnipay.php',
     'Safe\\DateTime' => $vendorDir . '/thecodingmachine/safe/lib/DateTime.php',
     'Safe\\DateTimeImmutable' => $vendorDir . '/thecodingmachine/safe/lib/DateTimeImmutable.php',
     'Safe\\Exceptions\\ApacheException' => $vendorDir . '/thecodingmachine/safe/generated/Exceptions/ApacheException.php',

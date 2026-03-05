@@ -3,14 +3,26 @@
     "description": "E-commerce Payment System",
     "type": "project",
     "require": {
-        "stripe/stripe-php": "^13.0",
+        "omnipay/common": "^3.5",
+        "zfhassaan/easypaisa": "^1.0",
+        "moeen-basra/omnipay-easypaisa": "^1.0",
+        "moeen-basra/omnipay-jazzcash": "^1.0",
+        "omnipay/paypal": "^3.0",
         "paypal/rest-api-sdk-php": "^1.14",
-        "guzzlehttp/guzzle": "^7.0",
-        "monolog/monolog": "^3.0"
+        "dompdf/dompdf": "^3.1",
+        "stripe/stripe-php": "^19.4",
+        "guzzlehttp/guzzle": "^7.10",
+        "monolog/monolog": "^2.11",
+        "php-http/guzzle7-adapter": "^1.1"
     },
     "autoload": {
         "psr-4": {
             "Ecommerce\\": "includes/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true
         }
     }
 }

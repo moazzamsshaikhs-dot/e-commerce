@@ -6,6 +6,12 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
+    '6e3fae29631ef280660b3cdad06f25a8' => $vendorDir . '/symfony/deprecation-contracts/function.php',
+    '7b11c4dc42b3b3023073cb14e519683c' => $vendorDir . '/ralouphie/getallheaders/src/getallheaders.php',
+    '37a3dc5111fe8f707ab4c132ef1dbc62' => $vendorDir . '/guzzlehttp/guzzle/src/functions_include.php',
+    '9c67151ae59aff4788964ce8eb2a0f43' => $vendorDir . '/clue/stream-filter/src/functions_include.php',
+    '0e6d7bf4a5811bfa5cf40c5ccd6fae6a' => $vendorDir . '/symfony/polyfill-mbstring/bootstrap.php',
+    '8cff32064859f4559445b89279f3199c' => $vendorDir . '/php-http/message/src/filters.php',
     '72243e5536b63e298acb6476f01f1aff' => $vendorDir . '/thecodingmachine/safe/lib/special_cases.php',
     '3f648889e687f31c52f949ba8a9d0873' => $vendorDir . '/thecodingmachine/safe/generated/apache.php',
     'eeb4581d958421a4244aaa4167c6a575' => $vendorDir . '/thecodingmachine/safe/generated/apcu.php',
@@ -86,7 +92,6 @@ return array(
     '4af1dca6db8c527c6eed27bff85ff0e5' => $vendorDir . '/thecodingmachine/safe/generated/yaz.php',
     'fe43ca06499ac37bc2dedd823af71eb5' => $vendorDir . '/thecodingmachine/safe/generated/zip.php',
     '356736db98a6834f0a886b8d509b0ecd' => $vendorDir . '/thecodingmachine/safe/generated/zlib.php',
-    '7b11c4dc42b3b3023073cb14e519683c' => $vendorDir . '/ralouphie/getallheaders/src/getallheaders.php',
-    '6e3fae29631ef280660b3cdad06f25a8' => $vendorDir . '/symfony/deprecation-contracts/function.php',
-    '37a3dc5111fe8f707ab4c132ef1dbc62' => $vendorDir . '/guzzlehttp/guzzle/src/functions_include.php',
+    '0174385c3be07e86008907d06ee66531' => $vendorDir . '/sabberworm/php-css-parser/src/Rule/Rule.php',
+    '98aea6e41b9cb79b379b10f37ba1f0b7' => $vendorDir . '/sabberworm/php-css-parser/src/RuleSet/RuleContainer.php',
 );
