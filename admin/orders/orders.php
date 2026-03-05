@@ -76,7 +76,8 @@ try {
 
     $stmt = $db->prepare($count_sql);
     $stmt->execute($params);
-    $total_orders = $stmt->fetch()['total'];
+    $result = $stmt->fetch();
+    $total_orders = $result['total'] ?? 0;
     $total_pages = ceil($total_orders / $limit);
 
     // Get orders with details
@@ -84,6 +85,7 @@ try {
                           u.full_name,
                           u.email,
                           u.phone,
+                          u.profile_pic,
                           COUNT(oi.id) as items_count,
                           SUM(oi.quantity) as total_items,
                           sc.name as carrier_name
@@ -115,7 +117,7 @@ try {
                   WHERE DATE(order_date) >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
 
     $stmt = $db->query($stats_sql);
-    $stats = $stmt->fetch();
+    $stats = $stmt->fetch(PDO::FETCH_ASSOC);
 
     // Get order statuses
     $stmt = $db->query("SELECT DISTINCT status FROM orders WHERE status != '' ORDER BY status");
@@ -130,10 +132,21 @@ try {
     $customers = $stmt->fetchAll();
 
 } catch (PDOException $e) {
+    error_log("Orders error: " . $e->getMessage());
     $error = 'Error loading orders: ' . $e->getMessage();
     $orders = [];
     $total_orders = 0;
-    $stats = [];
+    $total_pages = 1;
+    $stats = [
+        'total_orders' => 0,
+        'pending_orders' => 0,
+        'processing_orders' => 0,
+        'shipped_orders' => 0,
+        'delivered_orders' => 0,
+        'cancelled_orders' => 0,
+        'total_sales' => 0,
+        'avg_order_value' => 0
+    ];
     $order_statuses = [];
     $payment_statuses = [];
     $customers = [];
@@ -832,7 +845,7 @@ try {
 @media (max-width: 480px) {
     .stats-row {
         grid-template-columns: 1fr;
-    } 
+    }
 }
 </style>
 
@@ -858,8 +871,8 @@ try {
                     <a href="export-orders.php" class="btn btn-outline-primary">
                         <i class="fas fa-file-export me-2"></i> Export
                     </a>
-                    <a href="../dashboard.php" class="btn btn-primary">
-                        <i class="fas fa-home me-2"></i> Back
+                    <a href="../dashboard.php" class="btn btn-outline-secondary">
+                        <i class="fas fa-home me-2"></i> Dashboard
                     </a>
                     <a href="create-order.php" class="btn btn-primary">
                         <i class="fas fa-plus-circle me-2"></i> Create Order
@@ -1504,11 +1517,6 @@ function applyBulkAction() {
             });
         }
     });
-}
-
-// Quick status update
-function quickStatusUpdate(orderId, status) {
-    updateOrderStatus(orderId, status);
 }
 
 // Auto-refresh stats every 30 seconds (optional)

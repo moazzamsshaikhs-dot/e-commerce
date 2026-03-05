@@ -388,7 +388,7 @@ header('Content-Type: text/html; charset=utf-8');
             confirmButtonText: 'Send Email'
         }).then((result) => {
             if (result.isConfirmed) {
-                fetch('../ajax/send-invoice-email.php?order_id=<?php echo $order_id; ?>')
+                fetch('ajax/send-invoice-email.php?order_id=<?php echo $order_id; ?>')
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {

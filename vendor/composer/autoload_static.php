@@ -115,6 +115,7 @@ class ComposerStaticInitac2d307f4ed514763a8119f3523066bb
             'Psr\\Log\\' => 8,
             'Psr\\Http\\Message\\' => 17,
             'Psr\\Http\\Client\\' => 16,
+            'PHPMailer\\PHPMailer\\' => 20,
         ),
         'O' =>
         array (
@@ -198,6 +199,10 @@ class ComposerStaticInitac2d307f4ed514763a8119f3523066bb
         'Psr\\Http\\Client\\' =>
         array (
             0 => __DIR__ . '/..' . '/psr/http-client/src',
+        ),
+        'PHPMailer\\PHPMailer\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/phpmailer/phpmailer/src',
         ),
         'Omnipay\\PayPal\\' =>
         array (

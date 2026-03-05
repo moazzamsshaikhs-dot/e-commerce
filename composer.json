@@ -3,6 +3,7 @@
     "description": "E-commerce Payment System",
     "type": "project",
     "require": {
+        "phpmailer/phpmailer": "^7.0",
         "omnipay/common": "^3.5",
         "zfhassaan/easypaisa": "^1.0",
         "moeen-basra/omnipay-easypaisa": "^1.0",
