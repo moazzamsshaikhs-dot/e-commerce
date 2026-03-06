@@ -127,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Create notification for vendor
                 $doc_type = ucfirst(str_replace('_', ' ', $document['document_type']));
-                $message = "❌ Your <strong>{$doc_type}</strong> has been rejected.";
+                $message = " Your <strong>{$doc_type}</strong> has been rejected.";
                 if (!empty($rejection_reason)) {
                     $message .= "<br><strong>Reason:</strong> {$rejection_reason}";
                 }
