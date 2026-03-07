@@ -42,9 +42,9 @@ try {
         // Get wishlist count
         $stmt = $db->prepare("SELECT COUNT(*) as count FROM wishlist WHERE user_id = ?");
         $stmt->execute([$user_id]);
-        $count = $stmt->fetch()['count'];
+        $count = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
         
-        logUserActivity($user_id, 'wishlist_add', 'Added product to wishlist: ' . $product_id);
+        logUserActivity($user_id, 'wishlist_add', 'Added product to wishlist ID: ' . $product_id);
         echo json_encode(['success' => true, 'action' => 'added', 'count' => $count]);
         
     } elseif ($action === 'remove') {
@@ -55,9 +55,9 @@ try {
         // Get wishlist count
         $stmt = $db->prepare("SELECT COUNT(*) as count FROM wishlist WHERE user_id = ?");
         $stmt->execute([$user_id]);
-        $count = $stmt->fetch()['count'];
+        $count = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
         
-        logUserActivity($user_id, 'wishlist_remove', 'Removed product from wishlist: ' . $product_id);
+        logUserActivity($user_id, 'wishlist_remove', 'Removed product from wishlist ID: ' . $product_id);
         echo json_encode(['success' => true, 'action' => 'removed', 'count' => $count]);
         
     } else {
@@ -84,9 +84,9 @@ try {
         // Get wishlist count
         $stmt = $db->prepare("SELECT COUNT(*) as count FROM wishlist WHERE user_id = ?");
         $stmt->execute([$user_id]);
-        $count = $stmt->fetch()['count'];
+        $count = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
         
-        logUserActivity($user_id, 'wishlist_toggle', 'Toggled wishlist for product: ' . $product_id);
+        logUserActivity($user_id, 'wishlist_toggle', 'Toggled wishlist for product ID: ' . $product_id);
         echo json_encode([
             'success' => true, 
             'in_wishlist' => $in_wishlist, 
@@ -98,6 +98,6 @@ try {
     
 } catch (PDOException $e) {
     error_log("Wishlist Toggle Error: " . $e->getMessage());
-    echo json_encode(['success' => false, 'message' => 'Database error']);
+    echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
 }
 ?>

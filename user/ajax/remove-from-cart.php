@@ -26,15 +26,20 @@ if ($product_id <= 0) {
 try {
     // Remove from cart
     $stmt = $db->prepare("DELETE FROM cart_items WHERE user_id = ? AND product_id = ?");
-    $stmt->execute([$user_id, $product_id]);
+    $result = $stmt->execute([$user_id, $product_id]);
+    
+    if (!$result) {
+        echo json_encode(['success' => false, 'message' => 'Failed to remove item']);
+        exit();
+    }
     
     // Get updated cart count
     $stmt = $db->prepare("SELECT SUM(quantity) as total FROM cart_items WHERE user_id = ?");
     $stmt->execute([$user_id]);
-    $cart_count = $stmt->fetch()['total'] ?? 0;
+    $cart_count = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
     
     // Log activity
-    logUserActivity($user_id, 'cart_remove', 'Removed product from cart: ' . $product_id);
+    logUserActivity($user_id, 'cart_remove', 'Removed product from cart ID: ' . $product_id);
     
     echo json_encode([
         'success' => true,

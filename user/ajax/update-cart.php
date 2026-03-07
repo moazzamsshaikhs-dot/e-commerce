@@ -33,7 +33,7 @@ try {
     // Check stock availability
     $stmt = $db->prepare("SELECT stock FROM products WHERE id = ? AND approved_status = 'approved'");
     $stmt->execute([$product_id]);
-    $product = $stmt->fetch();
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$product) {
         echo json_encode(['success' => false, 'message' => 'Product not found']);
@@ -47,11 +47,10 @@ try {
     
     // Update cart item
     $stmt = $db->prepare("UPDATE cart_items SET quantity = ?, added_at = NOW() WHERE user_id = ? AND product_id = ?");
-    $stmt->execute([$quantity, $user_id, $product_id]);
+    $result = $stmt->execute([$quantity, $user_id, $product_id]);
     
-    // Check if any rows were affected
-    if ($stmt->rowCount() == 0) {
-        // Item not in cart, add it
+    if (!$result || $stmt->rowCount() == 0) {
+        // If no rows updated, try to insert
         $stmt = $db->prepare("INSERT INTO cart_items (user_id, product_id, quantity, added_at) VALUES (?, ?, ?, NOW())");
         $stmt->execute([$user_id, $product_id, $quantity]);
     }
@@ -59,10 +58,10 @@ try {
     // Get updated cart count
     $stmt = $db->prepare("SELECT SUM(quantity) as total FROM cart_items WHERE user_id = ?");
     $stmt->execute([$user_id]);
-    $cart_count = $stmt->fetch()['total'] ?? 0;
+    $cart_count = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
     
     // Log activity
-    logUserActivity($user_id, 'cart_update', 'Updated cart quantity for product: ' . $product_id);
+    logUserActivity($user_id, 'cart_update', 'Updated cart quantity for product ID: ' . $product_id);
     
     echo json_encode([
         'success' => true,

@@ -24,6 +24,13 @@ define('UPLOAD_PATH', $_SERVER['DOCUMENT_ROOT'] . '/ecommerce-project/assets/upl
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('ALLOWED_TYPES', ['jpg', 'jpeg', 'png', 'gif']);
 
+
+// Add this at the top of config.php after opening <?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+ini_set('log_errors', 1);
+ini_set('error_log', 'C:/xampp/php/logs/php_error.log'); // Adjust path for your system
+
 // Start Session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -71,7 +78,7 @@ function isUser() {
 
 // Redirect function
 function redirect($url) {
-    echo "<script>window.location.href='" . $url . "';</script>";
+    header('Location: ' . SITE_URL . $url);
     exit();
 }
 
