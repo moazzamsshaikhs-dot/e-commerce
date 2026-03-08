@@ -3,7 +3,7 @@
         'name' => 'e-commerce/payment-system',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'aeac97c0ecb12097b1d6036340224652e2430263',
+        'reference' => '17360078bc58660b82a150cd45e3f5511f241d20',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -49,7 +49,7 @@
         'e-commerce/payment-system' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'aeac97c0ecb12097b1d6036340224652e2430263',
+            'reference' => '17360078bc58660b82a150cd45e3f5511f241d20',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

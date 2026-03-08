@@ -37,160 +37,130 @@ function safe_int($num) {
     return intval($num ?? 0);
 }
 
-// =============== HANDLE REVIEW SUBMISSION (MUST BE BEFORE ANY OUTPUT) ===============
+// =============== CREATE REVIEWS TABLE IF NOT EXISTS (SIMPLIFIED) ===============
+try {
+    $check_table = $db->query("SHOW TABLES LIKE 'reviews'");
+    if ($check_table->rowCount() == 0) {
+        // Create simple reviews table without foreign key constraints first
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS `reviews` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `user_id` int(11) NOT NULL,
+                `product_id` int(11) NOT NULL,
+                `rating` int(11) NOT NULL,
+                `review_text` text DEFAULT NULL,
+                `is_approved` tinyint(1) DEFAULT 1,
+                `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+                PRIMARY KEY (`id`),
+                KEY `user_id` (`user_id`),
+                KEY `product_id` (`product_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+        error_log("✓ Reviews table created successfully");
+    }
+} catch (Exception $e) {
+    error_log("Error creating reviews table: " . $e->getMessage());
+}
+
+// =============== SIMPLIFIED REVIEW HANDLING ===============
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_review'])) {
-    // Enable error reporting for debugging
-    error_log("========== REVIEW SUBMISSION STARTED ==========");
+    // Log the submission
+    error_log("========== REVIEW SUBMISSION ==========");
     error_log("POST data: " . print_r($_POST, true));
     
+    // Check login
     if (!isset($_SESSION['user_id'])) {
-        error_log("User not logged in");
         $_SESSION['error'] = 'Please login to submit a review';
-        redirect('login.php?redirect=product-details.php?id=' . $product_id);
+        header('Location: login.php?redirect=product-details.php?id=' . $product_id);
+        exit();
     }
     
+    // Get form data
+    $user_id = $_SESSION['user_id'];
     $rating = isset($_POST['rating']) ? (int)$_POST['rating'] : 0;
     $review_text = isset($_POST['review_text']) ? trim($_POST['review_text']) : '';
     
-    error_log("Review data - User: " . $_SESSION['user_id'] . ", Product: " . $product_id . ", Rating: " . $rating);
+    error_log("User ID: $user_id, Product ID: $product_id, Rating: $rating");
     error_log("Review text length: " . strlen($review_text));
     
     // Validate
     if ($rating < 1 || $rating > 5) {
-        error_log("Invalid rating: " . $rating);
-        $_SESSION['error'] = 'Please select a valid rating';
-        redirect('product-details.php?id=' . $product_id);
-    } elseif (empty($review_text)) {
-        error_log("Empty review text");
+        $_SESSION['error'] = 'Please select a valid rating (1-5)';
+        header('Location: product-details.php?id=' . $product_id);
+        exit();
+    }
+    
+    if (empty($review_text)) {
         $_SESSION['error'] = 'Please write your review';
-        redirect('product-details.php?id=' . $product_id);
-    } elseif (strlen($review_text) < 10) {
-        error_log("Review text too short: " . strlen($review_text));
+        header('Location: product-details.php?id=' . $product_id);
+        exit();
+    }
+    
+    if (strlen($review_text) < 10) {
         $_SESSION['error'] = 'Review must be at least 10 characters long';
-        redirect('product-details.php?id=' . $product_id);
-    } else {
-        try {
-            $db = getDB();
-            
-            // Check if reviews table exists
-            $table_check = $db->query("SHOW TABLES LIKE 'reviews'");
-            if ($table_check->rowCount() == 0) {
-                error_log("reviews table does not exist! Creating it now...");
-                
-                // Create reviews table
-                $db->exec("
-                    CREATE TABLE IF NOT EXISTS `reviews` (
-                        `id` int(11) NOT NULL AUTO_INCREMENT,
-                        `user_id` int(11) NOT NULL,
-                        `product_id` int(11) NOT NULL,
-                        `order_id` int(11) DEFAULT NULL,
-                        `rating` int(11) NOT NULL,
-                        `review_text` text DEFAULT NULL,
-                        `is_approved` tinyint(1) DEFAULT 1,
-                        `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-                        `vendor_responded` tinyint(1) DEFAULT 0,
-                        `report_count` int(11) DEFAULT 0,
-                        PRIMARY KEY (`id`),
-                        KEY `user_id` (`user_id`),
-                        KEY `product_id` (`product_id`),
-                        KEY `order_id` (`order_id`)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-                ");
-                error_log("reviews table created successfully");
-            }
-            
-            // Check if user already reviewed this product
-            $stmt = $db->prepare("SELECT id FROM reviews WHERE user_id = ? AND product_id = ?");
-            $stmt->execute([$_SESSION['user_id'], $product_id]);
-            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($existing) {
-                error_log("User already reviewed this product. Review ID: " . $existing['id']);
-                $_SESSION['error'] = 'You have already reviewed this product';
-                redirect('product-details.php?id=' . $product_id);
-            }
-            
-            // Start transaction
-            $db->beginTransaction();
-            error_log("Transaction started");
-            
-            // Insert review
-            $stmt = $db->prepare("
-                INSERT INTO reviews (user_id, product_id, rating, review_text, is_approved, created_at)
-                VALUES (?, ?, ?, ?, 1, NOW())
-            ");
-            
-            $result = $stmt->execute([$_SESSION['user_id'], $product_id, $rating, $review_text]);
-            
-            if (!$result) {
-                $errorInfo = $stmt->errorInfo();
-                error_log("Failed to insert review: " . print_r($errorInfo, true));
-                throw new Exception("Failed to insert review: " . $errorInfo[2]);
-            }
-            
-            $review_id = $db->lastInsertId();
-            error_log("Review inserted with ID: " . $review_id);
-            
-            // Calculate new average rating
-            $stmt = $db->prepare("SELECT AVG(rating) as avg_rating, COUNT(*) as total FROM reviews WHERE product_id = ?");
-            $stmt->execute([$product_id]);
-            $stats = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            $avg_rating = round($stats['avg_rating'], 2);
-            $total_reviews = $stats['total'];
-            
-            error_log("Updated stats - Avg: " . $avg_rating . ", Total: " . $total_reviews);
-            
-            // Update product with new stats
-            $stmt = $db->prepare("
-                UPDATE products 
-                SET average_rating = ?,
-                    review_count = ?
-                WHERE id = ?
-            ");
-            $updateResult = $stmt->execute([$avg_rating, $total_reviews, $product_id]);
-            
-            if (!$updateResult) {
-                error_log("Failed to update product stats");
-            }
-            
-            // Update star counts
-            $updateStarCount = $db->prepare("
-                UPDATE products SET 
-                five_star_count = (SELECT COALESCE(COUNT(*), 0) FROM reviews WHERE product_id = ? AND rating = 5),
-                four_star_count = (SELECT COALESCE(COUNT(*), 0) FROM reviews WHERE product_id = ? AND rating = 4),
-                three_star_count = (SELECT COALESCE(COUNT(*), 0) FROM reviews WHERE product_id = ? AND rating = 3),
-                two_star_count = (SELECT COALESCE(COUNT(*), 0) FROM reviews WHERE product_id = ? AND rating = 2),
-                one_star_count = (SELECT COALESCE(COUNT(*), 0) FROM reviews WHERE product_id = ? AND rating = 1)
-                WHERE id = ?
-            ");
-            $updateStarCount->execute([$product_id, $product_id, $product_id, $product_id, $product_id, $product_id]);
-            
-            // Commit transaction
-            $db->commit();
-            error_log("Transaction committed successfully");
-            
-            // Log activity
-            if (function_exists('logUserActivity')) {
-                logUserActivity($_SESSION['user_id'], 'review_submit', 'Submitted review for product ID: ' . $product_id);
-            }
-            
-            $_SESSION['success'] = 'Thank you for your review! It has been posted successfully.';
-            error_log("Review submitted successfully");
-            
-        } catch (Exception $e) {
-            // Rollback transaction on error
-            if (isset($db)) {
-                $db->rollBack();
-                error_log("Transaction rolled back");
-            }
-            error_log("Review submission error: " . $e->getMessage());
-            error_log("Stack trace: " . $e->getTraceAsString());
-            $_SESSION['error'] = 'Error submitting review: ' . $e->getMessage();
+        header('Location: product-details.php?id=' . $product_id);
+        exit();
+    }
+    
+    try {
+        $db = getDB();
+        
+        // Check if user already reviewed this product
+        $check_sql = "SELECT id FROM reviews WHERE user_id = ? AND product_id = ?";
+        $check_stmt = $db->prepare($check_sql);
+        $check_stmt->execute([$user_id, $product_id]);
+        $existing = $check_stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($existing) {
+            $_SESSION['error'] = 'You have already reviewed this product';
+            header('Location: product-details.php?id=' . $product_id);
+            exit();
         }
         
-        redirect('product-details.php?id=' . $product_id);
+        // Insert review - SIMPLE INSERT without transaction
+        $insert_sql = "INSERT INTO reviews (user_id, product_id, rating, review_text, is_approved, created_at) 
+                       VALUES (?, ?, ?, ?, 1, NOW())";
+        $insert_stmt = $db->prepare($insert_sql);
+        $result = $insert_stmt->execute([$user_id, $product_id, $rating, $review_text]);
+        
+        if ($result) {
+            $review_id = $db->lastInsertId();
+            error_log("✓ Review inserted successfully with ID: $review_id");
+            
+            // Update product average rating
+            $update_sql = "UPDATE products SET 
+                           average_rating = (SELECT AVG(rating) FROM reviews WHERE product_id = ?),
+                           review_count = (SELECT COUNT(*) FROM reviews WHERE product_id = ?)
+                           WHERE id = ?";
+            $update_stmt = $db->prepare($update_sql);
+            $update_stmt->execute([$product_id, $product_id, $product_id]);
+            
+            // Update star counts
+            $star_sql = "UPDATE products SET 
+                        five_star_count = (SELECT COUNT(*) FROM reviews WHERE product_id = ? AND rating = 5),
+                        four_star_count = (SELECT COUNT(*) FROM reviews WHERE product_id = ? AND rating = 4),
+                        three_star_count = (SELECT COUNT(*) FROM reviews WHERE product_id = ? AND rating = 3),
+                        two_star_count = (SELECT COUNT(*) FROM reviews WHERE product_id = ? AND rating = 2),
+                        one_star_count = (SELECT COUNT(*) FROM reviews WHERE product_id = ? AND rating = 1)
+                        WHERE id = ?";
+            $star_stmt = $db->prepare($star_sql);
+            $star_stmt->execute([$product_id, $product_id, $product_id, $product_id, $product_id, $product_id]);
+            
+            $_SESSION['success'] = 'Thank you for your review! It has been posted successfully.';
+            error_log("✓ Product stats updated");
+        } else {
+            $error = $insert_stmt->errorInfo();
+            error_log("✗ Insert failed: " . print_r($error, true));
+            $_SESSION['error'] = 'Database error: ' . $error[2];
+        }
+        
+    } catch (PDOException $e) {
+        error_log("✗ Exception: " . $e->getMessage());
+        $_SESSION['error'] = 'Error: ' . $e->getMessage();
     }
+    
+    header('Location: product-details.php?id=' . $product_id);
+    exit();
 }
 
 // =============== GET PRODUCT DETAILS ===============
@@ -289,20 +259,19 @@ if (!empty($similar_sql)) {
 }
 
 // =============== GET PRODUCT REVIEWS ===============
-$stmt = $db->prepare("
-    SELECT r.*, 
-           u.username, 
-           u.full_name, 
-           u.profile_pic,
-           u.id as user_id
-    FROM reviews r 
-    LEFT JOIN users u ON r.user_id = u.id 
-    WHERE r.product_id = ? 
-    AND r.is_approved = 1 
-    ORDER BY r.created_at DESC 
-");
-$stmt->execute([$product_id]);
-$reviews = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$reviews_sql = "SELECT r.*, 
+                       u.username, 
+                       u.full_name, 
+                       u.profile_pic,
+                       u.id as user_id
+                FROM reviews r 
+                LEFT JOIN users u ON r.user_id = u.id 
+                WHERE r.product_id = ? 
+                AND r.is_approved = 1 
+                ORDER BY r.created_at DESC";
+$reviews_stmt = $db->prepare($reviews_sql);
+$reviews_stmt->execute([$product_id]);
+$reviews = $reviews_stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Debug: Check if reviews are being fetched
 error_log("Number of reviews fetched for product {$product_id}: " . count($reviews));
@@ -317,28 +286,44 @@ foreach ($reviews as $review) {
     }
 }
 
-// Get product rating stats directly from products table as backup
-$product_rating = safe_float($product['average_rating'] ?? 0);
-$product_review_count = safe_int($product['review_count'] ?? 0);
-
-// If we have reviews from the query, use those numbers
+// Calculate average rating from reviews
 if ($total_reviews > 0) {
-    $product_rating = array_sum(array_column($reviews, 'rating')) / $total_reviews;
+    $total_rating = 0;
+    foreach ($reviews as $review) {
+        $total_rating += $review['rating'];
+    }
+    $product_rating = $total_rating / $total_reviews;
     $product_review_count = $total_reviews;
+} else {
+    $product_rating = safe_float($product['average_rating'] ?? 0);
+    $product_review_count = safe_int($product['review_count'] ?? 0);
 }
 
 // =============== GET VENDOR INFO ===============
 $vendor_id = $product['vendor_id'];
-$stmt = $db->prepare("
-    SELECT u.*, vs.*,
-           (SELECT COUNT(*) FROM products WHERE vendor_id = ? AND approved_status = 'approved') as total_products,
-           (SELECT COUNT(*) FROM reviews r JOIN products p ON r.product_id = p.id WHERE p.vendor_id = ?) as total_reviews
-    FROM users u
-    LEFT JOIN vendor_settings vs ON u.id = vs.vendor_id
-    WHERE u.id = ? AND u.user_type = 'vendor'
-");
-$stmt->execute([$vendor_id, $vendor_id, $vendor_id]);
-$vendor = $stmt->fetch(PDO::FETCH_ASSOC);
+$vendor_sql = "SELECT u.*, vs.*,
+                      (SELECT COUNT(*) FROM products WHERE vendor_id = ? AND approved_status = 'approved') as total_products,
+                      (SELECT COUNT(*) FROM reviews r JOIN products p ON r.product_id = p.id WHERE p.vendor_id = ?) as total_reviews
+               FROM users u
+               LEFT JOIN vendor_settings vs ON u.id = vs.vendor_id
+               WHERE u.id = ? AND u.user_type = 'vendor'";
+$vendor_stmt = $db->prepare($vendor_sql);
+$vendor_stmt->execute([$vendor_id, $vendor_id, $vendor_id]);
+$vendor = $vendor_stmt->fetch(PDO::FETCH_ASSOC);
+
+// =============== PAYMENT METHODS - SUPPORTED TYPES ===============
+// Complete list of all supported payment methods
+$all_payment_methods = [
+    'bank' => ['name' => 'Bank Transfer', 'icon' => 'fas fa-university', 'description' => 'Direct bank transfer to vendor account'],
+    'paypal' => ['name' => 'PayPal', 'icon' => 'fab fa-paypal', 'description' => 'Secure PayPal payments'],
+    'stripe' => ['name' => 'Stripe', 'icon' => 'fab fa-stripe', 'description' => 'Secure Stripe payments'],
+    'easypaisa' => ['name' => 'Easypaisa', 'icon' => 'fas fa-mobile-alt', 'description' => 'Pakistan\'s leading mobile wallet'],
+    'jazzcash' => ['name' => 'JazzCash', 'icon' => 'fas fa-mobile-alt', 'description' => 'Fast and secure mobile payments'],
+    'cod' => ['name' => 'Cash on Delivery', 'icon' => 'fas fa-money-bill-wave', 'description' => 'Pay when you receive'],
+    'visa' => ['name' => 'Visa Card', 'icon' => 'fab fa-cc-visa', 'description' => 'Visa credit/debit cards'],
+    'mastercard' => ['name' => 'Mastercard', 'icon' => 'fab fa-cc-mastercard', 'description' => 'Mastercard credit/debit cards'],
+    'amex' => ['name' => 'American Express', 'icon' => 'fab fa-cc-amex', 'description' => 'American Express cards']
+];
 
 // Parse vendor payment methods
 $vendor_payment_methods = [];
@@ -346,53 +331,28 @@ if (!empty($vendor['payment_methods'])) {
     $vendor_payment_methods = json_decode($vendor['payment_methods'], true);
 }
 
-// If vendor has no specific payment methods, show default methods
-if (empty($vendor_payment_methods)) {
-    $vendor_payment_methods = ['bank', 'paypal', 'stripe', 'easypaisa', 'jazzcash', 'cod'];
+// If vendor has no specific payment methods, show ALL supported methods
+if (empty($vendor_payment_methods) || !is_array($vendor_payment_methods)) {
+    $vendor_payment_methods = array_keys($all_payment_methods);
 }
 
-// Map payment methods to icons and labels
-$payment_method_icons = [
-    'bank' => 'fas fa-university',
-    'paypal' => 'fab fa-paypal',
-    'stripe' => 'fab fa-stripe',
-    'easypaisa' => 'fas fa-mobile-alt',
-    'jazzcash' => 'fas fa-mobile-alt',
-    'cod' => 'fas fa-money-bill-wave',
-    'visa' => 'fab fa-cc-visa',
-    'mastercard' => 'fab fa-cc-mastercard',
-    'amex' => 'fab fa-cc-amex'
-];
-
-$payment_method_labels = [
-    'bank' => 'Bank Transfer',
-    'paypal' => 'PayPal',
-    'stripe' => 'Stripe',
-    'easypaisa' => 'Easypaisa',
-    'jazzcash' => 'JazzCash',
-    'cod' => 'Cash on Delivery',
-    'visa' => 'Visa',
-    'mastercard' => 'Mastercard',
-    'amex' => 'American Express'
-];
-
-// =============== GET CART ITEMS ===============
+// Get cart items for current user
 $cart_items = [];
 if (isset($_SESSION['user_id'])) {
-    $stmt = $db->prepare("SELECT product_id, quantity FROM cart_items WHERE user_id = ?");
-    $stmt->execute([$_SESSION['user_id']]);
-    $cart_items = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    $cart_stmt = $db->prepare("SELECT product_id, quantity FROM cart_items WHERE user_id = ?");
+    $cart_stmt->execute([$_SESSION['user_id']]);
+    $cart_items = $cart_stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 }
 
-// =============== GET WISHLIST STATUS ===============
+// Get wishlist status
 $in_wishlist = false;
 if (isset($_SESSION['user_id'])) {
-    $stmt = $db->prepare("SELECT id FROM wishlist WHERE user_id = ? AND product_id = ?");
-    $stmt->execute([$_SESSION['user_id'], $product_id]);
-    $in_wishlist = $stmt->fetch() ? true : false;
+    $wish_stmt = $db->prepare("SELECT id FROM wishlist WHERE user_id = ? AND product_id = ?");
+    $wish_stmt->execute([$_SESSION['user_id'], $product_id]);
+    $in_wishlist = $wish_stmt->fetch() ? true : false;
 }
 
-// =============== GET PRODUCT IMAGES ===============
+// Get product images
 $product_images = [];
 if (!empty($product['image'])) {
     $product_images = [$product['image']];
@@ -405,11 +365,11 @@ if (!empty($product['image'])) {
     }
 }
 
-// =============== INCREMENT PRODUCT VIEWS ===============
-$stmt = $db->prepare("UPDATE products SET views = views + 1 WHERE id = ?");
-$stmt->execute([$product_id]);
+// Increment product views
+$view_stmt = $db->prepare("UPDATE products SET views = views + 1 WHERE id = ?");
+$view_stmt->execute([$product_id]);
 
-// =============== LOG ACTIVITY ===============
+// Log activity
 if (isset($_SESSION['user_id']) && function_exists('logUserActivity')) {
     logUserActivity($_SESSION['user_id'], 'product_view', 'Viewed product: ' . ($product['name'] ?? 'Unknown'));
 }
@@ -435,8 +395,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['contact_vendor'])) {
     
     try {
         // Check if vendor_messages table exists
-        $stmt = $db->query("SHOW TABLES LIKE 'vendor_messages'");
-        if ($stmt->rowCount() == 0) {
+        $msg_check = $db->query("SHOW TABLES LIKE 'vendor_messages'");
+        if ($msg_check->rowCount() == 0) {
             // Create vendor_messages table if it doesn't exist
             $db->exec("
                 CREATE TABLE IF NOT EXISTS `vendor_messages` (
@@ -448,8 +408,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['contact_vendor'])) {
                     `message` text NOT NULL,
                     `status` enum('unread','read','replied','archived') DEFAULT 'unread',
                     `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-                    `read_at` datetime DEFAULT NULL,
-                    `replied_at` datetime DEFAULT NULL,
                     PRIMARY KEY (`id`),
                     KEY `user_id` (`user_id`),
                     KEY `vendor_id` (`vendor_id`),
@@ -460,11 +418,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['contact_vendor'])) {
         }
         
         // Insert into vendor_messages table
-        $stmt = $db->prepare("
-            INSERT INTO vendor_messages (user_id, vendor_id, product_id, subject, message, status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'unread', NOW())
-        ");
-        $stmt->execute([$_SESSION['user_id'], $vendor_id, $product_id, $subject, $message]);
+        $msg_sql = "INSERT INTO vendor_messages (user_id, vendor_id, product_id, subject, message, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'unread', NOW())";
+        $msg_stmt = $db->prepare($msg_sql);
+        $msg_stmt->execute([$_SESSION['user_id'], $vendor_id, $product_id, $subject, $message]);
         
         // Log activity
         if (function_exists('logUserActivity')) {
@@ -651,25 +608,30 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                         </div>
                     </div>
                     
-                    <!-- Vendor Payment Methods -->
-                    <?php if (!empty($vendor_payment_methods)): ?>
-                        <div class="mt-3">
-                            <h6 class="border-bottom pb-2 mb-2">
-                                <i class="fas fa-credit-card me-2 text-primary"></i>
-                                Payment Methods Accepted
-                            </h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                <?php foreach ($vendor_payment_methods as $method): ?>
-                                    <?php if (isset($payment_method_icons[$method])): ?>
-                                        <span class="badge bg-light text-dark border" title="<?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>">
-                                            <i class="<?php echo $payment_method_icons[$method]; ?> me-1"></i>
-                                            <?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>
-                                        </span>
-                                    <?php endif; ?>
-                                <?php endforeach; ?>
-                            </div>
+                    <!-- Vendor Payment Methods - COMPREHENSIVE LIST -->
+                    <div class="mt-3">
+                        <h6 class="border-bottom pb-2 mb-2">
+                            <i class="fas fa-credit-card me-2 text-primary"></i>
+                            Payment Methods Accepted
+                        </h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            <?php 
+                            // Display all payment methods
+                            foreach ($vendor_payment_methods as $method): 
+                                if (isset($all_payment_methods[$method])): 
+                            ?>
+                                <span class="badge bg-light text-dark border p-2" 
+                                      title="<?php echo $all_payment_methods[$method]['description']; ?>"
+                                      data-bs-toggle="tooltip" data-bs-placement="top">
+                                    <i class="<?php echo $all_payment_methods[$method]['icon']; ?> me-1 text-primary"></i>
+                                    <?php echo $all_payment_methods[$method]['name']; ?>
+                                </span>
+                            <?php 
+                                endif;
+                            endforeach; 
+                            ?>
                         </div>
-                    <?php endif; ?>
+                    </div>
                     
                     <!-- Vendor Actions -->
                     <div class="mt-3 d-flex gap-2">
@@ -722,16 +684,16 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                             }
                             ?>
                         </span>
-                        <!-- <span class="text-muted small">
+                        <span class="text-muted small">
                             <i class="fas fa-hashtag me-1"></i> Product ID: <?php echo $product['id']; ?>
-                        </span> -->
+                        </span>
                     </div>
                     
                     <!-- Rating -->
                     <div class="d-flex align-items-center mb-3">
                         <div class="text-warning me-2">
                             <?php
-                            $rating = safe_float($product['average_rating'] ?? 0);
+                            $rating = $product_rating;
                             for ($i = 1; $i <= 5; $i++):
                                 if ($i <= floor($rating)) {
                                     echo '<i class="fas fa-star"></i>';
@@ -743,7 +705,7 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                             endfor;
                             ?>
                         </div>
-                        <span class="text-muted me-3">(<?php echo safe_int($product['review_count'] ?? 0); ?> reviews)</span>
+                        <span class="text-muted me-3">(<?php echo $product_review_count; ?> reviews)</span>
                         <span class="text-success">
                             <i class="fas fa-eye me-1"></i> <?php echo safe_int($product['views'] ?? 0); ?> views
                         </span>
@@ -788,90 +750,86 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                     </div>
                     
                     <!-- Add to Cart Form -->
-                    <form method="POST" class="mb-4" id="addToCartForm">
-                        <div class="row g-3 align-items-end">
-                            <div class="col-md-4">
-                                <label class="form-label">Quantity</label>
-                                <div class="input-group">
-                                    <button class="btn btn-outline-secondary" type="button" id="decreaseQty">-</button>
-                                    <input type="number" 
-                                           class="form-control text-center" 
-                                           name="quantity" 
-                                           id="quantity" 
-                                           value="1" 
-                                           min="1" 
-                                           max="<?php echo $product['stock']; ?>"
-                                           data-stock="<?php echo $product['stock']; ?>">
-                                    <button class="btn btn-outline-secondary" type="button" id="increaseQty">+</button>
-                                </div>
-                            </div>
-                            <div class="col-md-8">
-                                <?php if ($product['stock'] > 0): ?>
-                                    <?php if (isset($cart_items[$product_id])): ?>
-                                        <div class="btn-group w-100">
-                                            <button class="btn btn-outline-primary decrease-cart" type="button" data-product-id="<?php echo $product_id; ?>">
-                                                <i class="fas fa-minus"></i>
-                                            </button>
-                                            <button class="btn btn-outline-primary disabled" type="button" style="min-width: 50px;" disabled>
-                                                <?php echo $cart_items[$product_id]; ?>
-                                            </button>
-                                            <button class="btn btn-outline-primary increase-cart" type="button" data-product-id="<?php echo $product_id; ?>" data-max-stock="<?php echo $product['stock']; ?>">
-                                                <i class="fas fa-plus"></i>
-                                            </button>
-                                        </div>
-                                    <?php else: ?>
-                                        <button type="button" class="btn btn-primary btn-lg w-100 add-to-cart" data-product-id="<?php echo $product_id; ?>" data-product-name="<?php echo safe_html($product['name'] ?? 'Product'); ?>">
-                                            <i class="fas fa-cart-plus me-2"></i> Add to Cart
-                                        </button>
-                                    <?php endif; ?>
-                                <?php else: ?>
-                                    <button class="btn btn-secondary btn-lg w-100" disabled>
-                                        <i class="fas fa-times me-2"></i> Out of Stock
-                                    </button>
-                                <?php endif; ?>
+                    <div class="row g-3 align-items-end mb-4">
+                        <div class="col-md-4">
+                            <label class="form-label">Quantity</label>
+                            <div class="input-group">
+                                <button class="btn btn-outline-secondary" type="button" id="decreaseQty">-</button>
+                                <input type="number" 
+                                       class="form-control text-center" 
+                                       id="quantity" 
+                                       value="1" 
+                                       min="1" 
+                                       max="<?php echo $product['stock']; ?>"
+                                       data-stock="<?php echo $product['stock']; ?>">
+                                <button class="btn btn-outline-secondary" type="button" id="increaseQty">+</button>
                             </div>
                         </div>
-                    </form>
+                        <div class="col-md-8">
+                            <?php if ($product['stock'] > 0): ?>
+                                <?php if (isset($cart_items[$product_id])): ?>
+                                    <div class="btn-group w-100">
+                                        <button class="btn btn-outline-primary decrease-cart" type="button" data-product-id="<?php echo $product_id; ?>">
+                                            <i class="fas fa-minus"></i>
+                                        </button>
+                                        <button class="btn btn-outline-primary disabled" type="button" style="min-width: 50px;" disabled>
+                                            <?php echo $cart_items[$product_id]; ?>
+                                        </button>
+                                        <button class="btn btn-outline-primary increase-cart" type="button" data-product-id="<?php echo $product_id; ?>" data-max-stock="<?php echo $product['stock']; ?>">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <button type="button" class="btn btn-primary btn-lg w-100 add-to-cart" data-product-id="<?php echo $product_id; ?>" data-product-name="<?php echo safe_html($product['name'] ?? 'Product'); ?>">
+                                        <i class="fas fa-cart-plus me-2"></i> Add to Cart
+                                    </button>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <button class="btn btn-secondary btn-lg w-100" disabled>
+                                    <i class="fas fa-times me-2"></i> Out of Stock
+                                </button>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                     
                     <!-- Buy Now Button with Payment Methods Preview -->
                     <?php if ($product['stock'] > 0 && $max_purchase_quantity > 0): ?>
                         <div class="position-relative mb-4">
-                            <a href="checkout.php?product_id=<?php echo $product_id; ?>&quantity=<?php echo min(1, $max_purchase_quantity); ?>" 
+                            <a href="multi-item-checkout.php?product_id=<?php echo $product_id; ?>&quantity=<?php echo min(1, $max_purchase_quantity); ?>" 
                                class="btn btn-outline-primary w-100 btn-lg"
                                id="buyNowBtn">
                                 <i class="fas fa-bolt me-2"></i> Buy Now
                             </a>
                             <!-- Payment Methods Preview -->
-                            <?php if (!empty($vendor_payment_methods)): ?>
-                                <div class="payment-methods-preview mt-2">
-                                    <small class="text-muted d-block mb-1">
-                                        <i class="fas fa-lock me-1 text-success"></i>
-                                        Secure payment via:
-                                    </small>
-                                    <div class="d-flex flex-wrap gap-1">
-                                        <?php 
-                                        // Show only first 3 payment methods for preview
-                                        $preview_methods = array_slice($vendor_payment_methods, 0, 3);
-                                        foreach ($preview_methods as $method): 
-                                            if (isset($payment_method_icons[$method])): 
-                                        ?>
-                                            <span class="badge bg-light text-muted border" title="<?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>">
-                                                <i class="<?php echo $payment_method_icons[$method]; ?>"></i>
-                                            </span>
-                                        <?php 
-                                            endif;
-                                        endforeach; 
-                                        
-                                        // If more than 3 methods, show count
-                                        if (count($vendor_payment_methods) > 3): 
-                                        ?>
-                                            <span class="badge bg-light text-muted border">
-                                                +<?php echo count($vendor_payment_methods) - 3; ?> more
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
+                            <div class="payment-methods-preview mt-2">
+                                <small class="text-muted d-block mb-1">
+                                    <i class="fas fa-lock me-1 text-success"></i>
+                                    Secure payment via:
+                                </small>
+                                <div class="d-flex flex-wrap gap-1">
+                                    <?php 
+                                    // Show payment method icons (first 5)
+                                    $preview_methods = array_slice($vendor_payment_methods, 0, 5);
+                                    foreach ($preview_methods as $method): 
+                                        if (isset($all_payment_methods[$method])): 
+                                    ?>
+                                        <span class="badge bg-light text-muted border" 
+                                              title="<?php echo $all_payment_methods[$method]['name']; ?>">
+                                            <i class="<?php echo $all_payment_methods[$method]['icon']; ?>"></i>
+                                        </span>
+                                    <?php 
+                                        endif;
+                                    endforeach; 
+                                    
+                                    // If more than 5 methods, show count
+                                    if (count($vendor_payment_methods) > 5): 
+                                    ?>
+                                        <span class="badge bg-light text-muted border">
+                                            +<?php echo count($vendor_payment_methods) - 5; ?> more
+                                        </span>
+                                    <?php endif; ?>
                                 </div>
-                            <?php endif; ?>
+                            </div>
                         </div>
                     <?php endif; ?>
                     
@@ -906,10 +864,11 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                                         <td>
                                             <div class="d-flex flex-wrap gap-1">
                                                 <?php foreach ($vendor_payment_methods as $method): ?>
-                                                    <?php if (isset($payment_method_icons[$method])): ?>
-                                                        <span class="badge bg-light text-dark border small" title="<?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>">
-                                                            <i class="<?php echo $payment_method_icons[$method]; ?> me-1"></i>
-                                                            <?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>
+                                                    <?php if (isset($all_payment_methods[$method])): ?>
+                                                        <span class="badge bg-light text-dark border small" 
+                                                              title="<?php echo $all_payment_methods[$method]['description']; ?>">
+                                                            <i class="<?php echo $all_payment_methods[$method]['icon']; ?> me-1 text-primary"></i>
+                                                            <?php echo $all_payment_methods[$method]['name']; ?>
                                                         </span>
                                                     <?php endif; ?>
                                                 <?php endforeach; ?>
@@ -1028,16 +987,6 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                                         </div>
                                     </div>
                                     <p class="mb-0"><?php echo nl2br(safe_html($review['review_text'] ?? '')); ?></p>
-                                    
-                                    <!-- Review Actions -->
-                                    <div class="mt-2">
-                                        <button class="btn btn-sm btn-outline-secondary review-helpful me-2" data-review-id="<?php echo $review['id']; ?>">
-                                            <i class="far fa-thumbs-up me-1"></i> Helpful (<span class="helpful-count">0</span>)
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary review-report" data-review-id="<?php echo $review['id']; ?>">
-                                            <i class="far fa-flag me-1"></i> Report
-                                        </button>
-                                    </div>
                                 </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -1183,11 +1132,11 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
     </div>
 </div>
 
-<!-- Review Modal -->
+<!-- Review Modal - SIMPLIFIED -->
 <div class="modal fade" id="reviewModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="POST" action="<?php echo $_SERVER['PHP_SELF'] . '?id=' . $product_id; ?>" id="reviewForm">
+            <form method="POST" action="<?php echo $_SERVER['PHP_SELF'] . '?id=' . $product_id; ?>">
                 <div class="modal-header">
                     <h5 class="modal-title">Write a Review</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -1198,34 +1147,29 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                             Please <a href="login.php?redirect=<?php echo urlencode('product-details.php?id=' . $product_id); ?>">login</a> to write a review.
                         </div>
                     <?php else: ?>
-                        <div class="mb-4 text-center">
-                            <h6>How would you rate this product?</h6>
-                            <div class="rating-stars mb-3" style="font-size: 2rem; cursor: pointer;">
-                                <?php for ($i = 1; $i <= 5; $i++): ?>
-                                    <i class="fas fa-star rating-star" data-rating="<?php echo $i; ?>" style="color: #ddd; transition: color 0.2s;"></i>
-                                <?php endfor; ?>
-                            </div>
-                            <input type="hidden" name="rating" id="selectedRating" value="" required>
-                            <div class="text-muted small" id="ratingText">Click on the stars to rate</div>
+                        <div class="mb-3">
+                            <label class="form-label">Rating</label>
+                            <select name="rating" class="form-select" required>
+                                <option value="">Select rating</option>
+                                <option value="5">5 Stars - Excellent</option>
+                                <option value="4">4 Stars - Very Good</option>
+                                <option value="3">3 Stars - Good</option>
+                                <option value="2">2 Stars - Fair</option>
+                                <option value="1">1 Star - Poor</option>
+                            </select>
                         </div>
                         
                         <div class="mb-3">
-                            <label class="form-label">Your Review <span class="text-danger">*</span></label>
-                            <textarea class="form-control" 
-                                      name="review_text" 
-                                      id="review_text"
-                                      rows="4" 
-                                      placeholder="Share your experience with this product... (minimum 10 characters)"
-                                      required
-                                      minlength="10"></textarea>
-                            <div class="form-text text-muted small" id="reviewCounter">0/500 characters</div>
+                            <label class="form-label">Your Review</label>
+                            <textarea class="form-control" name="review_text" rows="4" required minlength="10"></textarea>
+                            <small class="text-muted">Minimum 10 characters</small>
                         </div>
                     <?php endif; ?>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <?php if (isset($_SESSION['user_id'])): ?>
-                        <button type="submit" name="submit_review" class="btn btn-primary" id="submitReviewBtn">Submit Review</button>
+                        <button type="submit" name="submit_review" class="btn btn-primary">Submit Review</button>
                     <?php endif; ?>
                 </div>
             </form>
@@ -1281,41 +1225,28 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
                             <strong><?php echo safe_html($vendor['store_name'] ?? $vendor['full_name'] ?? 'Vendor'); ?></strong> 
-                            accepts the following payment methods for this product:
+                            accepts the following payment methods:
                         </div>
                     </div>
                 </div>
                 
                 <div class="row g-4">
                     <?php foreach ($vendor_payment_methods as $method): ?>
-                        <?php if (isset($payment_method_icons[$method])): ?>
+                        <?php if (isset($all_payment_methods[$method])): ?>
                             <div class="col-md-6">
                                 <div class="card border h-100">
                                     <div class="card-body d-flex align-items-center">
                                         <div class="flex-shrink-0">
                                             <div class="payment-icon-circle bg-light rounded-circle p-3 me-3">
-                                                <i class="<?php echo $payment_method_icons[$method]; ?> fa-2x text-primary"></i>
+                                                <i class="<?php echo $all_payment_methods[$method]['icon']; ?> fa-2x text-primary"></i>
                                             </div>
                                         </div>
                                         <div class="flex-grow-1">
                                             <h6 class="mb-1">
-                                                <?php echo $payment_method_labels[$method] ?? ucfirst(str_replace('_', ' ', $method)); ?>
+                                                <?php echo $all_payment_methods[$method]['name']; ?>
                                             </h6>
                                             <p class="text-muted small mb-0">
-                                                <?php 
-                                                $descriptions = [
-                                                    'bank' => 'Direct bank transfer to vendor account',
-                                                    'paypal' => 'Secure PayPal payments',
-                                                    'stripe' => 'Secure Stripe payments',
-                                                    'easypaisa' => 'Pakistan\'s leading mobile wallet',
-                                                    'jazzcash' => 'Fast and secure mobile payments',
-                                                    'cod' => 'Pay when you receive',
-                                                    'visa' => 'Visa credit/debit cards',
-                                                    'mastercard' => 'Mastercard credit/debit cards',
-                                                    'amex' => 'American Express cards'
-                                                ];
-                                                echo $descriptions[$method] ?? 'Secure online payment';
-                                                ?>
+                                                <?php echo $all_payment_methods[$method]['description']; ?>
                                             </p>
                                         </div>
                                     </div>
@@ -1331,70 +1262,6 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
                             <i class="fas fa-shield-alt me-2"></i>
                             <strong>Security Note:</strong> All payments are encrypted and secure. 
                             Your payment information is never stored on our servers.
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Country Bank Support Information -->
-                <div class="row mt-4">
-                    <div class="col-md-12">
-                        <div class="card border">
-                            <div class="card-header bg-light">
-                                <h6 class="mb-0"><i class="fas fa-globe me-2"></i>Bank Transfer Support by Country</h6>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-bordered">
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th>Country</th>
-                                                <th>Currency</th>
-                                                <th>Supported Banks/Payment Methods</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php
-                                            // Fetch country bank formats
-                                            $stmt = $db->query("SELECT * FROM countries WHERE is_active = 1 ORDER BY name LIMIT 10");
-                                            $countries = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                                            
-                                            foreach ($countries as $country):
-                                                $bank_format = !empty($country['bank_format']) ? json_decode($country['bank_format'], true) : [];
-                                            ?>
-                                                <tr>
-                                                    <td><?php echo safe_html($country['name'] ?? ''); ?> (<?php echo safe_html($country['code'] ?? ''); ?>)</td>
-                                                    <td><?php echo safe_html($country['currency_code'] ?? 'USD') . ' ' . safe_html($country['currency_symbol'] ?? '$'); ?></td>
-                                                    <td>
-                                                        <?php if (!empty($bank_format) && is_array($bank_format)): ?>
-                                                            <?php if (!empty($bank_format['routing_required'])): ?>
-                                                                <span class="badge bg-info me-1" title="Routing/Transit Number">🏦 Routing</span>
-                                                            <?php endif; ?>
-                                                            <?php if (!empty($bank_format['swift_required'])): ?>
-                                                                <span class="badge bg-primary me-1" title="SWIFT Code">🌐 SWIFT</span>
-                                                            <?php endif; ?>
-                                                            <?php if (!empty($bank_format['iban_required'])): ?>
-                                                                <span class="badge bg-success me-1" title="IBAN">📋 IBAN</span>
-                                                            <?php endif; ?>
-                                                            <?php if (!empty($bank_format['ifsc_required'])): ?>
-                                                                <span class="badge bg-warning me-1" title="IFSC Code">🏧 IFSC</span>
-                                                            <?php endif; ?>
-                                                            <?php if (!empty($bank_format['branch_code_required'])): ?>
-                                                                <span class="badge bg-secondary me-1" title="Branch Code">🏛️ Branch</span>
-                                                            <?php endif; ?>
-                                                        <?php else: ?>
-                                                            <span class="text-muted">Standard bank transfer</span>
-                                                        <?php endif; ?>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <small class="text-muted">
-                                    <i class="fas fa-info-circle me-1"></i>
-                                    Your country's banking requirements will be applied during checkout.
-                                </small>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1430,10 +1297,17 @@ if ($max_purchase_quantity < 0) $max_purchase_quantity = 0;
 
 <!-- JavaScript -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 $(document).ready(function() {
     const siteUrl = '<?php echo SITE_URL; ?>';
     const productId = <?php echo $product_id; ?>;
+    
+    // Enable tooltips
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl)
+    });
     
     // Function to show toast messages
     function showToast(message, type = 'info') {
@@ -1528,90 +1402,6 @@ $(document).ready(function() {
     
     // Initialize buy now link
     updateBuyNowLink();
-    
-    // Rating stars
-    let selectedRating = 0;
-    
-    $('.rating-star').hover(function() {
-        const rating = $(this).data('rating');
-        highlightStars(rating);
-    }, function() {
-        if (selectedRating === 0) {
-            resetStars();
-        } else {
-            highlightStars(selectedRating);
-        }
-    });
-    
-    $('.rating-star').click(function() {
-        selectedRating = $(this).data('rating');
-        $('#selectedRating').val(selectedRating);
-        highlightStars(selectedRating);
-        
-        // Update rating text
-        const ratingTexts = {
-            1: 'Poor - Not satisfied at all',
-            2: 'Fair - Could be better',
-            3: 'Good - Satisfied',
-            4: 'Very Good - Very satisfied',
-            5: 'Excellent - Outstanding!'
-        };
-        $('#ratingText').text(ratingTexts[selectedRating] || 'Click on the stars to rate');
-    });
-    
-    function highlightStars(rating) {
-        $('.rating-star').css('color', '#ddd');
-        $('.rating-star').each(function(index) {
-            if (index < rating) {
-                $(this).css('color', '#ffc107');
-            }
-        });
-    }
-    
-    function resetStars() {
-        $('.rating-star').css('color', '#ddd');
-        $('#ratingText').text('Click on the stars to rate');
-    }
-    
-    $('.rating-stars').mouseleave(function() {
-        if (selectedRating === 0) {
-            resetStars();
-        } else {
-            highlightStars(selectedRating);
-        }
-    });
-    
-    // Review text counter
-    $('#review_text').on('input', function() {
-        const length = $(this).val().length;
-        $('#reviewCounter').text(length + '/500 characters');
-        
-        if (length < 10) {
-            $('#reviewCounter').addClass('text-danger').removeClass('text-muted');
-        } else {
-            $('#reviewCounter').removeClass('text-danger').addClass('text-muted');
-        }
-    });
-    
-    // Form validation before submit
-    $('#reviewForm').on('submit', function(e) {
-        const rating = $('#selectedRating').val();
-        const reviewText = $('#review_text').val();
-        
-        if (!rating) {
-            e.preventDefault();
-            showToast('Please select a rating', 'warning');
-            return false;
-        }
-        
-        if (!reviewText || reviewText.length < 10) {
-            e.preventDefault();
-            showToast('Please write at least 10 characters for your review', 'warning');
-            return false;
-        }
-        
-        return true;
-    });
     
     // Wishlist toggle
     $('#wishlistBtn').click(function() {
@@ -1844,50 +1634,6 @@ $(document).ready(function() {
             error: function(xhr, status, error) {
                 console.error('Contact vendor error:', error);
                 showToast('Network error: ' + error, 'error');
-            }
-        });
-    });
-    
-    // Review helpful button
-    $(document).on('click', '.review-helpful', function() {
-        const button = $(this);
-        const reviewId = button.data('review-id');
-        const countSpan = button.find('.helpful-count');
-        
-        $.ajax({
-            url: siteUrl + 'user/ajax/review-helpful.php',
-            type: 'POST',
-            data: { review_id: reviewId },
-            dataType: 'json',
-            success: function(response) {
-                if (response.success) {
-                    countSpan.text(response.count);
-                    button.addClass('disabled');
-                    showToast('Thank you for your feedback!', 'success');
-                } else {
-                    showToast(response.message || 'Error', 'error');
-                }
-            }
-        });
-    });
-    
-    // Review report button
-    $(document).on('click', '.review-report', function() {
-        const button = $(this);
-        const reviewId = button.data('review-id');
-        
-        $.ajax({
-            url: siteUrl + 'user/ajax/review-report.php',
-            type: 'POST',
-            data: { review_id: reviewId },
-            dataType: 'json',
-            success: function(response) {
-                if (response.success) {
-                    button.addClass('disabled');
-                    showToast('Review reported. Thank you!', 'success');
-                } else {
-                    showToast(response.message || 'Error', 'error');
-                }
             }
         });
     });

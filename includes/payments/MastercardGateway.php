@@ -1,19 +1,19 @@
 <?php
-// includes/payments/MastercardGateway.php
-
-require_once 'StripeGateway.php';
+namespace Ecommerce\Payments;
 
 class MastercardGateway extends StripeGateway {
-    protected function loadConfig() {
-        parent::loadConfig();
+    
+    protected $gatewayCode = 'mastercard';
+    protected $gatewayName = 'Mastercard';
+    
+    public function initialize($config) {
+        parent::initialize($config);
+        return $this;
     }
     
-    protected function getGatewayName() {
-        return 'mastercard';
-    }
-    
-    public function processPayment($amount, $currency, $paymentData) {
-        // Mastercard uses Stripe infrastructure
-        return parent::processPayment($amount, $currency, $paymentData);
+    public function getPaymentMethods() {
+        return [
+            ['id' => 'mastercard', 'name' => 'Mastercard', 'icon' => 'fab fa-cc-mastercard']
+        ];
     }
 }

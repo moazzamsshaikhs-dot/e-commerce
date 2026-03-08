@@ -1,19 +1,19 @@
 <?php
-// includes/payments/VisaGateway.php
-
-require_once 'StripeGateway.php';
+namespace Ecommerce\Payments;
 
 class VisaGateway extends StripeGateway {
-    protected function loadConfig() {
-        parent::loadConfig();
+    
+    protected $gatewayCode = 'visa';
+    protected $gatewayName = 'Visa';
+    
+    public function initialize($config) {
+        parent::initialize($config);
+        return $this;
     }
     
-    protected function getGatewayName() {
-        return 'visa';
-    }
-    
-    public function processPayment($amount, $currency, $paymentData) {
-        // Visa uses Stripe infrastructure
-        return parent::processPayment($amount, $currency, $paymentData);
+    public function getPaymentMethods() {
+        return [
+            ['id' => 'visa', 'name' => 'Visa Card', 'icon' => 'fab fa-cc-visa']
+        ];
     }
 }

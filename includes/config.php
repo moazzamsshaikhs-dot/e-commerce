@@ -8,7 +8,7 @@ define('DB_NAME', 'ecommerce_db');
 // Site Configuration
 define('SITE_URL', 'http://localhost/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
-
+// define('SITE_URL', 'http://yourdomain.com/'); // With trailing slash
 // Email Configuration (for OTP sending)
 define('SMTP_HOST', 'smtp.gmail.com');
 define('SMTP_USER', 'your-email@gmail.com');
@@ -20,7 +20,7 @@ define('OTP_EXPIRY_MINUTES', 10);
 define('OTP_LENGTH', 6);
 
 // File Upload Configuration
-define('UPLOAD_PATH', $_SERVER['DOCUMENT_ROOT'] . '/ecommerce-project/assets/uploads/');
+define('UPLOAD_PATH', $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('ALLOWED_TYPES', ['jpg', 'jpeg', 'png', 'gif']);
 
@@ -167,20 +167,6 @@ function hashPassword($password) {
 
 // Verify Password
 function verifyPassword($password, $hash) {
-    return password_verify($password, $hash);
-}
-?>
-
-
-
-
-
-
-
-
-
-
-<?php
 // ... پہلے والا کوڈ ...
 
 // Security Configuration

@@ -8,7 +8,7 @@ define('DB_NAME', 'ecommerce_db');
 // Site Configuration
 define('SITE_URL', 'http://localhost/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
-
+// define('SITE_URL', 'http://yourdomain.com/'); // With trailing slash
 // Email Configuration (for OTP sending)
 define('SMTP_HOST', 'smtp.gmail.com');
 define('SMTP_USER', 'your-email@gmail.com');
@@ -20,7 +20,7 @@ define('OTP_EXPIRY_MINUTES', 10);
 define('OTP_LENGTH', 6);
 
 // File Upload Configuration
-define('UPLOAD_PATHS', $_SERVER['DOCUMENT_ROOT'] . '/ecommerce-project/assets/uploads/');
+define('UPLOAD_PATHS', $_SERVER['DOCUMENT_ROOT'] . '/e-commerce/assets/uploads/');
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 define('ALLOWED_TYPES', ['jpg', 'jpeg', 'png', 'gif']);
 define('ALLOWED_MIME_TYPES', ['image/jpeg', 'image/png', 'image/gif']);
@@ -201,18 +201,7 @@ function verifyPassword($password, $hash) {
     return password_verify($password, $hash);
 }
 
-?>
 
-
-
-
-
-
-
-
-
-
-<?php
 // ... پہلے والا کوڈ ...
 
 // Security Configuration
@@ -469,22 +458,7 @@ function logVendorActivity($user_id, $activity_type, $description) {
     }
 }
 
-?>
 
-
-<?php
-// Add these functions to your config.php file or create a separate helpers.php file
-
-
-
-
-// ============================================
-// UPLOAD FUNCTIONS
-// ============================================
-
-/**
- * Get upload error message
- */
 function getUploadError($error_code) {
     $errors = [
         UPLOAD_ERR_INI_SIZE => 'File too large (server limit)',
@@ -498,13 +472,7 @@ function getUploadError($error_code) {
     return $errors[$error_code] ?? 'Unknown error';
 }
 
-// ============================================
-// PRODUCT FUNCTIONS
-// ============================================
 
-/**
- * Get all product categories
- */
 function getProductCategories() {
     try {
         $db = getDB();
@@ -787,7 +755,7 @@ function maskPhone($phone) {
     return str_repeat('•', strlen($phone) - 4) . substr($phone, -4);
 }
 
-function logActivity($user_id, $activity_type, $description,) {
+function logActivity($user_id, $activity_type, $description) {
     try {
         $db = getDB();
         $stmt = $db->prepare("
