@@ -1,11 +1,11 @@
 <?php
 // vendor/payments/settings.php - Vendor Payment Settings
-require_once '../includes/config.php';
-require_once '../includes/auth-check.php';
-require_once '../includes/vendor-access-check.php';
+require_once '../../includes/config.php';
+require_once '../../includes/auth-check.php';
+require_once '../../includes/vendor-access-check.php';
 
 $page_title = 'Payment Settings';
-require_once '../includes/header.php';
+require_once '../../includes/header.php';
 
 $db = getDB();
 $vendorId = $_SESSION['user_id'];
@@ -412,5 +412,5 @@ function toggleFields() {
 }
 </script>
 
-<?php require_once '../includes/footer.php'; ?>
+<?php require_once '../../includes/footer.php'; ?>
 

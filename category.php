@@ -1,11 +1,7 @@
 <?php
-require_once 'admin/includes/config.php';
+require_once 'includes/config.php';
 
 // Check if category slug is provided
-if($_SESSION['user_type'] !== 'vendor') {
-    header('Location: index.php');
-    exit();
-}
 if (!isset($_GET['slug']) || empty($_GET['slug'])) {
     header('Location: index.php');
     exit();
@@ -46,7 +42,24 @@ try {
     header('Location: index.php');
     exit();
 }
-
+// Temporary debug code - category.php ke start mein add karo
+// try {
+//     $db = getDB();
+//     $stmt = $db->query("SELECT id, name, slug, is_active FROM categories");
+//     $all_categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+//     echo "<pre>Debug: All Categories in Database\n";
+//     print_r($all_categories);
+//     echo "</pre>";
+    
+//     // Check if your slug exists
+//     $slug_to_check = isset($_GET['slug']) ? $_GET['slug'] : 'NOT SET';
+//     echo "Current slug from URL: " . htmlspecialchars($slug_to_check);
+    
+// } catch(Exception $e) {
+//     echo "DB Error: " . $e->getMessage();
+// }
+//exit; // Remove this after debugging
 // Pagination
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($page < 1) $page = 1;
@@ -228,7 +241,7 @@ try {
 }
 
 $page_title = htmlspecialchars($category['name']) . ' - ' . SITE_NAME;
-require_once 'admin/includes/header.php';
+require_once 'includes/header.php';
 ?>
 
 <!-- Breadcrumb -->
@@ -1271,4 +1284,4 @@ function initPriceSlider() {
 initPriceSlider();
 </script>
 
-<?php require_once 'admin/includes/footer.php'; ?>
+<?php require_once 'includes/footer.php'; ?>

@@ -12,74 +12,77 @@ class BankTransfer extends PaymentGateway implements PaymentGatewayInterface {
     }
     
     public function processCustomerPayment($order, $paymentData) {
-        try {
-            if (!isset($order['id']) || !isset($order['user_id']) || !isset($order['total_amount'])) {
-                throw new \Exception('Invalid order data');
-            }
-            
-            $bankAccountId = $paymentData['bank_account_id'] ?? null;
-            
-            // Get admin bank account details
-            $bankDetails = null;
-            if ($bankAccountId) {
-                $stmt = $this->db->prepare("
-                    SELECT * FROM admin_accounts 
-                    WHERE id = ? AND account_type IN ('bank', 'bank_transfer')
-                ");
-                $stmt->execute([$bankAccountId]);
-                $bankDetails = $stmt->fetch(\PDO::FETCH_ASSOC);
-            }
-            
-            if (!$bankDetails) {
-                // Get default admin bank account
-                $stmt = $this->db->prepare("
-                    SELECT * FROM admin_accounts 
-                    WHERE account_type IN ('bank', 'bank_transfer') AND is_default = 1
-                    LIMIT 1
-                ");
-                $stmt->execute();
-                $bankDetails = $stmt->fetch(\PDO::FETCH_ASSOC);
-            }
-            
-            $transactionId = $this->logTransaction(
-                'customer_payment',
-                $order['id'],
-                $order['user_id'],
-                $order['total_amount'],
-                'pending',
-                [
-                    'method' => 'bank_transfer', 
-                    'bank_account_id' => $bankDetails['id'] ?? null,
-                    'bank_name' => $bankDetails['bank_name'] ?? ''
-                ]
-            );
-            
-            // Update order payment status
-            $stmt = $this->db->prepare("
-                UPDATE orders SET 
-                payment_status = 'pending', 
-                transaction_id = ?,
-                updated_at = NOW()
-                WHERE id = ?
-            ");
-            $stmt->execute([$transactionId, $order['id']]);
-            
-            return [
-                'success' => true,
-                'transaction_id' => $transactionId,
-                'message' => 'Bank transfer instructions sent. Please complete the payment.',
-                'redirect' => SITE_URL . 'user/orders/order-confirmation.php?id=' . $order['id'],
-                'bank_details' => $bankDetails
-            ];
-            
-        } catch (\Exception $e) {
-            error_log("Bank Transfer Error: " . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => 'Payment processing failed: ' . $e->getMessage()
-            ];
+    try {
+        if (!isset($order['id']) || !isset($order['user_id']) || !isset($order['total_amount'])) {
+            throw new \Exception('Invalid order data');
         }
+        
+        $bankAccountId = $paymentData['bank_account_id'] ?? null;
+        
+        // Get admin bank account details
+        $bankDetails = null;
+        if ($bankAccountId) {
+            $stmt = $this->db->prepare("
+                SELECT * FROM admin_accounts 
+                WHERE id = ? AND account_type IN ('bank', 'bank_transfer')
+            ");
+            $stmt->execute([$bankAccountId]);
+            $bankDetails = $stmt->fetch(\PDO::FETCH_ASSOC);
+        }
+        
+        if (!$bankDetails) {
+            // Get default admin bank account
+            $stmt = $this->db->prepare("
+                SELECT * FROM admin_accounts 
+                WHERE account_type IN ('bank', 'bank_transfer') AND is_default = 1
+                LIMIT 1
+            ");
+            $stmt->execute();
+            $bankDetails = $stmt->fetch(\PDO::FETCH_ASSOC);
+        }
+        
+        $transactionId = $this->logTransaction(
+            'customer_payment',
+            $order['id'],
+            $order['user_id'],
+            $order['total_amount'],
+            'pending',
+            [
+                'method' => 'bank_transfer', 
+                'bank_account_id' => $bankDetails['id'] ?? null,
+                'bank_name' => $bankDetails['bank_name'] ?? ''
+            ]
+        );
+        
+        // Update order payment status
+        $stmt = $this->db->prepare("
+            UPDATE orders SET 
+            payment_status = 'pending', 
+            transaction_id = ?,
+            updated_at = NOW()
+            WHERE id = ?
+        ");
+        $stmt->execute([$transactionId, $order['id']]);
+        
+        // Store bank details in session for confirmation page
+        $_SESSION['bank_details'] = $bankDetails;
+        
+        return [
+            'success' => true,
+            'transaction_id' => $transactionId,
+            'message' => 'Bank transfer instructions sent. Please complete the payment.',
+            'redirect' => SITE_URL . 'user/orders/order-confirmation.php?id=' . $order['id'],
+            'bank_details' => $bankDetails
+        ];
+        
+    } catch (\Exception $e) {
+        error_log("Bank Transfer Error: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => 'Payment processing failed: ' . $e->getMessage()
+        ];
     }
+}
     
     public function processVendorPayout($vendorId, $amount, $payoutData) {
         try {

@@ -1,8 +1,8 @@
 <?php
 // vendor/payments/dashboard.php - Vendor Payment Dashboard
-require_once '../includes/config.php';
-require_once '../includes/auth-check.php';
-require_once '../includes/vendor-access-check.php';
+require_once '../../includes/config.php';
+require_once '../../includes/auth-check.php';
+require_once '../../includes/vendor-access-check.php';
 
 $page_title = 'Payment Dashboard';
 require_once '../includes/header.php';
@@ -325,5 +325,5 @@ $availableBalance = $earningsSummary['total_earnings'] - $earningsSummary['paid_
     </div>
 </div>
 
-<?php require_once '../includes/footer.php'; ?>
+<?php require_once '../../includes/footer.php'; ?>
 

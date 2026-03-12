@@ -1,10 +1,6 @@
 <?php
-require_once 'admin/includes/config.php';
+require_once 'includes/config.php';
 
-if($_SESSION['user_type'] !== 'vendor') {
-    header('Location: index.php');
-    exit();
-}
 // Only allow POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

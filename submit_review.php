@@ -1,6 +1,6 @@
 <?php
-require_once 'admin/includes/config.php';
-require_once 'admin/includes/auth-check.php';
+require_once 'includes/config.php';
+require_once 'includes/auth-check.php';
 
 if (!isset($_SESSION['user_id'])) {
     $_SESSION['error'] = 'Please login to submit a review.';

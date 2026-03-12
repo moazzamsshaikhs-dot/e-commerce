@@ -26,89 +26,69 @@ class PayPalGateway extends PaymentGateway implements PaymentGatewayInterface {
     }
     
     public function processCustomerPayment($order, $paymentData) {
-        try {
-            $token = $this->getAccessToken();
+    try {
+        // For demo, simulate PayPal payment
+        $transactionId = $this->logTransaction(
+            'customer_payment',
+            $order['id'],
+            $order['user_id'],
+            $order['total_amount'],
+            'completed',
+            ['method' => 'paypal']
+        );
+        
+        // Update order payment status
+        $stmt = $this->db->prepare("
+            UPDATE orders SET 
+            payment_status = 'completed', 
+            transaction_id = ?,
+            updated_at = NOW()
+            WHERE id = ?
+        ");
+        $stmt->execute([$transactionId, $order['id']]);
+        
+        // Update admin account balance (for PayPal)
+        $adminAccount = $this->getDefaultAdminAccount();
+        if ($adminAccount) {
+            $stmt = $this->db->prepare("
+                UPDATE admin_accounts 
+                SET current_balance = current_balance + ?,
+                    total_credited = total_credited + ?,
+                    last_transaction_at = NOW()
+                WHERE id = ?
+            ");
+            $stmt->execute([$order['total_amount'], $order['total_amount'], $adminAccount['id']]);
             
-            if (!$token) {
-                return ['success' => false, 'message' => 'Failed to authenticate with PayPal'];
-            }
-            
-            $payment = [
-                'intent' => 'sale',
-                'payer' => ['payment_method' => 'paypal'],
-                'transactions' => [[
-                    'amount' => [
-                        'total' => number_format($order['total_amount'], 2, '.', ''),
-                        'currency' => 'USD',
-                        'details' => [
-                            'subtotal' => number_format($order['total_amount'], 2, '.', ''),
-                            'tax' => '0.00',
-                            'shipping' => '0.00'
-                        ]
-                    ],
-                    'description' => 'Order #' . $order['order_number'],
-                    'invoice_number' => $order['order_number']
-                ]],
-                'redirect_urls' => [
-                    'return_url' => SITE_URL . 'user/orders/payment-success.php?order_id=' . $order['id'],
-                    'cancel_url' => SITE_URL . 'user/orders/payment-cancel.php?order_id=' . $order['id']
-                ]
-            ];
-            
-            $ch = curl_init($this->apiUrl . '/v1/payments/payment');
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payment));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $token
+            // Add to balance history
+            $stmt = $this->db->prepare("
+                INSERT INTO account_balance_history 
+                (admin_account_id, balance, change_amount, change_type, reference_id, reference_type, notes)
+                VALUES (?, (SELECT current_balance FROM admin_accounts WHERE id = ?), ?, 'credit', ?, 'order', ?)
+            ");
+            $stmt->execute([
+                $adminAccount['id'], 
+                $adminAccount['id'],
+                $order['total_amount'], 
+                $order['id'], 
+                "PayPal payment for order #{$order['order_number']}"
             ]);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            $result = json_decode($response, true);
-            
-            if ($httpCode == 201) {
-                $transactionId = $this->logTransaction(
-                    'customer_payment',
-                    $order['id'],
-                    $order['user_id'],
-                    $order['total_amount'],
-                    'pending',
-                    $result
-                );
-                
-                $stmt = $this->db->prepare("UPDATE orders SET transaction_id = ? WHERE id = ?");
-                $stmt->execute([$transactionId, $order['id']]);
-                
-                $approvalUrl = $this->getApprovalUrl($result['links']);
-                
-                if ($approvalUrl) {
-                    return [
-                        'success' => true,
-                        'transaction_id' => $result['id'],
-                        'redirect' => $approvalUrl
-                    ];
-                }
-                
-                return [
-                    'success' => true,
-                    'transaction_id' => $transactionId,
-                    'redirect' => SITE_URL . 'user/orders/order-confirmation.php?id=' . $order['id']
-                ];
-            }
-            
-            return [
-                'success' => false,
-                'message' => $result['message'] ?? 'PayPal payment failed'
-            ];
-            
-        } catch (\Exception $e) {
-            return ['success' => false, 'message' => $e->getMessage()];
         }
+        
+        return [
+            'success' => true,
+            'transaction_id' => $transactionId,
+            'message' => 'Payment processed via PayPal',
+            'redirect' => SITE_URL . 'user/orders/order-confirmation.php?id=' . $order['id']
+        ];
+        
+    } catch (\Exception $e) {
+        error_log("PayPal Error: " . $e->getMessage());
+        return [
+            'success' => false,
+            'message' => 'PayPal payment failed: ' . $e->getMessage()
+        ];
     }
+}
     
     public function processVendorPayout($vendorId, $amount, $payoutData) {
         try {

@@ -4,8 +4,22 @@ ob_start();
 
 require_once '../../includes/config.php';
 require_once '../../includes/auth-check.php';
+
+// Start output buffering at the very beginning
+// Add manual includes for payment gateway classes
+require_once '../../includes/payments/PaymentGatewayInterface.php';
+require_once '../../includes/payments/PaymentGateway.php';
+require_once '../../includes/payments/BankTransfer.php';
+require_once '../../includes/payments/CashOnDelivery.php';
+require_once '../../includes/payments/PayPalGateway.php';
+require_once '../../includes/payments/StripeGateway.php';
+require_once '../../includes/payments/EasypaisaGateway.php';
+require_once '../../includes/payments/JazzCashGateway.php';
+
 require_once '../../includes/payments/PaymentFactory.php';
 
+
+// Rest of your code...
 use Ecommerce\Payments\PaymentFactory;
 
 // Check if user is logged in
@@ -40,7 +54,7 @@ $user = $user_stmt->fetch(PDO::FETCH_ASSOC);
 // =============== GET SELECTED ITEMS FROM SESSION ===============
 if (!isset($_SESSION['checkout_items']) || empty($_SESSION['checkout_items'])) {
     $_SESSION['error'] = 'No items selected for checkout';
-    redirect('cart.php');
+    redirect('../../cart.php');
 }
 
 $selected_items = $_SESSION['checkout_items'];
@@ -101,34 +115,31 @@ $total = $subtotal + $shipping_cost + $tax_amount;
 // =============== GET ACTIVE PAYMENT GATEWAYS ===============
 $activeGateways = PaymentFactory::getActiveGateways($db);
 
-// Get user's saved payment methods
-$user_payment_methods = [];
-foreach (array_keys($activeGateways) as $gatewayCode) {
-    $stmt = $db->prepare("
-        SELECT upm.*, pg.gateway_code 
-        FROM user_payment_methods upm
-        JOIN payment_gateways pg ON upm.gateway_id = pg.id
-        WHERE upm.user_id = ? AND pg.gateway_code = ?
-        ORDER BY upm.is_default DESC
-    ");
-    $stmt->execute([$user_id, $gatewayCode]);
-    $methods = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    if (!empty($methods)) {
-        $user_payment_methods[$gatewayCode] = $methods;
-    }
-}
-
 // =============== HANDLE ORDER SUBMISSION ===============
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
     
     $shipping_address = trim($_POST['shipping_address'] ?? '');
     $billing_address = trim($_POST['billing_address'] ?? $shipping_address);
     $shipping_method = $_POST['shipping_method'] ?? 'standard';
-    $payment_method = $_POST['payment_method'] ?? '';
     $gateway_code = $_POST['gateway_code'] ?? '';
     $customer_notes = trim($_POST['customer_notes'] ?? '');
     $same_as_shipping = isset($_POST['same_as_shipping']);
+    
+    // Calculate shipping cost based on selected method
+    switch($shipping_method) {
+        case 'express':
+            $shipping_cost = 12.99;
+            break;
+        case 'overnight':
+            $shipping_cost = 24.99;
+            break;
+        default:
+            $shipping_cost = 5.99;
+    }
+    
+    // Recalculate total
+    $tax_amount = ($subtotal * $tax_rate) / 100;
+    $total = $subtotal + $shipping_cost + $tax_amount;
     
     // Validation
     $errors = [];
@@ -207,32 +218,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
             
             // Process payment
             $gateway = $activeGateways[$gateway_code]['instance'];
-            $paymentResult = $gateway->processPayment($order, $_POST);
+            
+            // Prepare payment data
+            $paymentData = [
+                'total_amount' => $total,
+                'currency' => 'USD',
+                'order_id' => $order_id,
+                'order_number' => $order_number,
+                'user_id' => $user_id,
+                'user_email' => $user['email'],
+                'user_name' => $user['full_name'],
+                'return_url' => SITE_URL . 'user/orders/order-confirmation.php?id=' . $order_id,
+                'cancel_url' => SITE_URL . 'user/orders/multi-item-checkout.php'
+            ];
+            
+            // Merge POST data for payment gateway specific fields
+            $paymentData = array_merge($paymentData, $_POST);
+            
+            $paymentResult = $gateway->processPayment($order, $paymentData);
             
             if ($paymentResult['success']) {
-                $db->commit();
-                
-                // Clear selected items from session
-                unset($_SESSION['checkout_items']);
-                
-                // Log activity
-                if (function_exists('logUserActivity')) {
-                    logUserActivity($user_id, 'order_placed', 'Placed order #' . $order_number);
-                }
-                
-                // Handle redirect based on payment method
-                if (isset($paymentResult['redirect'])) {
-                    redirect($paymentResult['redirect']);
-                } else {
-                    $_SESSION['success'] = 'Order placed successfully!';
-                    redirect('order-confirmation.php?id=' . $order_id);
-                }
-                
-            } else {
-                $db->rollBack();
-                $_SESSION['error'] = 'Payment failed: ' . ($paymentResult['message'] ?? 'Unknown error');
-                redirect('multi-item-checkout.php');
-            }
+    $db->commit();
+    
+    // Clear selected items from session
+    unset($_SESSION['checkout_items']);
+    
+    // Log activity
+    if (function_exists('logUserActivity')) {
+        logUserActivity($user_id, 'order_placed', 'Placed order #' . $order_number);
+    }
+    
+    // Handle redirect based on payment method
+    if (isset($paymentResult['redirect'])) {
+        redirect($paymentResult['redirect']);
+    } else {
+        // For COD and Bank Transfer, go to confirmation page
+        $_SESSION['success'] = 'Order placed successfully!';
+        redirect('order-confirmation.php?id=' . $order_id);
+    }
+}
             
         } catch (Exception $e) {
             $db->rollBack();
@@ -252,7 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
         <nav aria-label="breadcrumb" class="mb-4">
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="<?php echo SITE_URL; ?>user/dashboard.php">Dashboard</a></li>
-                <li class="breadcrumb-item"><a href="cart.php">Cart</a></li>
+                <li class="breadcrumb-item"><a href="../../cart.php">Cart</a></li>
                 <li class="breadcrumb-item active">Checkout</li>
             </ol>
         </nav>
@@ -378,7 +402,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                                                 <input type="radio" name="gateway_code" value="<?php echo $code; ?>" 
                                                        id="gateway_<?php echo $code; ?>" 
                                                        class="gateway-radio"
-                                                       <?php echo $code == 'cod' ? 'checked' : ''; ?>>
+                                                       <?php echo ($code == 'cod' || $code == 'bank') ? 'checked' : ''; ?>>
                                                 <label for="gateway_<?php echo $code; ?>" class="gateway-label">
                                                     <i class="<?php echo $gateway['config']['gateway_icon'] ?? 'fas fa-credit-card'; ?> me-2"></i>
                                                     <?php echo $gateway['config']['gateway_name'] ?? ucfirst($code); ?>
@@ -394,8 +418,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                                 <?php foreach ($activeGateways as $code => $gateway): ?>
                                     <div class="payment-details" id="details-<?php echo $code; ?>" style="display: none;">
                                         <?php 
-                                        $userAccounts = $user_payment_methods[$code] ?? [];
-                                        echo $gateway['instance']->getPaymentForm(['total_amount' => $total], $userAccounts); 
+                                        $paymentData = [
+                                            'total_amount' => $total,
+                                            'currency' => 'USD',
+                                            'user_id' => $user_id,
+                                            'user_email' => $user['email'] ?? '',
+                                            'user_name' => $user['full_name'] ?? ''
+                                        ];
+                                        echo $gateway['instance']->getPaymentForm($paymentData); 
                                         ?>
                                     </div>
                                 <?php endforeach; ?>
@@ -482,7 +512,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
                             </tr>
                             <tr class="fw-bold fs-5">
                                 <td>Total</td>
-                                <td class="text-end text-primary">$<?php echo number_format($total, 2); ?></td>
+                                <td class="text-end text-primary" id="total_display">$<?php echo number_format($total, 2); ?></td>
                             </tr>
                         </table>
                     </div>
@@ -588,6 +618,7 @@ $(document).ready(function() {
         const total = subtotal + shippingCost + tax;
         
         $('#shipping_display').text('$' + shippingCost.toFixed(2));
+        $('#total_display').text('$' + total.toFixed(2));
         $('#placeOrderBtn').html('<i class="fas fa-check-circle me-2"></i>Place Order (Pay $' + total.toFixed(2) + ')');
     });
 

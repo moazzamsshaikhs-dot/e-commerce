@@ -1,11 +1,6 @@
 <?php
-require_once 'admin/includes/config.php';
-require_once 'admin/includes/auth-check.php';
+require_once 'includes/config.php';
 
-if($_SESSION['user_type'] !== 'vendor') {
-    header('Location: index.php');
-    exit();
-}
 // Check if product ID is provided
 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
     header('Location: index.php');
@@ -229,7 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_wishlist'])) {
 }
 
 $page_title = htmlspecialchars($product['name']) . ' - ' . SITE_NAME;
-require_once 'admin/includes/header.php';
+require_once 'includes/header.php';
 ?>
 
 <!-- Breadcrumb -->
@@ -1201,4 +1196,4 @@ function shareProduct(platform) {
 }
 </script>
 
-<?php require_once 'admin/includes/footer.php'; ?>
+<?php require_once 'includes/footer.php'; ?>

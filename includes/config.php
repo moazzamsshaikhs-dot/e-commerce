@@ -1,12 +1,14 @@
-<?php
+﻿<?php
 // Database Configuration for XAMPP
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
 define('DB_PASS', ''); // XAMPP default password is empty
+// define('DB_NAME', 'icei_41344581_ecommerce_db');
 define('DB_NAME', 'ecommerce_db');
 
 // Site Configuration
 define('SITE_URL', 'http://localhost/e-commerce/');
+// define('SITE_URL', 'https://shopeasepro.iceiy.com/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 // define('SITE_URL', 'http://yourdomain.com/'); // With trailing slash
 // Email Configuration (for OTP sending)
@@ -167,7 +169,8 @@ function hashPassword($password) {
 
 // Verify Password
 function verifyPassword($password, $hash) {
-// ... پہلے والا کوڈ ...
+    return password_verify($password, $hash);
+}
 
 // Security Configuration
 define('MAX_LOGIN_ATTEMPTS', 5);
@@ -179,7 +182,7 @@ define('PASSWORD_REQUIRE_LOWERCASE', true);
 define('PASSWORD_REQUIRE_NUMBER', true);
 define('PASSWORD_REQUIRE_SYMBOL', true);
 
-// ... موجودہ کوڈ کے بعد یہ فنکشنز شامل کریں ...
+// ... Ù…ÙˆØ¬ÙˆØ¯Û Ú©ÙˆÚˆ Ú©Û’ Ø¨Ø¹Ø¯ ÛŒÛ ÙÙ†Ú©Ø´Ù†Ø² Ø´Ø§Ù…Ù„ Ú©Ø±ÛŒÚº ...
 
 // Track login attempt
 function trackLoginAttempt($username, $ip, $success) {
@@ -348,7 +351,7 @@ function getUserSubscription($user_id) {
         $stmt = $db->prepare("
             SELECT u.subscription_plan, u.subscription_expiry, p.* 
             FROM users u
-            LEFT JOIN subscription_plans p ON p.name = u.subscription_plan
+            LEFT JOIN subscription_plans p ON p.name COLLATE utf8mb4_unicode_ci = u.subscription_plan COLLATE utf8mb4_unicode_ci
             WHERE u.id = ?
         ");
         $stmt->execute([$user_id]);

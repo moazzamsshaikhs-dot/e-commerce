@@ -1,9 +1,8 @@
 <?php
-require_once 'admin/includes/config.php';
-require_once 'admin/includes/auth-check.php';
+require_once 'includes/config.php';
 
 $page_title = 'Contact Us';
-require_once 'admin/includes/header.php';
+require_once 'includes/header.php';
 
 // Handle contact form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_contact'])) {

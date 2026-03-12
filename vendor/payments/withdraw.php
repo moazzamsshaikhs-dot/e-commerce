@@ -1,11 +1,11 @@
 <?php
 // vendor/payments/withdraw.php - Vendor Withdrawal Request
-require_once '../includes/config.php';
-require_once '../includes/auth-check.php';
-require_once '../includes/vendor-access-check.php';
+require_once '../../includes/config.php';
+require_once '../../includes/auth-check.php';
+require_once '../../includes/vendor-access-check.php';
 
 $page_title = 'Request Withdrawal';
-require_once '../includes/header.php';
+require_once '../../includes/header.php';
 
 $db = getDB();
 $vendorId = $_SESSION['user_id'];
@@ -336,5 +336,5 @@ $withdrawalHistory = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 </div>
 
-<?php require_once '../includes/footer.php'; ?>
+<?php require_once '../../includes/footer.php'; ?>
 

@@ -1,76 +1,81 @@
 <?php
+session_start();
 require_once '../../includes/config.php';
-require_once '../../includes/auth-check.php';
 
 header('Content-Type: application/json');
 
-if (!isLoggedIn()) {
-    echo json_encode(['success' => false, 'message' => 'Please login first']);
-    exit();
-}
-
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(['success' => false, 'message' => 'Invalid request method']);
-    exit();
-}
-
-$db = getDB();
-$user_id = $_SESSION['user_id'];
-$product_id = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
-$quantity = isset($_POST['quantity']) ? (int)$_POST['quantity'] : 1;
-
-if ($product_id <= 0) {
-    echo json_encode(['success' => false, 'message' => 'Invalid product ID']);
-    exit();
-}
-
-if ($quantity <= 0) {
-    echo json_encode(['success' => false, 'message' => 'Invalid quantity']);
-    exit();
-}
+$response = ['success' => false, 'message' => ''];
 
 try {
-    // Check stock availability
-    $stmt = $db->prepare("SELECT stock FROM products WHERE id = ? AND approved_status = 'approved'");
-    $stmt->execute([$product_id]);
-    $product = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$product) {
-        echo json_encode(['success' => false, 'message' => 'Product not found']);
-        exit();
+    if (!isLoggedIn()) {
+        // Guest user - update session cart
+        $product_id = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
+        $quantity = isset($_POST['quantity']) ? (int)$_POST['quantity'] : 1;
+        
+        if ($product_id <= 0 || $quantity <= 0) {
+            $response['message'] = 'Invalid parameters';
+            echo json_encode($response);
+            exit;
+        }
+        
+        if (!isset($_SESSION['guest_cart'])) {
+            $_SESSION['guest_cart'] = [];
+        }
+        
+        // Update quantity in session
+        foreach ($_SESSION['guest_cart'] as &$item) {
+            if ($item['product_id'] == $product_id) {
+                $item['quantity'] = $quantity;
+                break;
+            }
+        }
+        
+        $response['success'] = true;
+        $response['message'] = 'Cart updated';
+    } else {
+        // Logged in user - update database
+        $db = getDB();
+        $user_id = $_SESSION['user_id'];
+        $product_id = isset($_POST['product_id']) ? (int)$_POST['product_id'] : 0;
+        $quantity = isset($_POST['quantity']) ? (int)$_POST['quantity'] : 1;
+        
+        if ($product_id <= 0 || $quantity <= 0) {
+            $response['message'] = 'Invalid parameters';
+            echo json_encode($response);
+            exit;
+        }
+        
+        // Check stock availability
+        $stmt = $db->prepare("SELECT stock FROM products WHERE id = ?");
+        $stmt->execute([$product_id]);
+        $product = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$product) {
+            $response['message'] = 'Product not found';
+            echo json_encode($response);
+            exit;
+        }
+        
+        if ($quantity > $product['stock']) {
+            $response['message'] = 'Requested quantity exceeds available stock';
+            echo json_encode($response);
+            exit;
+        }
+        
+        // Update quantity in database
+        $stmt = $db->prepare("
+            UPDATE cart_items 
+            SET quantity = ?, updated_at = NOW() 
+            WHERE user_id = ? AND product_id = ?
+        ");
+        $stmt->execute([$quantity, $user_id, $product_id]);
+        
+        $response['success'] = true;
+        $response['message'] = 'Cart updated successfully';
     }
-    
-    if ($quantity > $product['stock']) {
-        echo json_encode(['success' => false, 'message' => 'Cannot add more than available stock. Only ' . $product['stock'] . ' available']);
-        exit();
-    }
-    
-    // Update cart item
-    $stmt = $db->prepare("UPDATE cart_items SET quantity = ?, added_at = NOW() WHERE user_id = ? AND product_id = ?");
-    $result = $stmt->execute([$quantity, $user_id, $product_id]);
-    
-    if (!$result || $stmt->rowCount() == 0) {
-        // If no rows updated, try to insert
-        $stmt = $db->prepare("INSERT INTO cart_items (user_id, product_id, quantity, added_at) VALUES (?, ?, ?, NOW())");
-        $stmt->execute([$user_id, $product_id, $quantity]);
-    }
-    
-    // Get updated cart count
-    $stmt = $db->prepare("SELECT SUM(quantity) as total FROM cart_items WHERE user_id = ?");
-    $stmt->execute([$user_id]);
-    $cart_count = $stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
-    
-    // Log activity
-    logUserActivity($user_id, 'cart_update', 'Updated cart quantity for product ID: ' . $product_id);
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'Cart updated successfully',
-        'cart_count' => (int)$cart_count
-    ]);
-    
 } catch (PDOException $e) {
-    error_log("Update Cart Error: " . $e->getMessage());
-    echo json_encode(['success' => false, 'message' => 'Database error']);
+    $response['message'] = 'Database error: ' . $e->getMessage();
+    error_log("Update cart error: " . $e->getMessage());
 }
-?>
+
+echo json_encode($response);
