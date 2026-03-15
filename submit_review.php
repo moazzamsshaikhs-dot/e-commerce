@@ -73,9 +73,9 @@ if (empty($errors)) {
         $db = getDB();
         
         // Insert review
-        $stmt = $db->prepare("INSERT INTO reviews (user_id, product_id, rating, review_text, is_approved) 
-                              VALUES (?, ?, ?, ?, 1)");
-        $stmt->execute([$user_id, $product_id, $rating, $review_text]);
+        $stmt = $db->prepare("INSERT INTO reviews (user_id, product_id, rating, title, review_text, is_approved) 
+                              VALUES (?, ?, ?, ?, ?, 1)");
+        $stmt->execute([$user_id, $product_id, $rating, $review_title, $review_text]);
         
         // Update product rating statistics
         $stmt = $db->prepare("UPDATE products SET 

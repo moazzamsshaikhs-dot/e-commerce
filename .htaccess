@@ -1,0 +1,36 @@
+# ShopEase Pro - Root .htaccess
+Options -Indexes
+
+# PHP error logging
+php_flag display_errors Off
+php_flag log_errors On
+
+# Security headers
+Header always set X-Frame-Options "SAMEORIGIN"
+Header always set X-Content-Type-Options "nosniff"
+Header always set X-XSS-Protection "1; mode=block"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+# Protect sensitive files
+<FilesMatch "\.(sql|log|env|git|htpasswd)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Block access to debug/utility files in production
+<FilesMatch "^(debug_|get_errors|fix_|path-check|phpinfo)">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow .htaccess itself
+<Files ".htaccess">
+    Order allow,deny
+    Deny from all
+</Files>
+
+# Pretty URLs (optional - enable if needed)
+# RewriteEngine On
+# RewriteCond %{REQUEST_FILENAME} !-f
+# RewriteCond %{REQUEST_FILENAME} !-d
+# RewriteRule ^(.*)$ index.php?url=$1 [QSA,L]

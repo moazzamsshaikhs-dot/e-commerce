@@ -7,7 +7,7 @@ if ($_SESSION['user_type'] === 'admin') {
     $_SESSION['error'] = 'Access denied. User dashboard only.';
     redirect(SITE_URL . 'admin/dashboard.php');
 }
-if ($_SESSION['user_type'] === 'vender') {
+if ($_SESSION['user_type'] === 'vendor') {
     $_SESSION['error'] = 'Access denied. please use vender dashboard only.';
     redirect(SITE_URL . 'vender/dashboard.php');
 }

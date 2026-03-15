@@ -157,32 +157,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isIPBlocked($user_ip)) {
     }
 }
 
-// Function to redirect to appropriate dashboard
-// Line 135-145 mein vendor check nahi hai
-// Function to redirect to appropriate dashboard
-function redirectToDashboard() {
-    if (isset($_SESSION['user_type'])) {
-        switch ($_SESSION['user_type']) {
-            case 'admin':
-                redirect('admin/dashboard.php');
-                break;
-            case 'vendor':
-                redirect(SITE_URL . 'admin/vendors/dashboard.php');
-                break;
-            default:
-                redirect('user/dashboard.php');
-                break;
-        }
-    } else {
-        // Default fallback
-        redirect('user/dashboard.php');
-    }
-}
 $page_title = 'Login';
 require_once 'includes/header.php';
 ?>
 
-<!-- // Rest of the login form remains same... -->
 
 
 <div class="container">

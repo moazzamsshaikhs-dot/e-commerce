@@ -58,6 +58,15 @@ if (isLoggedIn()) {
             --accent-color: #4cc9f0;
             --dark-color: #1a1a2e;
             --light-color: #f8f9fa;
+            /* Short aliases */
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --success: #06d6a0;
+            --warning: #ffb703;
+            --danger: #ef476f;
+            --info: #4cc9f0;
+            --dark: #2b2d42;
+            --light: #f8f9fa;
         }
         
         body {

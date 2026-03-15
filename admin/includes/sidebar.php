@@ -168,12 +168,14 @@ if ($is_vendor && file_exists(__DIR__ . '/vendor-sidebar.php')) {
                         ?>
                     </a>
                 </li>
+                <?php if (isset($_SESSION['user_id']) && $_SESSION['user_type'] === 'admin' && $_SESSION['username'] === 'system administrator' && $_SESSION['subscription_plan'] === 'business'): ?>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo (strpos($current_page, 'payments') !== false) ? 'active' : ''; ?>" 
                        href="<?php echo SITE_URL; ?>admin/payments/index.php">
-                        <i class="fas fa-credit-card me-2"></i> Payments
+                        <i class="fas fa-user-shield me-2"></i> payments
                     </a>
                 </li>
+                <?php endif; ?>
                 <li class="nav-item mb-2">
                     <a class="nav-link <?php echo (strpos($current_page, 'withdrawals') !== false) ? 'active' : ''; ?>" 
                        href="<?php echo SITE_URL; ?>admin/withdrawals.php">

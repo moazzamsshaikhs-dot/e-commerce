@@ -1,15 +1,31 @@
 <?php
+
+// Check if user is logged in and is admin
+if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] !== 'admin') {
+    header('Location: ' . SITE_URL . 'login.php');
+    exit;
+}
+
+// Get unread notifications count
+$db = getDB();
+$unread_notifications = 0;
+if (isset($_SESSION['user_id'])) {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0");
+    $stmt->execute([$_SESSION['user_id']]);
+    $unread_notifications = $stmt->fetchColumn();
+}
+
+// Get admin info
+$admin_name = $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Admin';
 // Check if config is loaded
 if (!defined('DB_HOST')) {
     require_once 'config.php';
 }
-
 // Get current page
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -38,6 +54,15 @@ $current_page = basename($_SERVER['PHP_SELF']);
             --accent-color: #4cc9f0;
             --dark-color: #1a1a2e;
             --light-color: #f8f9fa;
+            /* Short aliases */
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --success: #06d6a0;
+            --warning: #ffb703;
+            --danger: #ef476f;
+            --info: #4cc9f0;
+            --dark: #2b2d42;
+            --light: #f8f9fa;
         }
 
         body {
@@ -129,7 +154,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
                     </li>
 
                     <?php if (isLoggedIn()): ?>
-                        <!-- User is logged in -->
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
                                 data-bs-toggle="dropdown">

@@ -112,20 +112,63 @@ function generateOTP($length = 6) {
     return $otp;
 }
 
-// Send OTP via Email (Simulated)
-function sendOTPEmail($email, $otp) {
-    // In production, use PHPMailer or similar
-    $subject = "Your OTP Code - " . SITE_NAME;
-    $message = "Your OTP code is: $otp\nValid for " . OTP_EXPIRY_MINUTES . " minutes";
-    $headers = "From: no-reply@" . $_SERVER['HTTP_HOST'] . "\r\n";
+// Send OTP via Email (PHPMailer - Real Implementation)
+function sendOTPEmail($email, $otp, $name = '') {
+    $vendor_autoload = __DIR__ . '/../vendor/autoload.php';
     
-    // For demo, we'll just log it
-    error_log("OTP for $email: $otp");
-    
-    // Uncomment to actually send email
-    // return mail($email, $subject, $message, $headers);
-    
-    return true; // For demo purposes
+    if (file_exists($vendor_autoload)) {
+        require_once $vendor_autoload;
+        
+        $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+        try {
+            $mail->isSMTP();
+            $mail->Host       = SMTP_HOST;
+            $mail->SMTPAuth   = true;
+            $mail->Username   = SMTP_USER;
+            $mail->Password   = SMTP_PASS;
+            $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port       = SMTP_PORT;
+            
+            $mail->setFrom(SMTP_USER, SITE_NAME);
+            $mail->addAddress($email, $name ?: $email);
+            $mail->isHTML(true);
+            $mail->Subject = 'Your OTP Code - ' . SITE_NAME;
+            $mail->Body = "
+            <div style='font-family:Poppins,sans-serif;max-width:500px;margin:0 auto;padding:30px;background:#f8f9fa;border-radius:15px;'>
+                <div style='text-align:center;margin-bottom:25px;'>
+                    <h2 style='color:#4361ee;margin:0;'>&#128272; Email Verification</h2>
+                    <p style='color:#888;'>" . SITE_NAME . "</p>
+                </div>
+                <div style='background:white;padding:30px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.05);text-align:center;'>
+                    <p style='color:#333;font-size:16px;margin-bottom:5px;'>Hello <strong>" . htmlspecialchars($name ?: $email) . "</strong>,</p>
+                    <p style='color:#666;font-size:15px;'>Your One-Time Password (OTP) for email verification is:</p>
+                    <div style='background:linear-gradient(135deg,#4361ee,#3a0ca3);color:white;font-size:38px;font-weight:900;letter-spacing:14px;padding:22px 30px;border-radius:12px;margin:25px 0;display:inline-block;'>
+                        {$otp}
+                    </div>
+                    <p style='color:#888;font-size:14px;'>&#128336; Valid for <strong>" . OTP_EXPIRY_MINUTES . " minutes</strong> only</p>
+                    <div style='background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px;margin-top:15px;'>
+                        <p style='color:#856404;font-size:13px;margin:0;'>&#9888;&#65039; Do NOT share this OTP with anyone. Our team will never ask for it.</p>
+                    </div>
+                </div>
+                <p style='text-align:center;color:#aaa;font-size:12px;margin-top:20px;'>
+                    If you didn't request this, please ignore this email.<br>
+                    &copy; " . date('Y') . " " . SITE_NAME . " - All Rights Reserved
+                </p>
+            </div>";
+            
+            $mail->send();
+            return true;
+        } catch (Exception $e) {
+            error_log("PHPMailer OTP Error for {$email}: " . $e->getMessage());
+            // Fallback log so OTP is not lost
+            error_log("FALLBACK OTP for {$email}: {$otp}");
+            return false;
+        }
+    } else {
+        // PHPMailer not installed - log OTP for development
+        error_log("DEV OTP for {$email}: {$otp}");
+        return true;
+    }
 }
 
 // Send OTP via SMS (Simulated)
@@ -407,6 +450,18 @@ function sendSecurityAlert($user_id, $alert_type, $details = '') {
                 $message .= "Time: " . date('Y-m-d H:i:s') . "\n";
                 $message .= "Details: " . $details . "\n\n";
                 break;
+                
+            case 'logout':
+                $message .= "You have been logged out successfully.\n";
+                $message .= "Time: " . date('Y-m-d H:i:s') . "\n";
+                if ($details) $message .= "Details: " . $details . "\n";
+                break;
+                
+            default:
+                $message .= "Security event: " . $alert_type . "\n";
+                $message .= "Time: " . date('Y-m-d H:i:s') . "\n";
+                if ($details) $message .= "Details: " . $details . "\n";
+                break;
         }
         
         $message .= "\nThank you,\n" . SITE_NAME . " Security Team";
@@ -501,6 +556,80 @@ function isVendorApproved() {
         
         return $status === 'approved';
     } catch(PDOException $e) {
+        return false;
+    }
+}
+
+// Redirect to dashboard based on user type
+function redirectToDashboard() {
+    if (isset($_SESSION['user_type'])) {
+        switch ($_SESSION['user_type']) {
+            case 'admin':
+                header('Location: ' . SITE_URL . 'admin/dashboard.php');
+                exit();
+            case 'vendor':
+                header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
+                exit();
+            default:
+                header('Location: ' . SITE_URL . 'user/dashboard.php');
+                exit();
+        }
+    } else {
+        header('Location: ' . SITE_URL . 'login.php');
+        exit();
+    }
+}
+
+// Send PHPMailer OTP Email (real implementation)
+function sendOTPEmailReal($email, $otp, $name = '') {
+    $vendor_autoload = __DIR__ . '/../vendor/autoload.php';
+    if (!file_exists($vendor_autoload)) {
+        // Fallback to basic mail
+        error_log("OTP for $email: $otp");
+        return true;
+    }
+    
+    require_once $vendor_autoload;
+    
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host       = SMTP_HOST;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = SMTP_USER;
+        $mail->Password   = SMTP_PASS;
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = SMTP_PORT;
+        
+        $mail->setFrom(SMTP_USER, SITE_NAME);
+        $mail->addAddress($email, $name);
+        $mail->isHTML(true);
+        $mail->Subject = 'Your OTP Code - ' . SITE_NAME;
+        $mail->Body = "
+        <div style='font-family:Poppins,sans-serif;max-width:500px;margin:0 auto;padding:30px;background:#f8f9fa;border-radius:15px;'>
+            <div style='text-align:center;margin-bottom:25px;'>
+                <h2 style='color:#4361ee;'>🔐 Email Verification</h2>
+            </div>
+            <div style='background:white;padding:25px;border-radius:10px;text-align:center;'>
+                <p style='color:#666;font-size:16px;'>Hello <strong>" . htmlspecialchars($name ?: $email) . "</strong>,</p>
+                <p style='color:#666;'>Your One-Time Password (OTP) for " . SITE_NAME . " is:</p>
+                <div style='background:#4361ee;color:white;font-size:36px;font-weight:bold;letter-spacing:12px;padding:20px;border-radius:10px;margin:20px 0;'>
+                    {$otp}
+                </div>
+                <p style='color:#999;font-size:14px;'>This OTP is valid for <strong>" . OTP_EXPIRY_MINUTES . " minutes</strong></p>
+                <p style='color:#dc3545;font-size:13px;'>⚠️ Do not share this OTP with anyone.</p>
+            </div>
+            <p style='text-align:center;color:#999;font-size:12px;margin-top:20px;'>
+                If you didn't request this, please ignore this email.<br>
+                &copy; " . date('Y') . " " . SITE_NAME . "
+            </p>
+        </div>";
+        
+        $mail->send();
+        return true;
+    } catch (Exception $e) {
+        error_log("PHPMailer Error for $email: " . $e->getMessage());
+        error_log("OTP for $email: $otp"); // fallback log
         return false;
     }
 }

@@ -42,7 +42,9 @@ foreach ($_COOKIE as $key => $value) {
     setcookie($key, '', time() - 3600, '/');
 }
 
-// Redirect to login page with success message
+// Restart session to flash success message
+session_start();
 $_SESSION['success'] = 'You have been logged out successfully.';
-redirect('login.php');
+header('Location: ' . SITE_URL . 'login.php');
+exit();
 ?>

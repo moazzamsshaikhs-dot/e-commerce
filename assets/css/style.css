@@ -1,6 +1,7 @@
 /* Custom CSS for E-Commerce Landing Page */
 
 :root {
+    /* Long names (used in header.php and frontend) */
     --primary-color: #4361ee;
     --secondary-color: #3a0ca3;
     --accent-color: #4cc9f0;
@@ -9,6 +10,16 @@
     --success-color: #06d6a0;
     --warning-color: #ffd166;
     --danger-color: #ef476f;
+    /* Short aliases (used in admin/products.php and admin pages) */
+    --primary: #4361ee;
+    --secondary: #3a0ca3;
+    --success: #06d6a0;
+    --warning: #ffb703;
+    --danger: #ef476f;
+    --info: #4cc9f0;
+    --dark: #2b2d42;
+    --light: #f8f9fa;
+    /* Gradients & Shadows */
     --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     --gradient-secondary: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
     --gradient-dark: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);

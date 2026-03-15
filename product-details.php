@@ -3,7 +3,7 @@ require_once 'includes/config.php';
 
 // Check if product ID is provided
 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-    header('Location: index.php');
+    header('Location: ' . SITE_URL . 'index.php');
     exit();
 }
 
@@ -45,13 +45,13 @@ try {
     
     if (!$product) {
         $_SESSION['error'] = 'Product not found or unavailable.';
-        header('Location: index.php');
+        header('Location: ' . SITE_URL . 'index.php');
         exit();
     }
     
 } catch(PDOException $e) {
     $_SESSION['error'] = 'Error loading product details.';
-    header('Location: index.php');
+    header('Location: ' . SITE_URL . 'index.php');
     exit();
 }
 

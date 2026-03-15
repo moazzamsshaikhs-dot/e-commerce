@@ -1,6 +1,6 @@
 <?php
-session_start();
-$site_title = "ShopEase Pro - Complete E-Commerce Solution";
+require_once 'includes/config.php';
+$site_title = SITE_NAME . " - Complete E-Commerce Solution";
 $site_description = "A complete buying & selling system with payment integration, OTP verification, and admin dashboard";
 ?>
 <!DOCTYPE html>
@@ -26,10 +26,10 @@ $site_description = "A complete buying & selling system with payment integration
     <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
     
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="<?php echo SITE_URL; ?>assets/css/style.css">
     
     <style>
-        /* :root {
+        :root {
             --primary-color: #4361ee;
             --secondary-color: #3a0ca3;
             --accent-color: #4cc9f0;
@@ -38,9 +38,17 @@ $site_description = "A complete buying & selling system with payment integration
             --success-color: #06d6a0;
             --warning-color: #ffd166;
             --danger-color: #ef476f;
+            /* Aliases matching admin/products.php */
+            --primary: #4361ee;
+            --success: #06d6a0;
+            --warning: #ffb703;
+            --danger: #ef476f;
+            --info: #4cc9f0;
+            --dark: #2b2d42;
+            --light: #f8f9fa;
             --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --gradient-secondary: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        } */
+        }
         
         body {
             font-family: 'Poppins', sans-serif;
@@ -84,10 +92,10 @@ $site_description = "A complete buying & selling system with payment integration
                         <a class="nav-link" href="#dashboard">Dashboard</a>
                     </li>
                     <li class="nav-item ms-lg-3">
-                        <a href="login.php" class="btn btn-outline-primary">Login</a>
+                        <a href="<?php echo SITE_URL; ?>login.php" class="btn btn-outline-primary">Login</a>
                     </li>
                     <li class="nav-item ms-lg-2">
-                        <a href="signup.php" class="btn btn-primary">Sign Up Free</a>
+                        <a href="<?php echo SITE_URL; ?>signup.php" class="btn btn-primary">Sign Up Free</a>
                     </li>
                 </ul>
             </div>
@@ -109,7 +117,7 @@ $site_description = "A complete buying & selling system with payment integration
                         <a href="#demo" class="btn btn-primary btn-lg px-4">
                             <i class="fas fa-play-circle me-2"></i> Watch Demo
                         </a>
-                        <a href="signup.php" class="btn btn-outline-primary btn-lg px-4">
+                        <a href="<?php echo SITE_URL; ?>signup.php" class="btn btn-outline-primary btn-lg px-4">
                             <i class="fas fa-rocket me-2"></i> Get Started
                         </a>
                     </div>
@@ -529,7 +537,7 @@ $site_description = "A complete buying & selling system with payment integration
                 </div>
                 <div class="col-lg-4" data-aos="fade-left" data-aos-delay="100">
                     <div class="text-center text-lg-end">
-                        <a href="signup.php" class="btn btn-light btn-lg px-5 me-3">
+                        <a href="<?php echo SITE_URL; ?>signup.php" class="btn btn-light btn-lg px-5 me-3">
                             <i class="fas fa-rocket me-2"></i> Start Free Trial
                         </a>
                         <a href="#demo" class="btn btn-outline-light btn-lg px-5">

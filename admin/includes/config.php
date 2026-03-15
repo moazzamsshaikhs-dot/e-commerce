@@ -12,9 +12,9 @@ define('SITE_URL', 'http://localhost/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 // define('SITE_URL', 'http://yourdomain.com/'); // With trailing slash
 // Email Configuration (for OTP sending)
-define('SMTP_HOST', 'smtp.gmail.com');
-define('SMTP_USER', 'your-email@gmail.com');
-define('SMTP_PASS', 'your-email-password');
+define('SMTP_HOST', 'shopeasepro2@gmail.com');
+define('SMTP_USER', 'shopeasepro2@gmail.com');
+define('SMTP_PASS', 'shopeasepro2@gmail.com');
 define('SMTP_PORT', 587);
 
 // OTP Configuration
@@ -781,16 +781,16 @@ function redirectToDashboard() {
     if (isset($_SESSION['user_type'])) {
         switch ($_SESSION['user_type']) {
             case 'admin':
-                header('Location: ../../admin/dashboard.php');
+                header('Location: ' . SITE_URL . 'admin/dashboard.php');
                 break;
             case 'vendor':
-                header('Location: ../../vendor/dashboard.php');
+                header('Location: ' . SITE_URL . 'admin/vendors/dashboard.php');
                 break;
             default:
-                header('Location: ../../index.php');
+                header('Location: ' . SITE_URL . 'user/dashboard.php');
         }
     } else {
-        header('Location: ../../login.php');
+        header('Location: ' . SITE_URL . 'login.php');
     }
     exit();
 }

@@ -4,7 +4,7 @@ require_once './includes/config.php';
 require_once './includes/auth-check.php';
 
 if($_SESSION['user_type'] != 'admin') {
-    header('Location: ../index.php');
+    header('Location: ' . SITE_URL . 'index.php');
     exit();
 }
     
