@@ -1365,6 +1365,7 @@ body {
     background: var(--primary-dark);
 }
 </style>
+
 <div class="dashboard-container">
     <?php include './includes/sidebar.php'; ?>
     
