@@ -1368,11 +1368,9 @@ body {
 
 <div class="dashboard-container">
     <?php include './includes/sidebar.php'; ?>
-    
     <button class="sidebar-toggle" onclick="toggleSidebar()">
         <i class="fas fa-bars"></i>
     </button>
-    
     <main class="main-content">
         <!-- Page Header -->
         <div class="page-header">
