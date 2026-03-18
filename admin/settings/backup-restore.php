@@ -1422,9 +1422,9 @@ function createBackup() {
                 <div class="mb-3">
                     <label class="form-label">Backup Type</label>
                     <select class="form-select" id="backupType">
-                        <option value="database">💾 Database Only</option>
+                        <option value="database"> Database Only</option>
                         <option value="files">📁 Files Only</option>
-                        <option value="full">📦 Full Backup (Database + Files)</option>
+                        <option value="full"> Full Backup (Database + Files)</option>
                     </select>
                 </div>
                 <div class="mb-3">
@@ -1465,7 +1465,7 @@ function createBackup() {
                 showConfirmButton: false
             });
             
-            fetch('../ajax/settings/create-backup.php', {
+            fetch('ajax/create-backup.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type, name, compress })
@@ -1531,7 +1531,7 @@ function quickBackup(type) {
         if (result.isConfirmed) {
             showLoading();
             
-            fetch('../ajax/settings/create-backup.php', {
+            fetch('ajax/create-backup.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type, quick: true })
@@ -1602,7 +1602,7 @@ function restoreBackup(filename) {
             
             showLoading();
             
-            fetch('../ajax/settings/restore-backup.php', {
+            fetch('ajax/restore-backup.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename, create_backup: createBackup, verify_only: verifyOnly })
@@ -1682,7 +1682,7 @@ function deleteBackup(filename) {
 function toggleSchedule(checkbox, scheduleId) {
     const isActive = checkbox.checked ? 1 : 0;
     
-    fetch('../ajax/settings/toggle-schedule.php', {
+    fetch('ajax/toggle-schedule.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schedule_id: scheduleId, is_active: isActive })
@@ -1710,7 +1710,7 @@ function saveSchedule() {
     
     showLoading();
     
-    fetch('../ajax/settings/save-schedule.php', {
+    fetch('ajax/save-schedule.php', {
         method: 'POST',
         body: formData
     })
@@ -1747,7 +1747,7 @@ function runSchedule(scheduleId) {
         if (result.isConfirmed) {
             showLoading();
             
-            fetch('../ajax/settings/run-schedule.php', {
+            fetch('ajax/run-schedule.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ schedule_id: scheduleId })
@@ -1772,7 +1772,7 @@ function runSchedule(scheduleId) {
 
 // Edit schedule
 function editSchedule(scheduleId) {
-    fetch(`../ajax/settings/get-schedule.php?id=${scheduleId}`)
+    fetch(`ajax/get-schedule.php?id=${scheduleId}`)
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1833,7 +1833,7 @@ function editSchedule(scheduleId) {
                     
                     showLoading();
                     
-                    fetch('../ajax/settings/update-schedule.php', {
+                    fetch('ajax/update-schedule.php', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(formData)
@@ -1880,7 +1880,7 @@ function deleteSchedule(scheduleId) {
         if (result.isConfirmed) {
             showLoading();
             
-            fetch('../ajax/settings/delete-schedule.php', {
+            fetch('ajax/delete-schedule.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ schedule_id: scheduleId })
