@@ -1,0 +1,9 @@
+# Deny access to all files
+Order Deny,Allow
+Deny from all
+
+# But allow access to certain file types if needed
+<FilesMatch "\.(css|js|jpg|png|gif)$">
+    Order Allow,Deny
+    Allow from all
+</FilesMatch>
