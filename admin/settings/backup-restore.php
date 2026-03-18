@@ -1304,9 +1304,9 @@ try {
                             Schedule Type
                         </label>
                         <select class="form-select" name="schedule_type" required>
-                            <option value="daily">📅 Daily - Once every day</option>
-                            <option value="weekly">📆 Weekly - Once every week</option>
-                            <option value="monthly">🗓️ Monthly - Once every month</option>
+                            <option value="daily"> Daily - Once every day</option>
+                            <option value="weekly"> Weekly - Once every week</option>
+                            <option value="monthly"> Monthly - Once every month</option>
                         </select>
                     </div>
                     
@@ -1316,9 +1316,9 @@ try {
                             Backup Type
                         </label>
                         <select class="form-select" name="backup_type" required>
-                            <option value="database">💾 Database Only</option>
-                            <option value="files">📁 Files Only</option>
-                            <option value="full">📦 Full Backup (Database + Files)</option>
+                            <option value="database"> Database Only</option>
+                            <option value="files"> Files Only</option>
+                            <option value="full"> Full Backup (Database + Files)</option>
                         </select>
                     </div>
                     

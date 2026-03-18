@@ -723,6 +723,9 @@ try {
                 <p class="mb-0">View and manage all countries with their currency and phone information</p>
             </div>
             <div class="col-md-4 text-md-end">
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#importCountriesModal">
+              <i class="fas fa-upload me-2"></i>Import
+          </button>
                 <button class="btn btn-primary" onclick="exportCountries()">
                     <i class="fas fa-download me-2"></i>Export List
                 </button>
@@ -980,7 +983,64 @@ try {
         </div>
     </div>
 </div>
-
+<!-- Import Countries Modal -->
+<div class="modal fade" id="importCountriesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-upload me-2"></i>
+                    Import Countries
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="importCountriesForm" enctype="multipart/form-data">
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-file me-2 text-primary"></i>
+                            Select File
+                        </label>
+                        <input type="file" class="form-control" name="import_file" accept=".json,.csv" required>
+                        <div class="form-text">Supported formats: JSON, CSV</div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="form-label">
+                            <i class="fas fa-code-branch me-2 text-success"></i>
+                            Import Mode
+                        </label>
+                        <select class="form-select" name="import_mode">
+                            <option value="merge"> Merge (Update existing, add new)</option>
+                            <option value="replace"> Replace (Overwrite all)</option>
+                        </select>
+                        <div class="form-text mt-2">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Merge: Updates existing countries, adds new ones<br>
+                                Replace: Deletes all existing countries and imports new ones
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>Warning:</strong> Please make sure your file format is correct. 
+                        <a href="sample-countries.csv" class="alert-link" download>Download sample CSV</a>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Cancel
+                </button>
+                <button type="button" class="btn btn-primary" onclick="importCountries()">
+                    <i class="fas fa-upload me-2"></i>Import Countries
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <!-- JavaScript -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -1107,8 +1167,8 @@ function exportCountries() {
         icon: 'question',
         showCancelButton: true,
         showDenyButton: true,
-        confirmButtonText: '📄 CSV',
-        denyButtonText: '📋 JSON',
+        confirmButtonText: ' CSV',
+        denyButtonText: ' JSON',
         cancelButtonText: 'Cancel',
         confirmButtonColor: '#3085d6',
         denyButtonColor: '#1cc88a'
@@ -1162,7 +1222,7 @@ function saveCountry() {
         if (result.isConfirmed) {
             showLoading();
             
-            fetch('../ajax/settings/update-country.php', {
+            fetch('ajax/update-country.php', {
                 method: 'POST',
                 body: formData
             })
@@ -1202,7 +1262,7 @@ function toggleStatus(code, newStatus) {
         if (result.isConfirmed) {
             showLoading();
             
-            fetch('../ajax/settings/toggle-country.php', {
+            fetch('ajax/toggle-country.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code, status: newStatus })
@@ -1247,7 +1307,7 @@ function deleteCountry(code) {
         if (result.isConfirmed) {
             showLoading();
             
-            fetch('../ajax/settings/delete-country.php', {
+            fetch('ajax/delete-country.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code })
@@ -1307,6 +1367,152 @@ document.addEventListener('DOMContentLoaded', function() {
         row.style.opacity = '0';
     });
 });
+// Show loading spinner
+function showLoading() {
+    // Check if spinner overlay exists, create if not
+    let spinner = document.getElementById('loadingSpinner');
+    if (!spinner) {
+        spinner = document.createElement('div');
+        spinner.id = 'loadingSpinner';
+        spinner.className = 'spinner-overlay';
+        spinner.innerHTML = '<div class="spinner"></div>';
+        document.body.appendChild(spinner);
+    }
+    spinner.style.display = 'flex';
+}
+
+function hideLoading() {
+    const spinner = document.getElementById('loadingSpinner');
+    if (spinner) {
+        spinner.style.display = 'none';
+    }
+}
+
+// Add CSS for spinner if not already in your styles
+const spinnerStyle = document.createElement('style');
+spinnerStyle.textContent = `
+    .spinner-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255,255,255,0.9);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        display: none;
+    }
+    
+    .spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid var(--gray-200);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+`;
+document.head.appendChild(spinnerStyle);
+
+// Import countries
+function importCountries() {
+    const form = document.getElementById('importCountriesForm');
+    const formData = new FormData(form);
+    
+    // Validate file selection
+    if (!formData.get('import_file').name) {
+        Swal.fire('Error!', 'Please select a file to import.', 'error');
+        return;
+    }
+    
+    Swal.fire({
+        title: 'Import Countries',
+        html: `
+            <div class="text-center">
+                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                <p>This will import countries from the selected file.</p>
+                <p class="text-muted small">Make sure you have a backup of your data.</p>
+            </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Yes, import',
+        cancelButtonText: 'Cancel'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            showLoading();
+            
+            fetch('ajax/import-countries.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Imported!',
+                        html: `
+                            <div class="text-center">
+                                <p>${data.message}</p>
+                                <div class="row g-2 mt-3 text-start">
+                                    <div class="col-6">New Countries:</div>
+                                    <div class="col-6 fw-bold text-success">${data.imported || 0}</div>
+                                    <div class="col-6">Updated Countries:</div>
+                                    <div class="col-6 fw-bold text-warning">${data.updated || 0}</div>
+                                    <div class="col-6">Skipped:</div>
+                                    <div class="col-6 fw-bold text-muted">${data.skipped || 0}</div>
+                                </div>
+                            </div>
+                        `,
+                        confirmButtonText: 'OK'
+                    }).then(() => {
+                        $('#importCountriesModal').modal('hide');
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire('Error!', data.message, 'error');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                Swal.fire('Error!', 'An error occurred during import.', 'error');
+            });
+        }
+    });
+}
+
+// Download sample CSV
+function downloadSampleCSV() {
+    const sampleData = [
+        ['code', 'name', 'currency_code', 'currency_symbol', 'phone_code', 'is_active'],
+        ['US', 'United States', 'USD', '$', '+1', '1'],
+        ['GB', 'United Kingdom', 'GBP', '£', '+44', '1'],
+        ['PK', 'Pakistan', 'PKR', '₨', '+92', '1'],
+        ['IN', 'India', 'INR', '₹', '+91', '1'],
+        ['AE', 'UAE', 'AED', 'د.إ', '+971', '1']
+    ];
+    
+    let csvContent = sampleData.map(row => row.join(',')).join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sample-countries.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
 </script>
 
 <?php require_once '../includes/footer.php'; ?>
