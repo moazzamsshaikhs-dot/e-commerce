@@ -40,6 +40,9 @@ define('SITE_PHONE', '03132842740');
 define('ROOT_PATH', $_SERVER['DOCUMENT_ROOT'] . '/'); // یا آپ کے پروجیکٹ کا صحیح راستہ
 define('UPLOAD_PATH', ROOT_PATH . 'assets/images/products/');
 define('UPLOAD_URL', SITE_URL . 'assets/images/products/');
+// Current version (you should define this in config.php)
+define('CURRENT_VERSION', '1.0.0');
+
 // Start Session
 
 function secureSessionStart() {
