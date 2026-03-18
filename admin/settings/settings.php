@@ -1512,7 +1512,7 @@ function exportSettings() {
         showCancelButton: true,
         showDenyButton: true,
         confirmButtonText: '📄 JSON',
-        denyButtonText: '📊 CSV',
+        denyButtonText: ' CSV',
         cancelButtonText: 'Cancel',
         confirmButtonColor: '#3085d6',
         denyButtonColor: '#1cc88a',
