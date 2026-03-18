@@ -1607,7 +1607,7 @@ function showToast(type, message) {
 function toggleApiKey(checkbox, apiKeyId) {
     const isActive = checkbox.checked ? 1 : 0;
     
-    fetch('../ajax/settings/toggle-api-key.php', {
+    fetch('ajax/toggle-api-key.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key_id: apiKeyId, is_active: isActive })
@@ -1641,7 +1641,7 @@ function generateApiKey() {
     
     showLoading();
     
-    fetch('../ajax/settings/generate-api-key.php', {
+    fetch('/ajax/generate-api-key.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1705,7 +1705,7 @@ function generateApiKey() {
 function viewApiKey(apiKeyId) {
     currentApiKeyId = apiKeyId;
     
-    fetch(`../ajax/settings/get-api-key.php?id=${apiKeyId}`)
+    fetch(`ajax/get-api-key.php?id=${apiKeyId}`)
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1794,7 +1794,7 @@ function viewApiKey(apiKeyId) {
 
 // Edit API key
 function editApiKey(apiKeyId) {
-    fetch(`../ajax/settings/get-api-key.php?id=${apiKeyId}`)
+    fetch(`ajax/get-api-key.php?id=${apiKeyId}`)
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1840,7 +1840,7 @@ function editApiKey(apiKeyId) {
                     const formData = result.value;
                     formData.api_key_id = apiKeyId;
                     
-                    fetch('../ajax/settings/update-api-key.php', {
+                    fetch('ajax/update-api-key.php', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(formData)
@@ -1882,7 +1882,7 @@ function deleteApiKey(apiKeyId) {
         confirmButtonText: 'Yes, delete it'
     }).then((result) => {
         if (result.isConfirmed) {
-            fetch('../ajax/settings/delete-api-key.php', {
+            fetch('ajax/delete-api-key.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ api_key_id: apiKeyId })
@@ -1918,7 +1918,7 @@ function revokeApiKey() {
         confirmButtonText: 'Revoke'
     }).then((result) => {
         if (result.isConfirmed) {
-            fetch('../ajax/settings/revoke-api-key.php', {
+            fetch('ajax/revoke-api-key.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ api_key_id: currentApiKeyId })

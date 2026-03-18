@@ -769,7 +769,7 @@ require_once '../includes/header.php';
                 <span class="badge bg-primary">New Setting</span>
             </div>
             <div class="card-body">
-                <form id="addSettingForm" method="POST" action="<?php echo SITE_URL; ?>admin/ajax/add-setting.php">
+                <form id="addSettingForm" method="POST" action="<?php echo SITE_URL; ?>admin/settings/ajax/add-setting.php">
                     <!-- Basic Information Section -->
                     <div class="form-section">
                         <div class="section-title">
@@ -885,17 +885,17 @@ require_once '../includes/header.php';
                                         <span class="input-group-text"><i class="fas fa-code-branch"></i></span>
                                         <select class="form-select" name="setting_type" required id="settingType"
                                                 onchange="toggleTypeOptions()">
-                                            <option value="text">📝 Text</option>
-                                            <option value="textarea">📄 Textarea</option>
-                                            <option value="number">🔢 Number</option>
-                                            <option value="email">📧 Email</option>
-                                            <option value="password">🔒 Password</option>
-                                            <option value="url">🌐 URL</option>
-                                            <option value="color">🎨 Color</option>
-                                            <option value="boolean">✅ Boolean (Yes/No)</option>
-                                            <option value="select">📋 Select (Dropdown)</option>
-                                            <option value="json">📊 JSON</option>
-                                            <option value="file">📁 File</option>
+                                            <option value="text"> Text</option>
+                                            <option value="textarea"> Textarea</option>
+                                            <option value="number"> Number</option>
+                                            <option value="email"> Email</option>
+                                            <option value="password"> Password</option>
+                                            <option value="url"> URL</option>
+                                            <option value="color"> Color</option>
+                                            <option value="boolean"> Boolean (Yes/No)</option>
+                                            <option value="select"> Select (Dropdown)</option>
+                                            <option value="json"> JSON</option>
+                                            <option value="file"> File</option>
                                         </select>
                                     </div>
                                 </div>
