@@ -1,13 +1,22 @@
 ﻿<?php
 // Database Configuration for XAMPP
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', ''); // XAMPP default password is empty
-// define('DB_NAME', 'icei_41344581_ecommerce_db');
-define('DB_NAME', 'ecommerce_db');
+// define('DB_HOST', 'localhost');
+// define('DB_USER', 'root');
+// define('DB_PASS', ''); // XAMPP default password is empty
+// // define('DB_NAME', 'icei_41344581_ecommerce_db');
+// define('DB_NAME','ecommerce_db');
 
 // Site Configuration
-define('SITE_URL', 'http://localhost/e-commerce/');
+// define('SITE_URL', 'http://localhost/e-commerce/');
+
+define('DB_HOST', '127.0.0.1:3306');
+define('DB_USER', 'u124468513_Moazzam');
+define('DB_PASS', 'moa123zz45%6aM789'); // XAMPP default password is empty
+// define('DB_NAME', 'icei_41344581_ecommerce_db');
+define('DB_NAME', 'u124468513_ecommerce_db');
+
+// Site Configuration
+define('SITE_URL', 'https://shopeasepro.com/');
 // define('SITE_URL', 'https://shopeasepro.iceiy.com/e-commerce/');
 define('SITE_NAME', 'ShopEase Pro');
 // define('SITE_URL', 'http://yourdomain.com/'); // With trailing slash
