@@ -11,37 +11,129 @@ if ($_SESSION['user_type'] !== 'admin') {
 $page_title = 'System Updates';
 require_once '../includes/header.php';
 
+// Define current version
+// define('CURRENT_VERSION', '1.0.0');
 
-
-// Get update info
-$update_info = [];
+// Initialize variables
 $update_available = false;
+$latest_version = CURRENT_VERSION;
+$release_date = '';
+$release_notes = [];
+$error = null;
 
 try {
     $db = getDB();
     
-    // Check for update in database (if you store update info)
-    $stmt = $db->query("SELECT * FROM system_updates ORDER BY release_date DESC LIMIT 1");
-    $last_update = $stmt->fetch();
+    // ========== CHECK FOR UPDATES ==========
+    // Check if there are any pending updates in system_updates table
+    $stmt = $db->prepare("SELECT * FROM system_updates WHERE is_applied = 0 ORDER BY release_date DESC LIMIT 1");
+    $stmt->execute();
+    $pending_update = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    // For demonstration, we'll check from a remote source
-    // In real implementation, you would check from your update server
+    if ($pending_update) {
+        $update_available = true;
+        $latest_version = $pending_update['version'];
+        $release_date = $pending_update['release_date'];
+        $release_notes = explode("\n", $pending_update['changelog'] ?? '');
+    } else {
+        // Check remote update server (optional)
+        $remote_update = checkRemoteUpdates();
+        if ($remote_update && version_compare($remote_update['version'], CURRENT_VERSION, '>')) {
+            $update_available = true;
+            $latest_version = $remote_update['version'];
+            $release_date = $remote_update['release_date'];
+            $release_notes = $remote_update['notes'];
+        }
+    }
     
-} catch(Exception $e) {
+    // ========== GET UPDATE HISTORY ==========
+    $stmt = $db->prepare("SELECT * FROM system_updates WHERE is_applied = 1 ORDER BY release_date DESC LIMIT 10");
+    $stmt->execute();
+    $update_history = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // ========== GET SYSTEM STATISTICS ==========
+    // Get total users
+    $stmt = $db->query("SELECT COUNT(*) as total FROM users");
+    $total_users = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    
+    // Get total products
+    $stmt = $db->query("SELECT COUNT(*) as total FROM products");
+    $total_products = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    
+    // Get total orders
+    $stmt = $db->query("SELECT COUNT(*) as total FROM orders");
+    $total_orders = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    
+    // Get total revenue
+    $stmt = $db->query("SELECT COALESCE(SUM(total_amount), 0) as total FROM orders WHERE payment_status = 'completed'");
+    $total_revenue = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    
+    // ========== GET BACKUP INFORMATION ==========
+    $last_backup = null;
+    $backup_size = 0;
+    $backup_count = 0;
+    
+    try {
+        $stmt = $db->query("SELECT * FROM backup_logs ORDER BY created_at DESC LIMIT 1");
+        $last_backup = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        $stmt = $db->query("SELECT COUNT(*) as count, COALESCE(SUM(size), 0) as total_size FROM backup_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+        $backup_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+        $backup_count = $backup_stats['count'];
+        $backup_size = $backup_stats['total_size'];
+    } catch(Exception $e) {
+        // Backup table might not exist
+    }
+    
+    // ========== GET ACTIVE SESSIONS ==========
+    $stmt = $db->query("SELECT COUNT(*) as total FROM user_sessions WHERE is_active = 1 AND login_time >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)");
+    $active_sessions = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    
+    // ========== GET PHP EXTENSIONS STATUS ==========
+    $required_extensions = ['pdo', 'json', 'mysqli', 'curl', 'gd', 'zip', 'openssl'];
+    $extensions_status = [];
+    foreach ($required_extensions as $ext) {
+        $extensions_status[$ext] = extension_loaded($ext);
+    }
+    
+} catch(PDOException $e) {
     $error = $e->getMessage();
+    error_log("System updates error: " . $e->getMessage());
 }
 
-// Sample update data (replace with actual update check)
-$update_available = false; // Set to true when update is available
-$latest_version = '1.1.0';
-$release_date = '2024-01-15';
-$release_notes = [
-    'New features added',
-    'Bug fixes',
-    'Performance improvements'
-];
+/**
+ * Check remote update server for updates
+ */
+function checkRemoteUpdates() {
+    // This would normally check your update server
+    // For now, return null (no remote updates)
+    return null;
+    
+    // Example implementation:
+    $update_url = SITE_URL . 'check.php?version=' . CURRENT_VERSION;
+    $response = @file_get_contents($update_url);
+    if ($response) {
+        return json_decode($response, true);
+    }
+    return null;
+}
 
-// System requirements
+/**
+ * Format file size
+ */
+function formatFileSize($bytes) {
+    if ($bytes >= 1073741824) {
+        return number_format($bytes / 1073741824, 2) . ' GB';
+    } elseif ($bytes >= 1048576) {
+        return number_format($bytes / 1048576, 2) . ' MB';
+    } elseif ($bytes >= 1024) {
+        return number_format($bytes / 1024, 2) . ' KB';
+    } else {
+        return $bytes . ' B';
+    }
+}
+
+// System requirements with real data
 $requirements = [
     'PHP Version' => [
         'required' => '7.4',
@@ -50,8 +142,8 @@ $requirements = [
     ],
     'MySQL Version' => [
         'required' => '5.7',
-        'current' => 'Unknown',
-        'status' => true
+        'current' => $db->getAttribute(PDO::ATTR_SERVER_VERSION) ?? 'Unknown',
+        'status' => version_compare($db->getAttribute(PDO::ATTR_SERVER_VERSION) ?? '0', '5.7', '>=')
     ],
     'PDO Extension' => [
         'required' => 'Enabled',
@@ -63,26 +155,36 @@ $requirements = [
         'current' => extension_loaded('json') ? 'Enabled' : 'Disabled',
         'status' => extension_loaded('json')
     ],
+    'cURL Extension' => [
+        'required' => 'Enabled',
+        'current' => extension_loaded('curl') ? 'Enabled' : 'Disabled',
+        'status' => extension_loaded('curl')
+    ],
+    'GD Extension' => [
+        'required' => 'Enabled',
+        'current' => extension_loaded('gd') ? 'Enabled' : 'Disabled',
+        'status' => extension_loaded('gd')
+    ],
+    'Zip Extension' => [
+        'required' => 'Enabled',
+        'current' => extension_loaded('zip') ? 'Enabled' : 'Disabled',
+        'status' => extension_loaded('zip')
+    ],
     'Write Permissions' => [
         'required' => 'Write',
         'current' => is_writable('../') ? 'Writable' : 'Not Writable',
         'status' => is_writable('../')
+    ],
+    'Upload Permissions' => [
+        'required' => 'Write',
+        'current' => is_writable('../uploads/') ? 'Writable' : 'Not Writable',
+        'status' => is_writable('../uploads/')
     ]
 ];
-
-// Check MySQL version
-try {
-    $db = getDB();
-    $mysql_version = $db->getAttribute(PDO::ATTR_SERVER_VERSION);
-    $requirements['MySQL Version']['current'] = $mysql_version;
-    $requirements['MySQL Version']['status'] = version_compare($mysql_version, '5.7', '>=');
-} catch(Exception $e) {
-    $requirements['MySQL Version']['current'] = 'Error';
-    $requirements['MySQL Version']['status'] = false;
-}
 ?>
 
 <style>
+/* All existing CSS remains the same */
 :root {
     --primary: #4361ee;
     --primary-dark: #3a0ca3;
@@ -211,6 +313,70 @@ try {
     color: var(--gray-600);
     font-size: 1rem;
     margin-bottom: 0;
+}
+
+/* Stats Row */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background: white;
+    border-radius: var(--border-radius-xl);
+    border: 1px solid var(--gray-200);
+    padding: 1.5rem;
+    transition: var(--transition);
+    animation: slideIn 0.5s ease;
+    animation-fill-mode: both;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.1s; }
+.stat-card:nth-child(3) { animation-delay: 0.15s; }
+.stat-card:nth-child(4) { animation-delay: 0.2s; }
+
+.stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary);
+}
+
+.stat-card .stat-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: var(--border-radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+    color: white;
+    flex-shrink: 0;
+}
+
+.stat-card .stat-content {
+    flex: 1;
+}
+
+.stat-card .stat-value {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--gray-800);
+    line-height: 1.2;
+    margin-bottom: 0.25rem;
+}
+
+.stat-card .stat-label {
+    color: var(--gray-600);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
 }
 
 /* Version Card */
@@ -497,6 +663,69 @@ try {
     background: rgba(239, 71, 111, 0.15);
     color: var(--danger);
     border: 1px solid rgba(239, 71, 111, 0.3);
+}
+
+/* Backup Info Card */
+.backup-card {
+    background: white;
+    border-radius: var(--border-radius-xl);
+    border: 1px solid var(--gray-200);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    margin-bottom: 2rem;
+    animation: slideIn 0.5s ease;
+}
+
+.backup-card .card-header {
+    padding: 1.25rem 2rem;
+    background: linear-gradient(135deg, var(--gray-100), white);
+    border-bottom: 1px solid var(--gray-200);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.backup-card .card-header i {
+    color: var(--info);
+    font-size: 1.25rem;
+}
+
+.backup-card .card-header h5 {
+    font-weight: 700;
+    color: var(--gray-800);
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.backup-card .card-body {
+    padding: 1.5rem 2rem;
+}
+
+.backup-info {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.backup-item {
+    flex: 1;
+    min-width: 150px;
+    text-align: center;
+    padding: 1rem;
+    background: var(--gray-100);
+    border-radius: var(--border-radius-lg);
+}
+
+.backup-item .backup-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--primary);
+    margin-bottom: 0.25rem;
+}
+
+.backup-item .backup-label {
+    font-size: 0.8rem;
+    color: var(--gray-600);
 }
 
 /* History Card */
@@ -810,6 +1039,10 @@ try {
 
 /* Responsive */
 @media (max-width: 768px) {
+    .stats-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
     .version-card .card-body {
         flex-direction: column;
         text-align: center;
@@ -837,6 +1070,16 @@ try {
     }
     
     .requirements-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .backup-info {
+        flex-direction: column;
+    }
+}
+
+@media (max-width: 576px) {
+    .stats-row {
         grid-template-columns: 1fr;
     }
 }
@@ -879,6 +1122,49 @@ try {
                 <button class="btn btn-primary" onclick="checkForUpdates()">
                     <i class="fas fa-search me-2"></i>Check for Updates
                 </button>
+            </div>
+        </div>
+        
+        <!-- System Statistics -->
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark));">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-value"><?php echo number_format($total_users); ?></div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--success), var(--success-dark));">
+                    <i class="fas fa-boxes"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-value"><?php echo number_format($total_products); ?></div>
+                    <div class="stat-label">Total Products</div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--info), var(--info-dark));">
+                    <i class="fas fa-shopping-cart"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-value"><?php echo number_format($total_orders); ?></div>
+                    <div class="stat-label">Total Orders</div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, var(--warning), var(--warning-dark));">
+                    <i class="fas fa-dollar-sign"></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-value">$<?php echo number_format($total_revenue, 2); ?></div>
+                    <div class="stat-label">Total Revenue</div>
+                </div>
             </div>
         </div>
         
@@ -928,6 +1214,7 @@ try {
                             Released on <?php echo date('F d, Y', strtotime($release_date)); ?>
                         </div>
                         
+                        <?php if (!empty($release_notes)): ?>
                         <div class="release-notes">
                             <h6>
                                 <i class="fas fa-clipboard-list"></i>
@@ -935,20 +1222,23 @@ try {
                             </h6>
                             <ul>
                                 <?php foreach($release_notes as $note): ?>
+                                <?php if(trim($note)): ?>
                                 <li>
                                     <i class="fas fa-check-circle"></i>
-                                    <?php echo $note; ?>
+                                    <?php echo htmlspecialchars(trim($note)); ?>
                                 </li>
+                                <?php endif; ?>
                                 <?php endforeach; ?>
                             </ul>
                         </div>
+                        <?php endif; ?>
                         
                         <div class="update-actions">
-                            <button class="btn btn-primary btn-lg flex-fill" onclick="startUpdate()">
+                            <button class="btn btn-primary btn-lg flex-fill" onclick="startUpdate('<?php echo $latest_version; ?>')">
                                 <i class="fas fa-download me-2"></i>
                                 Update Now
                             </button>
-                            <button class="btn btn-outline-primary btn-lg" onclick="viewChangelog()">
+                            <button class="btn btn-outline-primary btn-lg" onclick="viewChangelog('<?php echo $latest_version; ?>')">
                                 <i class="fas fa-file-alt me-2"></i>
                                 Changelog
                             </button>
@@ -994,6 +1284,36 @@ try {
             </div>
         </div>
         
+        <!-- Backup Information -->
+        <div class="backup-card">
+            <div class="card-header">
+                <i class="fas fa-database"></i>
+                <h5>Backup Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="backup-info">
+                    <div class="backup-item">
+                        <div class="backup-value">
+                            <?php echo $last_backup ? date('M d, Y', strtotime($last_backup['created_at'])) : 'Never'; ?>
+                        </div>
+                        <div class="backup-label">Last Backup</div>
+                    </div>
+                    <div class="backup-item">
+                        <div class="backup-value"><?php echo $backup_count; ?></div>
+                        <div class="backup-label">Backups (30 days)</div>
+                    </div>
+                    <div class="backup-item">
+                        <div class="backup-value"><?php echo formatFileSize($backup_size); ?></div>
+                        <div class="backup-label">Total Size</div>
+                    </div>
+                    <div class="backup-item">
+                        <div class="backup-value"><?php echo $active_sessions; ?></div>
+                        <div class="backup-label">Active Sessions</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- Update History -->
         <div class="history-card">
             <div class="card-header">
@@ -1006,13 +1326,7 @@ try {
                 </button>
             </div>
             <div class="card-body p-0">
-                <?php 
-                try {
-                    $stmt = $db->query("SELECT * FROM system_updates ORDER BY release_date DESC LIMIT 10");
-                    $updates = $stmt->fetchAll();
-                    
-                    if (empty($updates)):
-                ?>
+                <?php if (empty($update_history)): ?>
                 <div class="empty-state">
                     <i class="fas fa-history"></i>
                     <h5>No Update History</h5>
@@ -1020,27 +1334,22 @@ try {
                 </div>
                 <?php else: ?>
                 <div class="history-list">
-                    <?php foreach($updates as $update): ?>
+                    <?php foreach($update_history as $update): ?>
                     <div class="history-item">
                         <div class="history-header">
-                            <span class="history-version">Version <?php echo $update['version']; ?></span>
+                            <span class="history-version">Version <?php echo htmlspecialchars($update['version']); ?></span>
                             <span class="history-date">
                                 <i class="far fa-calendar-alt me-1"></i>
                                 <?php echo date('M d, Y', strtotime($update['release_date'])); ?>
                             </span>
                         </div>
                         <div class="history-description">
-                            <?php echo $update['description']; ?>
+                            <?php echo nl2br(htmlspecialchars($update['description'] ?? '')); ?>
                         </div>
                     </div>
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
-                <?php } catch(Exception $e) { ?>
-                <div class="empty-state">
-                    <p class="text-muted">Could not load update history</p>
-                </div>
-                <?php } ?>
             </div>
         </div>
         
@@ -1056,7 +1365,7 @@ try {
                 <form id="manualUpdateForm" enctype="multipart/form-data">
                     <div class="upload-area">
                         <input type="file" class="form-control" name="update_package" 
-                               accept=".zip,.tar.gz" required>
+                               accept=".zip,.tar.gz" id="updatePackage" required>
                         <button type="button" class="upload-btn" onclick="uploadManualUpdate()">
                             <i class="fas fa-upload"></i>
                             Upload & Install
@@ -1083,14 +1392,14 @@ try {
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                <div id="updateProgressContent" class="text-center py-4">
+            <div class="modal-body" id="updateProgressContent">
+                <div class="text-center py-4">
                     <i class="fas fa-sync-alt fa-spin fa-3x text-primary mb-3"></i>
                     <h5>Preparing Update...</h5>
                     <p class="text-muted">Please wait while the system is being updated</p>
                     <div class="progress-lg">
                         <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                             style="width: 0%">0%</div>
+                             style="width: 0%" id="updateProgressBar">0%</div>
                     </div>
                     <div id="updateLogs" class="update-logs">
                         <div><i class="fas fa-clock me-2"></i> Initializing update process...</div>
@@ -1135,28 +1444,25 @@ function checkForUpdates() {
         didOpen: () => {
             Swal.showLoading();
             
-            // Simulate update check
-            setTimeout(() => {
+            // Send AJAX request to check for updates
+            fetch('ajax/check-updates.php')
+            .then(response => response.json())
+            .then(data => {
                 Swal.close();
                 
-                // For demo, randomly show update available
-                const updateAvailable = Math.random() > 0.5;
-                
-                if (updateAvailable) {
+                if (data.update_available) {
                     Swal.fire({
                         title: 'Update Available!',
                         html: `
                             <div class="text-start">
                                 <div class="alert alert-success">
                                     <i class="fas fa-info-circle me-2"></i>
-                                    Version 1.1.0 is now available
+                                    Version ${data.version} is now available
                                 </div>
-                                <p><strong>Release Date:</strong> January 15, 2024</p>
+                                <p><strong>Release Date:</strong> ${data.release_date}</p>
                                 <p><strong>What's New:</strong></p>
                                 <ul>
-                                    <li>New features added</li>
-                                    <li>Bug fixes</li>
-                                    <li>Performance improvements</li>
+                                    ${data.notes.map(n => `<li>${n}</li>`).join('')}
                                 </ul>
                             </div>
                         `,
@@ -1166,7 +1472,7 @@ function checkForUpdates() {
                         confirmButtonColor: '#1cc88a'
                     }).then((result) => {
                         if (result.isConfirmed) {
-                            startUpdate();
+                            startUpdate(data.version);
                         }
                     });
                 } else {
@@ -1178,169 +1484,158 @@ function checkForUpdates() {
                         showConfirmButton: false
                     });
                 }
-            }, 2000);
+            })
+            .catch(error => {
+                Swal.close();
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Check Failed',
+                    text: 'Could not check for updates. Please try again later.'
+                });
+            });
         }
     });
 }
 
 // Start update
-function startUpdate() {
+function startUpdate(version) {
+    $('#updateProgressModal').modal({
+        backdrop: 'static',
+        keyboard: false
+    });
     $('#updateProgressModal').modal('show');
+    
     updateStep = 0;
+    document.getElementById('updateProgressBar').style.width = '0%';
+    document.getElementById('updateProgressBar').innerHTML = '0%';
+    document.getElementById('updateLogs').innerHTML = '<div><i class="fas fa-clock me-2"></i> Initializing update process...</div>';
     
-    // Clear any existing interval
-    if (updateInterval) clearInterval(updateInterval);
-    
-    // Start update process
-    performUpdateStep();
+    // Send AJAX request to start update
+    fetch('ajax/start-update.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: version })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Start polling for update status
+            pollUpdateStatus();
+        } else {
+            throw new Error(data.message);
+        }
+    })
+    .catch(error => {
+        $('#updateProgressModal').modal('hide');
+        Swal.fire({
+            icon: 'error',
+            title: 'Update Failed',
+            text: error.message
+        });
+    });
 }
 
-// Perform update step
-function performUpdateStep() {
-    const steps = [
-        { name: 'Creating backup', percent: 20 },
-        { name: 'Downloading update', percent: 40 },
-        { name: 'Verifying files', percent: 60 },
-        { name: 'Applying update', percent: 80 },
-        { name: 'Cleaning up', percent: 100 }
-    ];
-    
-    if (updateStep < steps.length) {
-        const stepInfo = steps[updateStep];
-        
-        document.getElementById('updateProgressContent').innerHTML = `
-            <i class="fas fa-sync-alt fa-spin fa-3x text-primary mb-3"></i>
-            <h5>Step ${updateStep + 1} of ${steps.length}</h5>
-            <p class="text-muted">${stepInfo.name}</p>
-            <div class="progress-lg">
-                <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                     style="width: ${stepInfo.percent}%">${stepInfo.percent}%</div>
-            </div>
-            <div id="updateLogs" class="update-logs">
-                ${document.getElementById('updateLogs').innerHTML}
-                <div><i class="fas fa-check-circle text-success me-2"></i> ${stepInfo.name} completed</div>
-            </div>
-        `;
-        
-        updateStep++;
-        
-        // Schedule next step
-        setTimeout(performUpdateStep, 2000);
-    } else {
-        // Update complete
-        document.getElementById('updateProgressContent').innerHTML = `
-            <i class="fas fa-check-circle fa-4x text-success mb-3"></i>
-            <h5>Update Complete!</h5>
-            <p class="text-muted">System has been successfully updated to version 1.1.0</p>
-            <div class="progress-lg">
-                <div class="progress-bar bg-success" style="width: 100%">100%</div>
-            </div>
-            <div id="updateLogs" class="update-logs">
-                ${document.getElementById('updateLogs').innerHTML}
-                <div><i class="fas fa-check-circle text-success me-2"></i> Update completed successfully</div>
-            </div>
-            <div class="alert alert-success mt-4">
-                <i class="fas fa-info-circle me-2"></i>
-                The system will now restart. Please wait...
-            </div>
-        `;
-        
-        setTimeout(() => {
-            $('#updateProgressModal').modal('hide');
-            Swal.fire({
-                icon: 'success',
-                title: 'Update Successful!',
-                text: 'System has been updated successfully.',
-                confirmButtonText: 'Restart Now'
-            }).then(() => {
-                window.location.href = 'dashboard.php';
-            });
-        }, 3000);
-    }
+// Poll update status
+function pollUpdateStatus() {
+    let statusInterval = setInterval(() => {
+        fetch('ajax/update-status.php')
+        .then(response => response.json())
+        .then(data => {
+            // Update progress bar
+            document.getElementById('updateProgressBar').style.width = data.progress + '%';
+            document.getElementById('updateProgressBar').innerHTML = data.progress + '%';
+            
+            // Update logs
+            if (data.logs && data.logs.length) {
+                const logsDiv = document.getElementById('updateLogs');
+                data.logs.forEach(log => {
+                    logsDiv.innerHTML += `<div><i class="fas fa-check-circle text-success me-2"></i> ${log}</div>`;
+                });
+                logsDiv.scrollTop = logsDiv.scrollHeight;
+            }
+            
+            // Check if update is complete
+            if (data.complete) {
+                clearInterval(statusInterval);
+                setTimeout(() => {
+                    $('#updateProgressModal').modal('hide');
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Update Successful!',
+                        text: 'System has been updated successfully.',
+                        confirmButtonText: 'Restart Now'
+                    }).then(() => {
+                        window.location.href = 'dashboard.php';
+                    });
+                }, 2000);
+            }
+            
+            // Check if update failed
+            if (data.failed) {
+                clearInterval(statusInterval);
+                $('#updateProgressModal').modal('hide');
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Update Failed',
+                    text: data.error || 'An error occurred during update'
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Status check error:', error);
+        });
+    }, 2000);
 }
 
 // View changelog
-function viewChangelog() {
+function viewChangelog(version) {
     document.getElementById('changelogContent').innerHTML = `
-        <div class="changelog-content">
-            <h4 class="mb-4">Version 1.1.0</h4>
-            <p class="text-muted mb-4">Released on January 15, 2024</p>
-            
-            <div class="mb-4">
-                <h5 class="mb-3">
-                    <i class="fas fa-plus-circle text-success me-2"></i>
-                    New Features
-                </h5>
-                <ul class="list-group list-group-flush">
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Enhanced security features
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        New payment gateway integration
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Improved API performance
-                    </li>
-                </ul>
-            </div>
-            
-            <div class="mb-4">
-                <h5 class="mb-3">
-                    <i class="fas fa-bug text-danger me-2"></i>
-                    Bug Fixes
-                </h5>
-                <ul class="list-group list-group-flush">
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Fixed login redirect issue
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Resolved email template caching problem
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Fixed database connection timeout
-                    </li>
-                </ul>
-            </div>
-            
-            <div>
-                <h5 class="mb-3">
-                    <i class="fas fa-chart-line text-info me-2"></i>
-                    Improvements
-                </h5>
-                <ul class="list-group list-group-flush">
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Optimized database queries
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Improved UI/UX in admin panel
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-check-circle text-success me-2"></i>
-                        Enhanced error handling
-                    </li>
-                </ul>
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
             </div>
         </div>
     `;
+    
+    fetch(`ajax/get-changelog.php?version=${version}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('changelogContent').innerHTML = data.html;
+        } else {
+            document.getElementById('changelogContent').innerHTML = `
+                <div class="alert alert-danger">
+                    Could not load changelog: ${data.message}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('changelogContent').innerHTML = `
+            <div class="alert alert-danger">
+                Could not load changelog. Please try again later.
+            </div>
+        `;
+    });
     
     $('#changelogModal').modal('show');
 }
 
 // Upload manual update
 function uploadManualUpdate() {
-    const form = document.getElementById('manualUpdateForm');
-    const fileInput = form.querySelector('input[type="file"]');
+    const fileInput = document.getElementById('updatePackage');
     
     if (!fileInput.files || fileInput.files.length === 0) {
         Swal.fire('Error!', 'Please select an update package.', 'error');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    const maxSize = 100 * 1024 * 1024; // 100MB
+    
+    if (file.size > maxSize) {
+        Swal.fire('Error!', 'File size exceeds 100MB limit.', 'error');
         return;
     }
     
@@ -1350,7 +1645,8 @@ function uploadManualUpdate() {
             <div class="text-center">
                 <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
                 <p>Upload and install update package?</p>
-                <p class="small text-muted">File: ${fileInput.files[0].name}</p>
+                <p class="small text-muted">File: ${file.name}</p>
+                <p class="small text-muted">Size: ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
             </div>
         `,
         icon: 'question',
@@ -1361,7 +1657,36 @@ function uploadManualUpdate() {
         cancelButtonText: 'Cancel'
     }).then((result) => {
         if (result.isConfirmed) {
-            startUpdate();
+            const formData = new FormData();
+            formData.append('update_package', file);
+            
+            Swal.fire({
+                title: 'Uploading...',
+                text: 'Please wait while the package is uploaded',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            
+            fetch('ajax/upload-update.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                Swal.close();
+                if (data.success) {
+                    startUpdate(data.version);
+                } else {
+                    Swal.fire('Error!', data.message, 'error');
+                }
+            })
+            .catch(error => {
+                Swal.close();
+                console.error('Error:', error);
+                Swal.fire('Error!', 'Upload failed. Please try again.', 'error');
+            });
         }
     });
 }
@@ -1371,12 +1696,18 @@ function loadUpdateHistory() {
     location.reload();
 }
 
-// Initialize
+// Initialize animations
 document.addEventListener('DOMContentLoaded', function() {
     // Add animation to requirement items
     document.querySelectorAll('.requirement-item').forEach((item, index) => {
         item.style.animation = `slideIn 0.3s ease ${index * 0.05}s forwards`;
         item.style.opacity = '0';
+    });
+    
+    // Add animation to stat cards
+    document.querySelectorAll('.stat-card').forEach((card, index) => {
+        card.style.animation = `slideIn 0.3s ease ${index * 0.05}s forwards`;
+        card.style.opacity = '0';
     });
 });
 </script>
