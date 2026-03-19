@@ -1864,10 +1864,10 @@ function exportTemplates() {
         denyButtonColor: '#1cc88a'
     }).then((result) => {
         if (result.isConfirmed) {
-            window.open('export-email-templates.php?format=json', '_blank');
+            window.open('ajax/export-email-templates.php?format=json', '_blank');
             showToast('success', 'Exporting as JSON...');
         } else if (result.isDenied) {
-            window.open('export-email-templates.php?format=csv', '_blank');
+            window.open('ajax/export-email-templates.php?format=csv', '_blank');
             showToast('success', 'Exporting as CSV...');
         }
     });

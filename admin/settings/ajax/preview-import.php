@@ -1,0 +1,161 @@
+<?php
+require_once '../../includes/config.php';
+require_once '../../includes/auth-check.php';
+
+if ($_SESSION['user_type'] !== 'admin') {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Access denied']);
+    exit;
+}
+
+try {
+    $db = getDB();
+    
+    // Check if file was uploaded
+    if (!isset($_FILES['import_file']) || $_FILES['import_file']['error'] !== UPLOAD_ERR_OK) {
+        throw new Exception('No file uploaded or upload error');
+    }
+    
+    $file = $_FILES['import_file'];
+    $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    
+    // Validate file extension
+    if (!in_array($file_ext, ['json', 'csv', 'xml', 'zip'])) {
+        throw new Exception('Invalid file format. Only JSON, CSV, XML, and ZIP files are allowed.');
+    }
+    
+    // Handle ZIP files
+    if ($file_ext === 'zip') {
+        $zip = new ZipArchive;
+        if ($zip->open($file['tmp_name']) === TRUE) {
+            $extract_path = sys_get_temp_dir() . '/preview_' . uniqid();
+            $zip->extractTo($extract_path);
+            $zip->close();
+            
+            // Find the first JSON/CSV/XML file in the extracted files
+            $files = scandir($extract_path);
+            $found_file = null;
+            foreach ($files as $f) {
+                if (preg_match('/\.(json|csv|xml)$/i', $f)) {
+                    $found_file = $extract_path . '/' . $f;
+                    $file_ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+                    break;
+                }
+            }
+            
+            if (!$found_file) {
+                throw new Exception('No valid settings file found in ZIP archive');
+            }
+            
+            $content = file_get_contents($found_file);
+            
+            // Clean up temp files
+            array_map('unlink', glob("$extract_path/*"));
+            rmdir($extract_path);
+        } else {
+            throw new Exception('Failed to open ZIP file');
+        }
+    } else {
+        $content = file_get_contents($file['tmp_name']);
+    }
+    
+    // Parse based on file type
+    $settings_data = [];
+    if ($file_ext === 'json') {
+        $settings_data = json_decode($content, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception('Invalid JSON format: ' . json_last_error_msg());
+        }
+        // Handle different JSON structures
+        if (isset($settings_data['settings'])) {
+            $settings_data = $settings_data['settings'];
+        } elseif (isset($settings_data['data'])) {
+            $settings_data = $settings_data['data'];
+        }
+    } elseif ($file_ext === 'csv') {
+        $rows = array_map('str_getcsv', explode("\n", trim($content)));
+        $headers = array_shift($rows);
+        $settings_data = [];
+        foreach ($rows as $row) {
+            if (count($row) === count($headers) && !empty(array_filter($row))) {
+                $settings_data[] = array_combine($headers, $row);
+            }
+        }
+    } elseif ($file_ext === 'xml') {
+        $xml = simplexml_load_string($content);
+        $json = json_encode($xml);
+        $settings_data = json_decode($json, true);
+        if (isset($settings_data['setting'])) {
+            $settings_data = $settings_data['setting'];
+        }
+    }
+    
+    // Ensure we have an array
+    if (!is_array($settings_data)) {
+        $settings_data = [$settings_data];
+    }
+    
+    // Group by group
+    $groups = [];
+    $preview = [];
+    $new_count = 0;
+    $existing_count = 0;
+    $conflict_count = 0;
+    
+    foreach ($settings_data as $index => $setting) {
+        if (!isset($setting['setting_key']) && !isset($setting['setting_key'])) {
+            continue;
+        }
+        
+        $setting_key = $setting['setting_key'] ?? $setting['setting_key'];
+        $group = $setting['group'] ?? 'general';
+        
+        $groups[$group] = ($groups[$group] ?? 0) + 1;
+        
+        // Check if setting exists
+        $check_stmt = $db->prepare("SELECT id FROM settings WHERE setting_key = ?");
+        $check_stmt->execute([$setting_key]);
+        $exists = $check_stmt->fetch() ? true : false;
+        
+        // Check for potential conflict (if same key and same value)
+        $conflict = false;
+        if ($exists) {
+            $existing_count++;
+            $val_stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+            $val_stmt->execute([$setting_key]);
+            $existing_val = $val_stmt->fetchColumn();
+            if ($existing_val == ($setting['setting_value'] ?? '')) {
+                $conflict = true;
+                $conflict_count++;
+            }
+        } else {
+            $new_count++;
+        }
+        
+        if ($index < 10) { // Only preview first 10
+            $preview[] = [
+                'key' => $setting_key,
+                'group' => $group,
+                'type' => $setting['setting_type'] ?? 'text',
+                'value_preview' => substr($setting['setting_value'] ?? '', 0, 50) . (strlen($setting['setting_value'] ?? '') > 50 ? '...' : ''),
+                'exists' => $exists,
+                'conflict' => $conflict
+            ];
+        }
+    }
+    
+    echo json_encode([
+        'success' => true,
+        'filename' => $file['name'],
+        'format' => $file_ext,
+        'total_settings' => count($settings_data),
+        'new_settings' => $new_count,
+        'existing_settings' => $existing_count,
+        'conflicts' => $conflict_count,
+        'groups' => $groups,
+        'preview' => $preview
+    ]);
+    
+} catch (Exception $e) {
+    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+}
