@@ -1,7 +1,7 @@
 <?php
 // export-settings-history.php
-require_once '../includes/config.php';
-require_once '../includes/auth-check.php';
+require_once '../../includes/config.php';
+require_once '../../includes/auth-check.php';
 
 // Check if user is admin
 if ($_SESSION['user_type'] !== 'admin') {
