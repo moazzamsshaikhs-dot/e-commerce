@@ -1456,7 +1456,7 @@ function filterTemplates(category) {
 function toggleTemplate(checkbox, templateId) {
     const isActive = checkbox.checked ? 1 : 0;
     
-    fetch('../ajax/settings/toggle-email-template.php', {
+    fetch('ajax/toggle-email-template.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: templateId, is_active: isActive })
@@ -1486,7 +1486,7 @@ function editTemplate(templateId) {
     
     $('#editTemplateModal').modal('show');
     
-    fetch(`../ajax/settings/get-email-template.php?id=${templateId}`)
+    fetch(`ajax/get-email-template.php?id=${templateId}`)
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1607,7 +1607,7 @@ function saveTemplate() {
         }
     });
 
-    fetch('../ajax/settings/save-email-template.php', {
+    fetch('ajax/save-email-template.php', {
         method: 'POST',
         body: formData
     })
@@ -1661,7 +1661,7 @@ function saveTemplateChanges() {
         }
     });
 
-    fetch('../ajax/settings/save-email-template.php', {
+    fetch('ajax/save-email-template.php', {
         method: 'POST',
         body: formData
     })
@@ -1725,7 +1725,7 @@ function testTemplate(templateId) {
                 }
             });
             
-            fetch('../ajax/settings/send-test-email.php', {
+            fetch('ajax/send-test-email.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ template_id: templateId, email: result.value })
@@ -1770,7 +1770,7 @@ function sendTestEmail() {
         }
     });
 
-    fetch('../ajax/settings/send-test-config-email.php', {
+    fetch('ajax/send-test-config-email.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email })
@@ -1818,7 +1818,7 @@ function deleteTemplate(templateId) {
                 }
             });
             
-            fetch('../ajax/settings/delete-email-template.php', {
+            fetch('ajax/delete-email-template.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ template_id: templateId })
@@ -1900,7 +1900,7 @@ function resetTemplates() {
                 }
             });
             
-            fetch('../../ajax/settings/reset-email-templates.php')
+            fetch('ajax/reset-email-templates.php')
             .then(response => response.json())
             .then(data => {
                 Swal.close();
