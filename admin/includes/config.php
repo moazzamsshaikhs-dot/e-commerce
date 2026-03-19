@@ -849,4 +849,269 @@ function decryptData($data) {
 // }
 
 
+
+// Get time ago
+function timeAgo($datetime) {
+    $time = strtotime($datetime);
+    $now = time();
+    $diff = $now - $time;
+    
+    if ($diff < 60) {
+        return $diff . ' seconds ago';
+    } elseif ($diff < 3600) {
+        $mins = floor($diff / 60);
+        return $mins . ' minute' . ($mins > 1 ? 's' : '') . ' ago';
+    } elseif ($diff < 86400) {
+        $hours = floor($diff / 3600);
+        return $hours . ' hour' . ($hours > 1 ? 's' : '') . ' ago';
+    } elseif ($diff < 2592000) {
+        $days = floor($diff / 86400);
+        return $days . ' day' . ($days > 1 ? 's' : '') . ' ago';
+    } else {
+        return date('d M Y', $time);
+    }
+}
+
+// Log user activity
+
+
+
+// ========== NEW DOM HELPER FUNCTIONS ==========
+
+/**
+ * Get attribute value from DOM element
+ * @param DOMElement $element The DOM element
+ * @param string $attribute The attribute name
+ * @param string $default Default value if attribute doesn't exist
+ * @return string Attribute value or default
+ */
+function getAttribute($element, $attribute, $default = '') {
+    if (!($element instanceof DOMElement)) {
+        return $default;
+    }
+    
+    if ($element->hasAttribute($attribute)) {
+        return $element->getAttribute($attribute);
+    }
+    
+    return $default;
+}
+
+/**
+ * Check if DOM element has attribute
+ * @param DOMElement $element The DOM element
+ * @param string $attribute The attribute name
+ * @return bool True if attribute exists
+ */
+function hasAttribute($element, $attribute) {
+    if (!($element instanceof DOMElement)) {
+        return false;
+    }
+    
+    return $element->hasAttribute($attribute);
+}
+
+/**
+ * Get all elements by tag name with optional attribute filter
+ * @param DOMDocument $doc The DOM document
+ * @param string $tagName The tag name to find
+ * @param string $attrName Optional attribute name to filter
+ * @param string $attrValue Optional attribute value to match
+ * @return DOMNodeList List of matching elements
+ */
+function getElementsByTagName($doc, $tagName, $attrName = null, $attrValue = null) {
+    $elements = $doc->getElementsByTagName($tagName);
+    
+    if ($attrName === null) {
+        return $elements;
+    }
+    
+    // Filter by attribute
+    $filtered = [];
+    foreach ($elements as $element) {
+        if ($element->hasAttribute($attrName)) {
+            if ($attrValue === null || $element->getAttribute($attrName) == $attrValue) {
+                $filtered[] = $element;
+            }
+        }
+    }
+    
+    // Convert to array-like object
+    $result = new ArrayObject($filtered);
+    return $result->getIterator();
+}
+
+/**
+ * Get meta tag content by name
+ * @param DOMDocument $doc The DOM document
+ * @param string $name The meta name attribute
+ * @return string|null Meta content or null
+ */
+function getMetaTag($doc, $name) {
+    $metas = $doc->getElementsByTagName('meta');
+    
+    foreach ($metas as $meta) {
+        if (getAttribute($meta, 'name') == $name) {
+            return getAttribute($meta, 'content');
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Get all links from DOM with classification
+ * @param DOMDocument $doc The DOM document
+ * @param string $baseUrl The base URL for internal/external classification
+ * @return array Array of links with type classification
+ */
+function getLinks($doc, $baseUrl) {
+    $links = $doc->getElementsByTagName('a');
+    $result = [
+        'internal' => [],
+        'external' => [],
+        'all' => []
+    ];
+    
+    $baseHost = parse_url($baseUrl, PHP_URL_HOST);
+    
+    foreach ($links as $link) {
+        $href = getAttribute($link, 'href');
+        if (empty($href)) continue;
+        
+        $linkData = [
+            'href' => $href,
+            'text' => trim($link->textContent),
+            'title' => getAttribute($link, 'title'),
+            'rel' => getAttribute($link, 'rel'),
+            'target' => getAttribute($link, 'target'),
+            'nofollow' => strpos(getAttribute($link, 'rel'), 'nofollow') !== false
+        ];
+        
+        $result['all'][] = $linkData;
+        
+        // Classify as internal or external
+        if (strpos($href, 'http') === 0) {
+            $linkHost = parse_url($href, PHP_URL_HOST);
+            if ($linkHost === $baseHost) {
+                $result['internal'][] = $linkData;
+            } else {
+                $result['external'][] = $linkData;
+            }
+        } elseif (strpos($href, '/') === 0 || strpos($href, '#') !== 0) {
+            $result['internal'][] = $linkData;
+        }
+    }
+    
+    return $result;
+}
+
+/**
+ * Get all images from DOM with alt text analysis
+ * @param DOMDocument $doc The DOM document
+ * @return array Array of images with alt status
+ */
+function getImages($doc) {
+    $images = $doc->getElementsByTagName('img');
+    $result = [
+        'with_alt' => [],
+        'without_alt' => [],
+        'all' => []
+    ];
+    
+    foreach ($images as $img) {
+        $src = getAttribute($img, 'src');
+        $alt = getAttribute($img, 'alt');
+        $title = getAttribute($img, 'title');
+        
+        $imageData = [
+            'src' => $src,
+            'alt' => $alt,
+            'title' => $title,
+            'has_alt' => hasAttribute($img, 'alt') && !empty($alt)
+        ];
+        
+        $result['all'][] = $imageData;
+        
+        if ($imageData['has_alt']) {
+            $result['with_alt'][] = $imageData;
+        } else {
+            $result['without_alt'][] = $imageData;
+        }
+    }
+    
+    return $result;
+}
+
+/**
+ * Get heading structure from DOM
+ * @param DOMDocument $doc The DOM document
+ * @return array Array of heading counts
+ */
+function getHeadings($doc) {
+    $headings = [];
+    
+    for ($i = 1; $i <= 6; $i++) {
+        $tag = 'h' . $i;
+        $elements = $doc->getElementsByTagName($tag);
+        $headings[$tag] = [
+            'count' => $elements->length,
+            'content' => []
+        ];
+        
+        foreach ($elements as $element) {
+            $headings[$tag]['content'][] = trim($element->textContent);
+        }
+    }
+    
+    return $headings;
+}
+
+/**
+ * Extract text content from DOM
+ * @param DOMDocument $doc The DOM document
+ * @return string Clean text content
+ */
+function getTextContent($doc) {
+    $xpath = new DOMXPath($doc);
+    
+    // Remove script and style elements
+    foreach ($xpath->query('//script | //style') as $node) {
+        $node->parentNode->removeChild($node);
+    }
+    
+    $text = $doc->textContent;
+    $text = preg_replace('/\s+/', ' ', $text);
+    $text = trim($text);
+    
+    return $text;
+}
+
+/**
+ * Calculate keyword density in text
+ * @param string $text The text content
+ * @param string $keyword The keyword to check
+ * @return array Keyword density information
+ */
+function calculateKeywordDensity($text, $keyword) {
+    $words = str_word_count(strtolower($text), 1);
+    $total_words = count($words);
+    
+    $keyword_lower = strtolower($keyword);
+    $keyword_count = substr_count(strtolower($text), $keyword_lower);
+    
+    $density = $total_words > 0 ? round(($keyword_count / $total_words) * 100, 2) : 0;
+    
+    return [
+        'total_words' => $total_words,
+        'keyword_count' => $keyword_count,
+        'density' => $density,
+        'status' => $density == 0 ? 'missing' : ($density < 0.5 ? 'low' : ($density > 3 ? 'high' : 'optimal'))
+    ];
+}
+
+// Error reporting for development (disable in production)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+?>
 ?>
