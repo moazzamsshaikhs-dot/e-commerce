@@ -320,13 +320,13 @@ try {
 }
 
 .stat-card .stat-icon {
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     border-radius: var(--border-radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.8rem;
+    font-size: 1.6rem;
     color: white;
     flex-shrink: 0;
 }
@@ -988,10 +988,10 @@ try {
         
         <!-- Statistics Cards -->
         <div class="row g-4 mb-4">
-            <div class="col-md-2">
+            <div class="col-md-2 display-flex flex-lg-column">
                 <div class="stat-card">
                     <div class="stat-icon" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark));">
-                        <i class="fas fa-envelope"></i>
+                        <i class="fas fa-envelope" style="height:50%; width:50%"></i>
                     </div>
                     <div class="stat-content">
                         <div class="stat-value"><?php echo number_format($stats['total_emails']); ?></div>

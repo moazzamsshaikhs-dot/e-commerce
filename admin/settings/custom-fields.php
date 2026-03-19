@@ -1449,7 +1449,7 @@ function changePage(page) {
 function toggleField(checkbox, fieldId) {
     const isActive = checkbox.checked ? 1 : 0;
     
-    fetch('../ajax/settings/toggle-field.php', {
+    fetch('ajax/toggle-field.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ field_id: fieldId, is_active: isActive })
@@ -1495,7 +1495,7 @@ function saveField() {
 
     showLoading();
     
-    fetch('../ajax/settings/save-field.php', {
+    fetch('ajax/save-field.php', {
         method: 'POST',
         body: formData
     })
@@ -1531,7 +1531,7 @@ function viewField(fieldId) {
     
     $('#viewFieldModal').modal('show');
     
-    fetch(`../ajax/settings/get-field.php?id=${fieldId}`)
+    fetch(`ajax/get-field.php?id=${fieldId}`)
     .then(response => response.json())
     .then(data => {
         if (data.success) {
@@ -1713,7 +1713,7 @@ function deleteField(fieldId) {
         if (result.isConfirmed) {
             showLoading();
             
-            fetch('../ajax/settings/delete-field.php', {
+            fetch('ajax/delete-field.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ field_id: fieldId })
@@ -1798,7 +1798,7 @@ function importCustomFields() {
             
             showLoading();
             
-            fetch('../ajax/settings/import-custom-fields.php', {
+            fetch('ajax/import-custom-fields.php', {
                 method: 'POST',
                 body: formData
             })
