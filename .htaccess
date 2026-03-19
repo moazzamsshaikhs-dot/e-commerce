@@ -6,6 +6,10 @@ php_flag display_errors Off
 php_flag log_errors On
 php_value error_log "/home/u952571362/domains/shopeasepro.com/public_html/logs/php_errors.log"
 
+# Redirect sitemap.xml to dynamic version
+RewriteEngine On
+# RewriteRule ^sitemap\.xml$ sitemap-dynamic.php [L]
+
 # Security headers
 Header always set X-Frame-Options "SAMEORIGIN"
 Header always set X-Content-Type-Options "nosniff"
@@ -89,3 +93,9 @@ RewriteRule .* /maintenance.php [L]
 ErrorDocument 403 /error/403.html
 ErrorDocument 404 /error/404.html
 ErrorDocument 500 /error/500.html
+
+# Redirect missing pages to homepage or working pages
+Redirect 301 /about https://shopeasepro.com/
+Redirect 301 /contact https://shopeasepro.com/
+Redirect 301 /products https://shopeasepro.com/category.php
+Redirect 301 /blog https://shopeasepro.com/

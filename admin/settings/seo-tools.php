@@ -18,7 +18,7 @@ try {
     $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'seo_%' OR setting_key LIKE 'meta_%'");
     $seo_settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
     
-    // Get pages for sitemap
+    // Get pages for sitemap (static pages)
     $pages = [
         ['url' => SITE_URL, 'priority' => '1.0', 'changefreq' => 'daily'],
         ['url' => SITE_URL . 'about', 'priority' => '0.8', 'changefreq' => 'monthly'],
@@ -27,15 +27,19 @@ try {
         ['url' => SITE_URL . 'blog', 'priority' => '0.7', 'changefreq' => 'weekly']
     ];
     
-    // Get products for sitemap
-    $stmt = $db->query("SELECT id, name, updated_at FROM products WHERE stock > 0");
-    $products = $stmt->fetchAll();
+    // ===== SIMPLE DIRECT QUERIES - NO BINDING ISSUES =====
     
-    // Get categories for sitemap
-    $stmt = $db->query("SELECT slug, updated_at FROM categories WHERE is_active = 1");
-    $categories = $stmt->fetchAll();
+    // Get products - Simple query without parameters
+    $product_sql = "SELECT id, name, updated_at FROM products WHERE stock > 0 AND approved_status = 'approved'";
+    $product_stmt = $db->query($product_sql);
+    $products = $product_stmt->fetchAll();
     
-    // Get total URLs
+    // Get categories - Simple query
+    $category_sql = "SELECT slug, updated_at FROM categories WHERE is_active = 1";
+    $category_stmt = $db->query($category_sql);
+    $categories = $category_stmt->fetchAll();
+    
+    // Calculate total URLs
     $total_urls = count($pages) + count($products) + count($categories);
     
 } catch(PDOException $e) {
@@ -1147,12 +1151,18 @@ try {
                                 </h6>
                             </div>
                             <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
-                                <?php foreach($products as $product): ?>
-                                <div class="list-group-item d-flex justify-content-between align-items-center">
-                                    <small><?php echo htmlspecialchars(substr($product['name'], 0, 30)) . (strlen($product['name']) > 30 ? '...' : ''); ?></small>
-                                    <small class="text-muted"><?php echo date('M d', strtotime($product['updated_at'])); ?></small>
-                                </div>
-                                <?php endforeach; ?>
+                                <?php if (count($products) > 0): ?>
+                                    <?php foreach($products as $product): ?>
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <small><?php echo htmlspecialchars(substr($product['name'], 0, 30)) . (strlen($product['name']) > 30 ? '...' : ''); ?></small>
+                                        <small class="text-muted"><?php echo date('M d', strtotime($product['updated_at'])); ?></small>
+                                    </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="list-group-item text-center text-muted">
+                                        <small>No products available</small>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -1168,12 +1178,18 @@ try {
                                 </h6>
                             </div>
                             <div class="list-group list-group-flush">
-                                <?php foreach($categories as $category): ?>
-                                <div class="list-group-item d-flex justify-content-between align-items-center">
-                                    <small><?php echo $category['slug']; ?></small>
-                                    <small class="text-muted"><?php echo date('M d', strtotime($category['updated_at'])); ?></small>
-                                </div>
-                                <?php endforeach; ?>
+                                <?php if (count($categories) > 0): ?>
+                                    <?php foreach($categories as $category): ?>
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <small><?php echo $category['slug']; ?></small>
+                                        <small class="text-muted"><?php echo date('M d', strtotime($category['updated_at'])); ?></small>
+                                    </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="list-group-item text-center text-muted">
+                                        <small>No categories available</small>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>

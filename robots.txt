@@ -1,0 +1,73 @@
+# robots.txt for ShopEase Pro
+# Generated: 2026-03-19
+
+# Allow all crawlers full access (with restrictions)
+User-agent: *
+Disallow: /admin/
+Disallow: /includes/
+Disallow: /vendor/
+Disallow: /assets/
+Disallow: /ajax/
+Disallow: /cache/
+Disallow: /tmp/
+Disallow: /logs/
+Disallow: /backups/
+Disallow: /error/
+Disallow: /*.sql$
+Disallow: /*.log$
+Disallow: /*.bak$
+Disallow: /*.old$
+Disallow: /*.txt$
+Disallow: /config.php
+Disallow: /*.htaccess
+Disallow: /.*.php$
+
+# Allow specific file types
+Allow: /*.css$
+Allow: /*.js$
+Allow: /*.jpg$
+Allow: /*.jpeg$
+Allow: /*.png$
+Allow: /*.gif$
+Allow: /*.svg$
+Allow: /*.webp$
+Allow: /*.woff$
+Allow: /*.woff2$
+Allow: /*.ttf$
+
+# Googlebot specific rules
+User-agent: Googlebot
+Disallow: /admin/
+Disallow: /includes/
+Disallow: /*.php$
+
+# Bingbot specific rules
+User-agent: Bingbot
+Disallow: /admin/
+Disallow: /includes/
+Disallow: /*.php$
+
+# Yandex specific rules
+User-agent: Yandex
+Disallow: /admin/
+Disallow: /includes/
+Disallow: /*.php$
+
+# Baidu specific rules
+User-agent: Baiduspider
+Disallow: /admin/
+Disallow: /includes/
+Disallow: /*.php$
+
+# Sitemap location
+Sitemap: https://shopeasepro.com/sitemap.xml
+
+# Crawl delay (for slower crawlers)
+User-agent: *
+Crawl-delay: 2
+
+# Host directive
+Host: https://shopeasepro.com
+
+# Cache time (optional)
+Cache-Control: max-age=3600
