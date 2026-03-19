@@ -1328,28 +1328,44 @@ function clearLogs() {
     });
 }
 
-// Export logs
+// Export logs - Three options version
 function exportLogs() {
     const params = new URLSearchParams(window.location.search);
     
     Swal.fire({
         title: 'Export Logs',
-        text: 'Choose export format',
-        icon: 'question',
+        html: `
+            <div class="d-grid gap-2">
+                <button class="btn btn-primary" id="export-json">
+                    <i class="fas fa-file-code me-2"></i> Export as JSON
+                </button>
+                <button class="btn btn-success" id="export-csv">
+                    <i class="fas fa-file-csv me-2"></i> Export as CSV
+                </button>
+                <button class="btn btn-danger" id="export-pdf">
+                    <i class="fas fa-file-pdf me-2"></i> Export as PDF
+                </button>
+            </div>
+        `,
+        showConfirmButton: false,
         showCancelButton: true,
-        showDenyButton: true,
-        confirmButtonText: '📄 JSON',
-        denyButtonText: '📊 CSV',
         cancelButtonText: 'Cancel',
-        confirmButtonColor: '#3085d6',
-        denyButtonColor: '#1cc88a'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            window.open(`export-logs.php?${params.toString()}&format=json`, '_blank');
-            Swal.fire('Success!', 'Exporting as JSON...', 'success');
-        } else if (result.isDenied) {
-            window.open(`export-logs.php?${params.toString()}&format=csv`, '_blank');
-            Swal.fire('Success!', 'Exporting as CSV...', 'success');
+        didOpen: () => {
+            document.getElementById('export-json').onclick = () => {
+                Swal.close();
+                window.open(`ajax/export-logs.php?${params.toString()}&format=json`, '_blank');
+                Swal.fire('Success!', 'Exporting as JSON...', 'success');
+            };
+            document.getElementById('export-csv').onclick = () => {
+                Swal.close();
+                window.open(`ajax/export-logs.php?${params.toString()}&format=csv`, '_blank');
+                Swal.fire('Success!', 'Exporting as CSV...', 'success');
+            };
+            document.getElementById('export-pdf').onclick = () => {
+                Swal.close();
+                window.open(`ajax/export-logs.php?${params.toString()}&format=pdf`, '_blank');
+                Swal.fire('Success!', 'Exporting as PDF...', 'success');
+            };
         }
     });
 }
