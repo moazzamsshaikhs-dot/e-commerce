@@ -50,6 +50,14 @@ try {
         $log_stmt = $db->prepare("INSERT INTO settings_history (setting_key, old_value, new_value, changed_by, changed_at) VALUES (?, ?, ?, ?, NOW())");
         $log_stmt->execute([$key, $exists ? 'updated' : 'NEW', $value, $_SESSION['user_id']]);
     }
+    // When logging settings changes, include IP and user agent
+$ip_address = $_SERVER['REMOTE_ADDR'] ?? null;
+$user_agent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+
+$history_sql = "INSERT INTO settings_history (setting_key, old_value, new_value, changed_by, ip_address, user_agent) 
+                VALUES (?, ?, ?, ?, ?, ?)";
+$history_stmt = $db->prepare($history_sql);
+$history_stmt->execute([$setting_key, $old_value, $new_value, $_SESSION['user_id'], $ip_address, $user_agent]);
     
     // Save robots.txt to file if needed
     if (!empty($robots_txt)) {

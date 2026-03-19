@@ -277,7 +277,17 @@ try {
     flex: 1;
     min-width: 150px;
 }
+.btn-export.pdf {
+    background: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
 
+.btn-export.pdf:hover {
+    background: #c82333;
+    border-color: #bd2130;
+    transform: translateY(-2px);
+}   
 .filter-group label {
     font-size: 0.8rem;
     font-weight: 600;
@@ -1027,15 +1037,19 @@ try {
                     <span class="badge bg-primary ms-2"><?php echo number_format($total_records); ?> Records</span>
                 </h5>
                 <div class="header-actions">
-                    <button class="btn-export" onclick="exportHistory('csv')">
-                        <i class="fas fa-file-csv"></i>
-                        CSV
-                    </button>
-                    <button class="btn-export" onclick="exportHistory('json')">
-                        <i class="fas fa-file-code"></i>
-                        JSON
-                    </button>
-                </div>
+    <button class="btn-export" onclick="exportHistory('pdf')">
+        <i class="fas fa-file-pdf"></i>
+        PDF
+    </button>
+    <button class="btn-export" onclick="exportHistory('csv')">
+        <i class="fas fa-file-csv"></i>
+        CSV
+    </button>
+    <button class="btn-export" onclick="exportHistory('json')">
+        <i class="fas fa-file-code"></i>
+        JSON
+    </button>
+</div>
             </div>
             
             <?php if (empty($history)): ?>
@@ -1512,6 +1526,36 @@ document.addEventListener('DOMContentLoaded', function() {
         row.style.opacity = '0';
     });
 });
+// Export history
+function exportHistory(format) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('format', format);
+    
+    let title = 'Export History';
+    let text = `Export settings history as ${format.toUpperCase()}?`;
+    
+    if (format === 'pdf') {
+        text = 'Generate PDF report of settings history?';
+    }
+    
+    Swal.fire({
+        title: title,
+        text: text,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Export'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            window.open(`ajax/export-settings-history.php?${params.toString()}`, '_blank');
+            
+            if (format !== 'pdf') {
+                Swal.fire('Success!', 'Export started.', 'success');
+            }
+        }
+    });
+}
 </script>
 
 <?php require_once '../includes/footer.php'; ?>
