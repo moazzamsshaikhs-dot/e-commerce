@@ -155,7 +155,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
                     <?php if (isLoggedIn()): ?>
                         <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
+                            <a class="nav-link dropdown-toggle text-decoration-none" class="color:white;" href="#" id="userDropdown" role="button"
                                 data-bs-toggle="dropdown">
                                 <i class="fas fa-user-circle me-1"></i>
                                 <?php echo $_SESSION['full_name'] ?? $_SESSION['username']; ?>

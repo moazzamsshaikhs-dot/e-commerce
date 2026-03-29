@@ -470,7 +470,7 @@ function sendSecurityAlert($user_id, $alert_type, $details = '') {
         error_log("Security Alert for {$user['email']}: {$alert_type}");
         
         // In production, send actual email
-        // mail($user['email'], $subject, $message);
+        mail($user['email'], $subject, $message);
         
         return true;
     } catch(PDOException $e) {
