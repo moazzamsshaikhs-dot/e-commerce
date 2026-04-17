@@ -15,6 +15,20 @@ if ($_SESSION['user_type'] === 'vendor') {
 $page_title = 'Support & Help Center';
 require_once '../../includes/header.php';
 
+// Include PHPMailer
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+require_once SITE_URL . 'vendor/phpmailer/src/Exception.php';
+require_once SITE_URL . 'vendor/phpmailer/src/PHPMailer.php';
+require_once SITE_URL . 'vendor/phpmailer/src/SMTP.php';
+
+// Contact information
+$support_phone = '+923132842740';
+$support_whatsapp = '+923132842740';
+$support_email = 'shopeasepro2@gmail.com';
+$support_hours = '24/7';
+
 // Handle contact form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -26,65 +40,192 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $category = $_POST['category'];
         $message = trim($_POST['message']);
         $priority = $_POST['priority'];
+        $phone = trim($_POST['phone'] ?? '');
         
         // Validation
-        if (empty($name) || empty($email) || empty($subject) || empty($message)) {
-            $_SESSION['error'] = 'All required fields must be filled';
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $_SESSION['error'] = 'Please enter a valid email address';
-        } else {
+        $errors = [];
+        if (empty($name)) $errors[] = 'Name is required';
+        if (empty($email)) $errors[] = 'Email is required';
+        if (empty($subject)) $errors[] = 'Subject is required';
+        if (empty($message)) $errors[] = 'Message is required';
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = 'Invalid email address';
+        if (strlen($message) < 10) $errors[] = 'Message must be at least 10 characters';
+        
+        if (empty($errors)) {
             // Insert support ticket
             $stmt = $db->prepare("
                 INSERT INTO support_tickets 
-                (user_id, name, email, subject, category, message, priority, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'open')
+                (user_id, name, email, phone, subject, category, message, priority, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')
             ");
             
             $stmt->execute([
                 $_SESSION['user_id'],
                 $name,
                 $email,
+                $phone,
                 $subject,
                 $category,
                 $message,
                 $priority
             ]);
             
-            $_SESSION['success'] = 'Your support ticket has been submitted successfully! We\'ll get back to you soon.';
+            $ticket_id = $db->lastInsertId();
             
-            // Send email notification
+            // Send email using PHPMailer
+            $mail = new PHPMailer(true);
+            
             try {
-                $admin_email = getSetting('admin_email') ?? 'admin@shopease.com';
-                $site_name = getSetting('site_name') ?? 'ShopEase Pro';
+                // Server settings
+                $mail->isSMTP();
+                $mail->Host       = 'smtp.gmail.com'; // Update with your SMTP server
+                $mail->SMTPAuth   = true;
+                $mail->Username   = 'shopeasepro2@gmail.com';
+                $mail->Password   = 'your-app-password'; // Use app-specific password
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+                $mail->Port       = 587;
                 
-                $email_subject = "New Support Ticket: $subject";
-                $email_body = "
-                <h2>New Support Ticket Created</h2>
-                <p><strong>From:</strong> $name ($email)</p>
-                <p><strong>Category:</strong> " . ucfirst($category) . "</p>
-                <p><strong>Priority:</strong> " . ucfirst($priority) . "</p>
-                <p><strong>Message:</strong></p>
-                <div style='background:#f8f9fa; padding:15px; border-radius:5px;'>
-                    $message
-                </div>
-                <hr>
-                <p>Please respond to this ticket within 24 hours.</p>
+                // Recipients
+                $mail->setFrom('shopeasepro2@gmail.com', 'ShopEase Pro Support');
+                $mail->addAddress($support_email, 'Support Team');
+                $mail->addReplyTo($email, $name);
+                
+                // Content
+                $mail->isHTML(true);
+                $mail->Subject = "New Support Ticket: #$ticket_id - $subject";
+                
+                // Email body
+                $mail->Body = "
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: linear-gradient(135deg, #4361ee, #3a0ca3); color: white; padding: 20px; text-align: center; }
+                        .content { padding: 20px; background: #f8f9fa; }
+                        .ticket-info { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                        .ticket-info p { margin: 8px 0; }
+                        .message-box { background: #e9ecef; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                        .footer { text-align: center; padding: 20px; color: #6c757d; font-size: 12px; }
+                        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+                        .badge-high { background: #ef476f; color: white; }
+                        .badge-normal { background: #ffb703; color: white; }
+                        .badge-low { background: #06d6a0; color: white; }
+                    </style>
+                </head>
+                <body>
+                    <div class='container'>
+                        <div class='header'>
+                            <h2>New Support Ticket Received</h2>
+                        </div>
+                        <div class='content'>
+                            <h3>Ticket Details</h3>
+                            <div class='ticket-info'>
+                                <p><strong>Ticket ID:</strong> #$ticket_id</p>
+                                <p><strong>From:</strong> $name</p>
+                                <p><strong>Email:</strong> $email</p>
+                                " . ($phone ? "<p><strong>Phone:</strong> $phone</p>" : "") . "
+                                <p><strong>Category:</strong> " . ucfirst($category) . "</p>
+                                <p><strong>Priority:</strong> <span class='badge badge-" . strtolower($priority) . "'>" . ucfirst($priority) . "</span></p>
+                                <p><strong>Subject:</strong> $subject</p>
+                            </div>
+                            
+                            <h3>Message</h3>
+                            <div class='message-box'>
+                                " . nl2br(htmlspecialchars($message)) . "
+                            </div>
+                            
+                            <p style='margin-top: 20px;'>
+                                <strong>Action Required:</strong> Please respond to this ticket within 24 hours.
+                            </p>
+                        </div>
+                        <div class='footer'>
+                            <p>This is an automated message from ShopEase Pro Support System.</p>
+                            <p>&copy; " . date('Y') . " ShopEase Pro. All rights reserved.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
                 ";
                 
-                // sendEmail($admin_email, $email_subject, $email_body);
+                $mail->AltBody = "New Support Ticket #$ticket_id\n\nFrom: $name ($email)\nCategory: $category\nPriority: $priority\nSubject: $subject\n\nMessage:\n$message";
+                
+                $mail->send();
+                
+                // Send confirmation email to user
+                $mail->clearAddresses();
+                $mail->addAddress($email, $name);
+                $mail->Subject = "Support Ticket Received - #$ticket_id";
+                $mail->Body = "
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: linear-gradient(135deg, #06d6a0, #0ca678); color: white; padding: 20px; text-align: center; }
+                        .content { padding: 20px; background: #f8f9fa; }
+                        .ticket-info { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                        .footer { text-align: center; padding: 20px; color: #6c757d; font-size: 12px; }
+                    </style>
+                </head>
+                <body>
+                    <div class='container'>
+                        <div class='header'>
+                            <h2>Thank You for Contacting Us!</h2>
+                        </div>
+                        <div class='content'>
+                            <p>Dear $name,</p>
+                            <p>Thank you for reaching out to ShopEase Pro Support. We have received your ticket and our support team will respond within 24 hours.</p>
+                            
+                            <div class='ticket-info'>
+                                <h4>Ticket Details:</h4>
+                                <p><strong>Ticket ID:</strong> #$ticket_id</p>
+                                <p><strong>Subject:</strong> $subject</p>
+                                <p><strong>Priority:</strong> " . ucfirst($priority) . "</p>
+                            </div>
+                            
+                            <p>You can track the status of your ticket in your <a href='" . SITE_URL . "user/support/ticket-detail.php?id=$ticket_id'>Support Dashboard</a>.</p>
+                            
+                            <p>For immediate assistance, you can also contact us through:</p>
+                            <ul>
+                                <li>Phone: <strong>$support_phone</strong></li>
+                                <li>WhatsApp: <strong>$support_whatsapp</strong></li>
+                                <li>Email: <strong>$support_email</strong></li>
+                            </ul>
+                            
+                            <p>Best regards,<br>ShopEase Pro Support Team</p>
+                        </div>
+                        <div class='footer'>
+                            <p>This is an automated confirmation. Please do not reply to this email.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                ";
+                
+                $mail->AltBody = "Thank you for contacting ShopEase Pro Support.\n\nTicket ID: #$ticket_id\nSubject: $subject\n\nOur team will respond within 24 hours.\n\nFor immediate assistance, contact us at:\nPhone: $support_phone\nWhatsApp: $support_whatsapp\nEmail: $support_email";
+                
+                $mail->send();
+                
+                $_SESSION['success'] = 'Your support ticket has been submitted successfully! A confirmation email has been sent. We\'ll get back to you soon.';
                 
             } catch (Exception $e) {
-                // Email sending failed, but ticket is still saved
-                error_log('Email sending failed: ' . $e->getMessage());
+                error_log("Mailer Error: " . $mail->ErrorInfo);
+                $_SESSION['success'] = 'Your support ticket has been submitted successfully! We\'ll get back to you soon.';
             }
             
             // Log activity
             logUserActivity($_SESSION['user_id'], 'support_ticket_created', 'Created support ticket: ' . $subject);
             
             redirect('support.php');
+        } else {
+            $_SESSION['error'] = implode('<br>', $errors);
         }
     } catch (PDOException $e) {
-        $_SESSION['error'] = 'Error submitting support request: ' . $e->getMessage();
+        $_SESSION['error'] = 'Error submitting support request. Please try again.';
+        error_log("Database Error: " . $e->getMessage());
     }
 }
 
@@ -119,136 +260,269 @@ try {
     }
     
 } catch(PDOException $e) {
-    $_SESSION['error'] = 'Error loading support data: ' . $e->getMessage();
+    $_SESSION['error'] = 'Error loading support data. Please refresh the page.';
+    error_log("FAQ Error: " . $e->getMessage());
     $faq_categories = [];
     $user_tickets = [];
     $faqs_by_category = [];
 }
 ?>
 
-<!-- Support Page -->
-<div class="support-page">
-    <!-- Hero Section -->
-    <div class="bg-primary bg-gradient py-5">
-        <div class="container">
+<style>
+:root {
+    --primary: #4361ee;
+    --primary-dark: #3a0ca3;
+    --primary-gradient: linear-gradient(135deg, #4361ee, #3a0ca3);
+    --success: #06d6a0;
+    --warning: #ffb703;
+    --danger: #ef476f;
+    --info: #4cc9f0;
+    --whatsapp: #25D366;
+    --whatsapp-gradient: linear-gradient(135deg, #25D366, #128C7E);
+    --phone: #4c9aff;
+}
+
+/* Contact Cards */
+.contact-card {
+    background: white;
+    border-radius: 20px;
+    padding: 1.5rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    border: 1px solid var(--gray-200);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    cursor: pointer;
+}
+
+.contact-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+}
+
+.contact-icon {
+    width: 70px;
+    height: 70px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+}
+
+.contact-card h5 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.contact-card .contact-detail {
+    font-size: 0.9rem;
+    color: var(--gray-600);
+    margin-bottom: 1rem;
+    word-break: break-all;
+}
+
+.contact-card .contact-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.contact-card .contact-btn i {
+    font-size: 0.9rem;
+}
+
+/* WhatsApp specific */
+.whatsapp-card .contact-icon {
+    background: rgba(37, 211, 102, 0.1);
+    color: var(--whatsapp);
+}
+.whatsapp-card .contact-btn {
+    background: var(--whatsapp);
+    color: white;
+}
+.whatsapp-card .contact-btn:hover {
+    background: #128C7E;
+    transform: scale(1.05);
+}
+
+/* Phone specific */
+.phone-card .contact-icon {
+    background: rgba(76, 154, 255, 0.1);
+    color: var(--phone);
+}
+.phone-card .contact-btn {
+    background: var(--phone);
+    color: white;
+}
+.phone-card .contact-btn:hover {
+    background: #3a7bc9;
+    transform: scale(1.05);
+}
+
+/* Email specific */
+.email-card .contact-icon {
+    background: rgba(67, 97, 238, 0.1);
+    color: var(--primary);
+}
+.email-card .contact-btn {
+    background: var(--primary-gradient);
+    color: white;
+}
+.email-card .contact-btn:hover {
+    transform: scale(1.05);
+}
+
+/* Quick response badge */
+.quick-response {
+    background: linear-gradient(135deg, rgba(6,214,160,0.1), rgba(12,166,120,0.1));
+    color: var(--success);
+    padding: 0.25rem 0.75rem;
+    border-radius: 50px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    display: inline-block;
+    margin-top: 0.5rem;
+}
+</style>
+
+<div class="dashboard-container">
+    <?php include '../../includes/sidebar.php'; ?>
+    
+    <main class="main-content">
+        <!-- Hero Section -->
+        <div class="hero-section bg-primary bg-gradient text-white p-5 rounded-4 mb-4 position-relative overflow-hidden">
             <div class="row align-items-center">
                 <div class="col-lg-8">
-                    <h1 class="text-white mb-3">How can we help you?</h1>
-                    <p class="text-white-50 mb-0">
-                        We're here to help. Browse our FAQs or submit a support ticket.
+                    <h1 class="display-4 fw-bold mb-3">How can we help you?</h1>
+                    <p class="lead mb-0">
+                        We're here to help 24/7. Choose your preferred way to connect with us.
                     </p>
+                    <div class="mt-3">
+                        <span class="badge bg-white text-primary px-3 py-2 me-2">
+                            <i class="fas fa-clock me-1"></i> 24/7 Support
+                        </span>
+                        <span class="badge bg-white text-primary px-3 py-2">
+                            <i class="fas fa-bolt me-1"></i> Avg response: 2 hours
+                        </span>
+                    </div>
                 </div>
-                <div class="col-lg-4 text-lg-end">
-                    <div class="card shadow-sm">
-                        <div class="card-body text-center">
-                            <i class="fas fa-headset fa-3x text-primary mb-3"></i>
-                            <h5 class="mb-2">24/7 Support</h5>
-                            <p class="text-muted small mb-0">Average response time: 2 hours</p>
-                        </div>
+                <div class="col-lg-4 text-lg-end mt-3 mt-lg-0">
+                    <div class="bg-white bg-opacity-25 rounded-4 p-4">
+                        <i class="fas fa-headset fa-3x mb-3"></i>
+                        <h5 class="text-white mb-0">Live Support</h5>
+                        <p class="mb-0 text-white-50">Always here for you</p>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-    
-    <div class="container py-5">
-        <!-- Quick Help Cards -->
+
+        <!-- Contact Cards - Live Options -->
         <div class="row mb-5">
             <div class="col-md-4 mb-4">
-                <div class="card border-0 shadow-sm h-100 text-center">
-                    <div class="card-body p-4">
-                        <div class="avatar-lg bg-primary bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
-                             style="width: 80px; height: 80px;">
-                            <i class="fas fa-question-circle fa-2x text-primary"></i>
-                        </div>
-                        <h5 class="mb-3">FAQs</h5>
-                        <p class="text-muted mb-3">
-                            Find quick answers to common questions
-                        </p>
-                        <a href="#faqSection" class="btn btn-outline-primary">Browse FAQs</a>
+                <div class="contact-card whatsapp-card" onclick="openWhatsApp()">
+                    <div class="contact-icon">
+                        <i class="fab fa-whatsapp fa-3x"></i>
+                    </div>
+                    <h5>WhatsApp Support</h5>
+                    <div class="contact-detail">
+                        <i class="fas fa-phone-alt me-1"></i> <?php echo $support_whatsapp; ?>
+                    </div>
+                    <div class="contact-btn">
+                        <i class="fab fa-whatsapp"></i> Chat on WhatsApp
+                    </div>
+                    <div class="quick-response">
+                        <i class="fas fa-bolt me-1"></i> Instant Response
                     </div>
                 </div>
             </div>
             
             <div class="col-md-4 mb-4">
-                <div class="card border-0 shadow-sm h-100 text-center">
-                    <div class="card-body p-4">
-                        <div class="avatar-lg bg-success bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
-                             style="width: 80px; height: 80px;">
-                            <i class="fas fa-ticket-alt fa-2x text-success"></i>
-                        </div>
-                        <h5 class="mb-3">Submit Ticket</h5>
-                        <p class="text-muted mb-3">
-                            Can't find what you need? Submit a ticket
-                        </p>
-                        <a href="#contactForm" class="btn btn-outline-success">Create Ticket</a>
+                <div class="contact-card phone-card" onclick="makePhoneCall()">
+                    <div class="contact-icon">
+                        <i class="fas fa-phone-alt fa-3x"></i>
+                    </div>
+                    <h5>Phone Support</h5>
+                    <div class="contact-detail">
+                        <i class="fas fa-phone me-1"></i> <?php echo $support_phone; ?>
+                    </div>
+                    <div class="contact-btn">
+                        <i class="fas fa-phone"></i> Call Now
+                    </div>
+                    <div class="quick-response">
+                        <i class="fas fa-clock me-1"></i> 24/7 Available
                     </div>
                 </div>
             </div>
             
             <div class="col-md-4 mb-4">
-                <div class="card border-0 shadow-sm h-100 text-center">
-                    <div class="card-body p-4">
-                        <div class="avatar-lg bg-info bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
-                             style="width: 80px; height: 80px;">
-                            <i class="fas fa-phone-alt fa-2x text-info"></i>
-                        </div>
-                        <h5 class="mb-3">Contact Us</h5>
-                        <p class="text-muted mb-3">
-                            Get in touch with our support team
-                        </p>
-                        <a href="tel:+1234567890" class="btn btn-outline-info">
-                            <i class="fas fa-phone me-2"></i> Call Support
-                        </a>
+                <div class="contact-card email-card" onclick="openEmail()">
+                    <div class="contact-icon">
+                        <i class="fas fa-envelope fa-3x"></i>
+                    </div>
+                    <h5>Email Support</h5>
+                    <div class="contact-detail">
+                        <i class="fas fa-envelope me-1"></i> <?php echo $support_email; ?>
+                    </div>
+                    <div class="contact-btn">
+                        <i class="fas fa-envelope"></i> Send Email
+                    </div>
+                    <div class="quick-response">
+                        <i class="fas fa-reply-all me-1"></i> 2-4 Hours Response
                     </div>
                 </div>
             </div>
         </div>
-        
-        <!-- Contact Form Section -->
-        <div class="row mb-5" id="contactForm">
-            <div class="col-lg-8">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0 pb-0">
-                        <h3 class="mb-0">Submit Support Ticket</h3>
-                        <p class="text-muted">We'll respond within 24 hours</p>
+
+        <!-- Main Content Row -->
+        <div class="row">
+            <!-- Contact Form Section -->
+            <div class="col-lg-8 mb-4" id="contactForm">
+                <div class="card border-0 shadow-sm rounded-4">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h3 class="mb-0">
+                            <i class="fas fa-paper-plane me-2 text-primary"></i>
+                            Submit Support Ticket
+                        </h3>
+                        <p class="text-muted mb-0">Fill out the form and we'll get back to you within 24 hours</p>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4">
                         <form method="POST" action="" id="supportForm">
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label for="name" class="form-label">Full Name *</label>
-                                    <input type="text" 
-                                           class="form-control" 
-                                           id="name" 
-                                           name="name" 
-                                           value="<?php echo $_SESSION['full_name'] ?? ''; ?>"
-                                           required>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Full Name *</label>
+                                    <input type="text" class="form-control" name="name" 
+                                           value="<?php echo $_SESSION['full_name'] ?? ''; ?>" required>
                                 </div>
                                 
-                                <div class="col-md-6 mb-3">
-                                    <label for="email" class="form-label">Email Address *</label>
-                                    <input type="email" 
-                                           class="form-control" 
-                                           id="email" 
-                                           name="email" 
-                                           value="<?php echo $_SESSION['email'] ?? ''; ?>"
-                                           required>
+                                <div class="col-md-6">
+                                    <label class="form-label">Email Address *</label>
+                                    <input type="email" class="form-control" name="email" 
+                                           value="<?php echo $_SESSION['email'] ?? ''; ?>" required>
                                 </div>
                                 
-                                <div class="col-md-6 mb-3">
-                                    <label for="subject" class="form-label">Subject *</label>
-                                    <input type="text" 
-                                           class="form-control" 
-                                           id="subject" 
-                                           name="subject" 
-                                           placeholder="Brief description of your issue"
-                                           required>
+                                <div class="col-md-6">
+                                    <label class="form-label">Phone Number (Optional)</label>
+                                    <input type="tel" class="form-control" name="phone" 
+                                           placeholder="+92 313 2842740">
                                 </div>
                                 
-                                <div class="col-md-6 mb-3">
-                                    <label for="category" class="form-label">Category *</label>
-                                    <select class="form-select" id="category" name="category" required>
+                                <div class="col-md-6">
+                                    <label class="form-label">Subject *</label>
+                                    <input type="text" class="form-control" name="subject" 
+                                           placeholder="Brief description of your issue" required>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <label class="form-label">Category *</label>
+                                    <select class="form-select" name="category" required>
                                         <option value="">Select a category</option>
                                         <option value="account">Account Issues</option>
                                         <option value="billing">Billing & Payments</option>
@@ -259,33 +533,29 @@ try {
                                     </select>
                                 </div>
                                 
-                                <div class="col-md-6 mb-3">
-                                    <label for="priority" class="form-label">Priority</label>
-                                    <select class="form-select" id="priority" name="priority">
-                                        <option value="low">Low</option>
-                                        <option value="normal" selected>Normal</option>
-                                        <option value="high">High</option>
-                                        <option value="urgent">Urgent</option>
+                                <div class="col-md-6">
+                                    <label class="form-label">Priority</label>
+                                    <select class="form-select" name="priority">
+                                        <option value="low">Low - General inquiry</option>
+                                        <option value="normal" selected>Normal - Need help</option>
+                                        <option value="high">High - Important issue</option>
+                                        <option value="urgent">Urgent - Critical problem</option>
                                     </select>
-                                    <small class="text-muted">Urgent tickets are for critical issues only</small>
-                                </div>
-                                
-                                <div class="col-12 mb-3">
-                                    <label for="message" class="form-label">Message *</label>
-                                    <textarea class="form-control" 
-                                              id="message" 
-                                              name="message" 
-                                              rows="6" 
-                                              placeholder="Please describe your issue in detail..."
-                                              required></textarea>
                                 </div>
                                 
                                 <div class="col-12">
-                                    <button type="submit" class="btn btn-primary btn-lg">
+                                    <label class="form-label">Message *</label>
+                                    <textarea class="form-control" name="message" rows="6" 
+                                              placeholder="Please describe your issue in detail..." required></textarea>
+                                    <small class="text-muted" id="charCount">0 characters (minimum 10)</small>
+                                </div>
+                                
+                                <div class="col-12">
+                                    <button type="submit" class="btn btn-primary btn-lg px-4">
                                         <i class="fas fa-paper-plane me-2"></i> Submit Ticket
                                     </button>
-                                    <button type="reset" class="btn btn-outline-secondary">
-                                        Clear Form
+                                    <button type="reset" class="btn btn-outline-secondary ms-2">
+                                        <i class="fas fa-undo me-1"></i> Clear
                                     </button>
                                 </div>
                             </div>
@@ -294,80 +564,67 @@ try {
                 </div>
             </div>
             
-            <!-- Contact Information -->
+            <!-- Contact Information & Tickets -->
             <div class="col-lg-4">
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white border-0">
-                        <h5 class="mb-0">Contact Information</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="d-flex align-items-start mb-4">
-                            <div class="avatar-sm bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
-                                 style="width: 40px; height: 40px;">
-                                <i class="fas fa-phone text-primary"></i>
+                <!-- Business Hours -->
+                <div class="card border-0 shadow-sm rounded-4 mb-4">
+                    <div class="card-body p-4">
+                        <h5 class="mb-3">
+                            <i class="fas fa-clock text-primary me-2"></i>
+                            Support Hours
+                        </h5>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-2">
+                                <span>Phone Support</span>
+                                <span class="fw-bold">24/7</span>
                             </div>
-                            <div>
-                                <h6 class="mb-1">Phone Support</h6>
-                                <p class="text-muted mb-0">
-                                    <a href="tel:+1234567890" class="text-decoration-none">+1 (234) 567-890</a><br>
-                                    <small>Mon-Fri, 9AM-6PM EST</small>
-                                </p>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span>WhatsApp Support</span>
+                                <span class="fw-bold">24/7</span>
                             </div>
-                        </div>
-                        
-                        <div class="d-flex align-items-start mb-4">
-                            <div class="avatar-sm bg-success bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
-                                 style="width: 40px; height: 40px;">
-                                <i class="fas fa-envelope text-success"></i>
-                            </div>
-                            <div>
-                                <h6 class="mb-1">Email Support</h6>
-                                <p class="text-muted mb-0">
-                                    <a href="mailto:support@shopease.com" class="text-decoration-none">support@shopease.com</a><br>
-                                    <small>24/7 email support</small>
-                                </p>
+                            <div class="d-flex justify-content-between">
+                                <span>Email Support</span>
+                                <span class="fw-bold">24/7</span>
                             </div>
                         </div>
-                        
-                        <div class="d-flex align-items-start">
-                            <div class="avatar-sm bg-info bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center me-3"
-                                 style="width: 40px; height: 40px;">
-                                <i class="fas fa-comments text-info"></i>
-                            </div>
-                            <div>
-                                <h6 class="mb-1">Live Chat</h6>
-                                <p class="text-muted mb-0">
-                                    <a href="#" class="text-decoration-none">Start Live Chat</a><br>
-                                    <small>Available 24/7</small>
-                                </p>
-                            </div>
+                        <hr>
+                        <div class="text-center">
+                            <i class="fas fa-headset fa-2x text-primary mb-2"></i>
+                            <p class="mb-0 text-muted">Average response time: <strong class="text-primary">2 hours</strong></p>
                         </div>
                     </div>
                 </div>
                 
                 <!-- Recent Tickets -->
                 <?php if(!empty($user_tickets)): ?>
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0">
-                        <h5 class="mb-0">Your Recent Tickets</h5>
+                <div class="card border-0 shadow-sm rounded-4">
+                    <div class="card-header bg-white border-0 pt-4 px-4">
+                        <h5 class="mb-0">
+                            <i class="fas fa-history text-primary me-2"></i>
+                            Your Recent Tickets
+                        </h5>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4">
                         <div class="list-group list-group-flush">
                             <?php foreach($user_tickets as $ticket): ?>
                             <a href="ticket-detail.php?id=<?php echo $ticket['id']; ?>" 
                                class="list-group-item list-group-item-action border-0 px-0 py-3">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <h6 class="mb-0"><?php echo $ticket['subject']; ?></h6>
+                                    <h6 class="mb-0"><?php echo htmlspecialchars($ticket['subject']); ?></h6>
                                     <span class="badge bg-<?php 
                                         echo $ticket['status'] == 'open' ? 'warning' : 
-                                             ($ticket['status'] == 'closed' ? 'secondary' : 'info'); 
+                                             ($ticket['status'] == 'in-progress' ? 'info' : 
+                                             ($ticket['status'] == 'resolved' ? 'success' : 'secondary')); 
                                     ?>">
                                         <?php echo ucfirst($ticket['status']); ?>
                                     </span>
                                 </div>
                                 <p class="text-muted small mb-0">
+                                    <i class="far fa-calendar-alt me-1"></i>
                                     <?php echo date('M d, Y', strtotime($ticket['created_at'])); ?>
-                                    • <?php echo ucfirst($ticket['category']); ?>
+                                    <span class="mx-1">•</span>
+                                    <i class="fas fa-tag me-1"></i>
+                                    <?php echo ucfirst($ticket['category']); ?>
                                 </p>
                             </a>
                             <?php endforeach; ?>
@@ -377,219 +634,38 @@ try {
                 <?php endif; ?>
             </div>
         </div>
-        
-        <!-- FAQ Section -->
-        <div class="row" id="faqSection">
-            <div class="col-12">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0">
-                        <h3 class="mb-0">Frequently Asked Questions</h3>
-                        <p class="text-muted">Find answers to common questions</p>
-                    </div>
-                    <div class="card-body">
-                        <?php if(empty($faqs_by_category)): ?>
-                            <div class="text-center py-5">
-                                <i class="fas fa-info-circle fa-3x text-muted mb-3"></i>
-                                <p class="text-muted">No FAQs available at the moment.</p>
-                            </div>
-                        <?php else: ?>
-                            <div class="accordion" id="faqAccordion">
-                                <?php 
-                                $faq_index = 0;
-                                foreach($faqs_by_category as $category => $faqs): 
-                                    $category_slug = strtolower(str_replace(' ', '-', $category));
-                                ?>
-                                    <div class="mb-4">
-                                        <h4 class="mb-3">
-                                            <i class="fas fa-folder me-2 text-primary"></i>
-                                            <?php echo $category; ?>
-                                        </h4>
-                                        
-                                        <?php foreach($faqs as $faq): ?>
-                                        <div class="accordion-item border-0 mb-2">
-                                            <h5 class="accordion-header">
-                                                <button class="accordion-button collapsed bg-light" 
-                                                        type="button" 
-                                                        data-bs-toggle="collapse" 
-                                                        data-bs-target="#faq-<?php echo $faq['id']; ?>">
-                                                    <i class="fas fa-question-circle text-primary me-3"></i>
-                                                    <?php echo $faq['question']; ?>
-                                                </button>
-                                            </h5>
-                                            <div id="faq-<?php echo $faq['id']; ?>" 
-                                                 class="accordion-collapse collapse" 
-                                                 data-bs-parent="#faqAccordion">
-                                                <div class="accordion-body">
-                                                    <?php echo nl2br(htmlspecialchars($faq['answer'])); ?>
-                                                    
-                                                    <?php if(!empty($faq['helpful_links'])): ?>
-                                                    <div class="mt-3">
-                                                        <strong>Helpful Links:</strong>
-                                                        <div class="mt-2">
-                                                            <?php 
-                                                            $links = json_decode($faq['helpful_links'], true);
-                                                            if(is_array($links)):
-                                                                foreach($links as $link): ?>
-                                                                <a href="<?php echo $link['url']; ?>" 
-                                                                   class="badge bg-info text-decoration-none me-2"
-                                                                   target="_blank">
-                                                                    <i class="fas fa-external-link-alt me-1"></i>
-                                                                    <?php echo $link['text']; ?>
-                                                                </a>
-                                                            <?php endforeach; 
-                                                            endif; ?>
-                                                        </div>
-                                                    </div>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <?php 
-                                        $faq_index++;
-                                        endforeach; 
-                                        ?>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Additional Resources -->
-        <div class="row mt-5">
-            <div class="col-12">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body">
-                        <h4 class="mb-4">Additional Resources</h4>
-                        <div class="row">
-                            <div class="col-md-4 mb-3">
-                                <div class="d-flex align-items-start">
-                                    <i class="fas fa-book fa-2x text-primary me-3 mt-1"></i>
-                                    <div>
-                                        <h5>Documentation</h5>
-                                        <p class="text-muted mb-0">
-                                            Detailed guides and tutorials
-                                        </p>
-                                        <a href="#" class="small">View Documentation →</a>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="col-md-4 mb-3">
-                                <div class="d-flex align-items-start">
-                                    <i class="fas fa-video fa-2x text-success me-3 mt-1"></i>
-                                    <div>
-                                        <h5>Video Tutorials</h5>
-                                        <p class="text-muted mb-0">
-                                            Step-by-step video guides
-                                        </p>
-                                        <a href="#" class="small">Watch Tutorials →</a>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="col-md-4 mb-3">
-                                <div class="d-flex align-items-start">
-                                    <i class="fas fa-users fa-2x text-info me-3 mt-1"></i>
-                                    <div>
-                                        <h5>Community Forum</h5>
-                                        <p class="text-muted mb-0">
-                                            Connect with other users
-                                        </p>
-                                        <a href="#" class="small">Join Community →</a>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    </main>
 </div>
 
-<!-- Support Page CSS -->
-<style>
-.support-page .card {
-    transition: transform 0.3s ease;
-}
-
-.support-page .card:hover {
-    transform: translateY(-2px);
-}
-
-.accordion-button:not(.collapsed) {
-    background-color: #e7f1ff;
-    color: #0c63e4;
-    box-shadow: inset 0 -1px 0 rgba(0,0,0,.125);
-}
-
-.accordion-button:focus {
-    border-color: #86b7fe;
-    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
-}
-</style>
-
-<!-- JavaScript for Support Page -->
 <script>
+// WhatsApp Chat
+function openWhatsApp() {
+    const phone = '923132842740';
+    const message = encodeURIComponent('Hello! I need assistance with ShopEase Pro.');
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+}
+
+// Make Phone Call
+function makePhoneCall() {
+    const phone = '923132842740';
+    if (confirm('Click OK to call our support team. Standard call rates may apply.')) {
+        window.location.href = `tel:${phone}`;
+    }
+}
+
+// Open Email
+function openEmail() {
+    const email = 'shopeasepro2@gmail.com';
+    const subject = encodeURIComponent('Support Request - ShopEase Pro');
+    const body = encodeURIComponent('Hello Support Team,\n\nI need assistance with:\n\n\nThank you.');
+    window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+}
+
 $(document).ready(function() {
-    // Form submission
-    $('#supportForm').submit(function(e) {
-        // Add loading state
-        $('button[type="submit"]').html('<i class="fas fa-spinner fa-spin me-2"></i> Submitting...').prop('disabled', true);
-        
-        // Validation
-        let message = $('#message').val().trim();
-        if (message.length < 10) {
-            e.preventDefault();
-            Swal.fire({
-                icon: 'warning',
-                title: 'Message Too Short',
-                text: 'Please provide more details about your issue (minimum 10 characters).'
-            });
-            $('button[type="submit"]').html('<i class="fas fa-paper-plane me-2"></i> Submit Ticket').prop('disabled', false);
-        }
-    });
-    
-    // FAQ search
-    $('#faqSearch').on('input', function() {
-        let searchTerm = $(this).val().toLowerCase();
-        
-        $('.accordion-button').each(function() {
-            let question = $(this).text().toLowerCase();
-            let accordionItem = $(this).closest('.accordion-item');
-            
-            if (question.includes(searchTerm)) {
-                accordionItem.show();
-                
-                // Expand if contains search term
-                if (searchTerm.length > 2) {
-                    let collapseId = $(this).data('bs-target');
-                    $(collapseId).collapse('show');
-                }
-            } else {
-                accordionItem.hide();
-            }
-        });
-    });
-    
-    // Smooth scroll to sections
-    $('a[href^="#"]').click(function(e) {
-        e.preventDefault();
-        let target = $(this).attr('href');
-        if ($(target).length) {
-            $('html, body').animate({
-                scrollTop: $(target).offset().top - 80
-            }, 1000);
-        }
-    });
-    
     // Character counter for message
-    $('#message').on('input', function() {
+    $('textarea[name="message"]').on('input', function() {
         let length = $(this).val().length;
-        $('#charCount').text(length + ' characters');
+        $('#charCount').html(length + ' characters (minimum 10)');
         
         if (length < 10) {
             $('#charCount').addClass('text-danger').removeClass('text-success');
@@ -598,18 +674,43 @@ $(document).ready(function() {
         }
     });
     
-    // Priority indicator
-    $('#priority').change(function() {
-        let priority = $(this).val();
-        let badgeClass = {
-            'low': 'bg-secondary',
-            'normal': 'bg-info',
-            'high': 'bg-warning',
-            'urgent': 'bg-danger'
-        }[priority];
+    // Form submission with loading state
+    $('#supportForm').submit(function() {
+        let message = $('textarea[name="message"]').val().trim();
+        if (message.length < 10) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Message Too Short',
+                text: 'Please provide more details about your issue (minimum 10 characters).',
+                confirmButtonColor: '#4361ee'
+            });
+            return false;
+        }
         
-        $('#priorityIndicator').removeClass().addClass('badge ' + badgeClass).text(priority.toUpperCase());
-    }).trigger('change');
+        $('button[type="submit"]').html('<i class="fas fa-spinner fa-spin me-2"></i> Submitting...').prop('disabled', true);
+    });
+    
+    // Smooth scroll
+    $('a[href^="#"]').click(function(e) {
+        e.preventDefault();
+        let target = $(this).attr('href');
+        if ($(target).length) {
+            $('html, body').animate({
+                scrollTop: $(target).offset().top - 100
+            }, 800);
+        }
+    });
+    
+    // Auto-expand FAQ if there's a hash
+    if (window.location.hash) {
+        let hash = window.location.hash;
+        if (hash.startsWith('#faq-')) {
+            $(hash).collapse('show');
+            $('html, body').animate({
+                scrollTop: $(hash).offset().top - 100
+            }, 500);
+        }
+    }
 });
 </script>
 
